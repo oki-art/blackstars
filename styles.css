@@ -232,3 +232,9 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .medalla{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#3A2A08;background:linear-gradient(135deg,var(--oro1),var(--oro2))}
 .medalla.m2{background:linear-gradient(135deg,#E6E6EE,#B9B8C8)}
 .medalla.m3{background:linear-gradient(135deg,#F0CDB0,#C98E5F)}
+
+/* Vista previa de profesora */
+.banda-vista{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:#1F1D2B;color:#fff;font-size:14px}
+.banda-vista span{flex:1}
+.banda-vista button{border:0;border-radius:999px;padding:8px 14px;background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08;font-weight:700;cursor:pointer}
+.banda-vista + .cab{padding-top:14px}

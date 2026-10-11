@@ -111,16 +111,16 @@ async function cargarSesion() {
 }
 
 /* ---------- plantilla de pantalla ---------- */
-function cabecera(titulo, { sub = '', volver = null } = {}) {
+function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
   const izq = volver
     ? `<button class="volver" data-volver="${esc(volver)}" aria-label="Volver">${ico('volver')}</button>`
     : `<img class="logo" src="icons/logo.png" alt="Blackstars">`;
-  const rol = S.admin ? 'Admin' : (S.perfil ? esc(S.perfil.nombre) : '');
+  const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin' : (S.perfil ? esc(S.perfil.nombre) : '');
   return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${rol ? `<span class="insignia">${rol}</span>` : ''}</header>`;
 }
-function navegacion(activa) {
+function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
-  return `<nav class="nav" aria-label="Navegación">${items.filter((i) => !i[3] || puedeVer(i[3])).map((i) => `<a href="#/${i[0]}" class="${activa === i[0] ? 'on' : ''}">${ico(i[2], 22)}${i[1]}</a>`).join('')}</nav>`;
+  return `<nav class="nav" aria-label="Navegación">${items.filter((i) => !i[3] || ver(i[3])).map((i) => `<a href="#/${i[0]}" class="${activa === i[0] ? 'on' : ''}">${ico(i[2], 22)}${i[1]}</a>`).join('')}</nav>`;
 }
 function pintar(html, nav = null, botonMas = null) {
   $app.innerHTML = html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
@@ -244,13 +244,18 @@ function pantallaNuevaClave() {
 }
 
 /* ---------- inicio ---------- */
-async function pantallaInicio() {
+async function pantallaInicio(vista = null) {
   const hoy = hoyISO(), dia = diaISO();
-  const profesora = !S.admin && Object.values(S.permisos).some((p) => p.solo_propias);
+  // vista = { profesora, permisos }: la administración ve el Inicio tal como lo vería esa profesora
+  const ver = vista ? (m) => !!(vista.permisos[m] && vista.permisos[m].puede_ver) : puedeVer;
+  const editar = vista ? (m) => !!(vista.permisos[m] && vista.permisos[m].puede_escribir) : puedeEditar;
+  const profesora = vista ? Object.values(vista.permisos).some((p) => p.solo_propias) : !S.admin && Object.values(S.permisos).some((p) => p.solo_propias);
   // Todas las clases activas propias (a una profesora con "solo lo suyo" la base de datos solo le da las suyas).
-  const clases = puedeVer('clases') ? await intentar(() => q(sb.from('clases')
+  let consulta = sb.from('clases')
     .select('id,nombre,profesoras(nombre),inscripciones(count),' + SEL_HOR)
-    .eq('activa', true).is('escuela_amiga_id', null))) : [];
+    .eq('activa', true).is('escuela_amiga_id', null);
+  if (vista && profesora) consulta = consulta.eq('profesora_id', vista.profesora.id);
+  const clases = ver('clases') ? await intentar(() => q(consulta)) : [];
   // Orden: empezando por la próxima clase de la semana (o la que está en curso).
   const ahora = new Date().toTimeString().slice(0, 5);
   const minutos = (h) => { const d = (h.dia_semana - dia + 7) % 7; return (d === 0 && hora(h.hora_fin) <= ahora ? 7 : d) * 1440 + toMin(hora(h.hora_inicio)); };
@@ -271,11 +276,11 @@ async function pantallaInicio() {
     <h2>${esc(c.nombre)}</h2>
     <div class="d">${[esc(textoHorario(c)), c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div></a>`;
   }).join('');
-  const bloqueClases = !puedeVer('clases') ? '' : n
+  const bloqueClases = !ver('clases') ? '' : n
     ? `<div class="slider"><div class="carrusel uno" id="carrusel">${tarjetas}</div>${n > 1 ? `<div class="puntos-slider" id="puntos">${clases.map((c, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`
-    : `<div class="clase-hero vacia"><div class="k"><span>Clases</span></div><h2>Aún no hay clases</h2><div class="d">${puedeEditar('clases') ? 'Crea la primera y aparecerá aquí.' : 'Cuando tengas clases asignadas aparecerán aquí.'}</div>
-       ${puedeEditar('clases') ? `<a class="btn-hero" href="#/clase/nueva">${ico('mas', 16)} Crear clase</a>` : ''}</div>`;
-  const tarjetaCaja = puedeVer('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
+    : `<div class="clase-hero vacia"><div class="k"><span>Clases</span></div><h2>Aún no hay clases</h2><div class="d">${editar('clases') ? 'Crea la primera y aparecerá aquí.' : 'Cuando tengas clases asignadas aparecerán aquí.'}</div>
+       ${editar('clases') ? `<a class="btn-hero" href="#/clase/nueva">${ico('mas', 16)} Crear clase</a>` : ''}</div>`;
+  const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
   const accesos = (profesora ? [
     ['clases', '#/clases', 'clases', 'Mis clases', 'Horarios y alumnas', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
@@ -291,13 +296,13 @@ async function pantallaInicio() {
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos y estrellas', false],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
-  ]).filter((x) => x[5] ? puedeEditar(x[0]) : puedeVer(x[0]));
-  pintar(cabecera('Inicio', { sub: capital(fechaLarga(hoy)) }) + `<main class="cont">
+  ]).filter((x) => x[5] ? editar(x[0]) : ver(x[0]));
+  pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="#/vista">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? 'Profesora' : null }) + `<main class="cont">
     ${bloqueClases}
     ${tarjetaCaja}
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
-    ${!S.admin && !Object.values(S.permisos).some((p) => p.puede_ver) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
-  </main>`, 'inicio');
+    ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
+  </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
   const car = document.getElementById('carrusel'), puntos = document.getElementById('puntos');
   if (car && puntos) {
     const paso = () => car.clientWidth + 14;   // ancho de tarjeta + separación
@@ -306,6 +311,25 @@ async function pantallaInicio() {
     // Tocar un punto lleva a esa tarjeta
     puntos.querySelectorAll('i').forEach((p, j) => p.onclick = () => car.scrollTo({ left: j * paso(), behavior: 'smooth' }));
   }
+}
+
+/* Vista previa: la administración ve el Inicio como una profesora */
+const PERMISOS_PROFE = { clases: 1, alumnas: 1, inscripciones: 1, incidencias: 2, normas: 1, eventos: 1, logros: 2 };
+async function pantallaVista(id) {
+  if (!S.admin) return sinPermiso();
+  if (!id) {
+    const ps = await q(sb.from('profesoras').select('id,nombre,perfil_id').eq('activa', true).order('nombre'));
+    return pintar(cabecera('Ver como profesora', { volver: '#/mas', sub: 'Así verá el Inicio cada una' }) + `<main class="cont">
+      <div class="lista">${ps.map((p) => fila({ href: `#/vista/${p.id}`, tit: p.nombre, det: p.perfil_id ? 'Con usuario: se ven sus permisos reales' : 'Sin usuario aún: se ven los permisos recomendados', der: ico('sig') })).join('') || vacio('Aún no hay profesoras. Créalas en Más › Profesoras.')}</div>
+      <p class="nota">Los permisos recomendados para una profesora son: ver sus clases, sus alumnas, normas y eventos; apuntar incidencias; y Logros (dar estrellas). Nunca Caja.</p>
+    </main>`, 'mas');
+  }
+  const profesora = await q(sb.from('profesoras').select('id,nombre,perfil_id').eq('id', id).single());
+  const filas = profesora.perfil_id ? await q(sb.from('permisos').select('*').eq('perfil_id', profesora.perfil_id)) : [];
+  const permisos = {}; filas.forEach((f) => { permisos[f.modulo] = f; });
+  const recomendada = !filas.length;
+  if (recomendada) Object.entries(PERMISOS_PROFE).forEach(([m, n]) => { permisos[m] = { puede_ver: true, puede_escribir: n > 1, solo_propias: true }; });
+  return pantallaInicio({ profesora, permisos, recomendada });
 }
 
 /* ---------- más ---------- */
@@ -325,6 +349,7 @@ function pantallaMas() {
     <div class="tarjeta" style="display:flex;gap:12px;align-items:center"><span class="ini" style="width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:rgba(201,165,90,0.18);color:#8F6A1C;font-weight:700">${esc(iniciales(S.perfil && S.perfil.nombre))}</span>
       <div style="flex:1"><b>${esc(S.perfil ? S.perfil.nombre : '')}</b><div style="font-size:13px;color:var(--texto2)">${S.admin ? 'Administración · acceso completo' : esc(S.usuario.email)}</div></div></div>
     <div class="lista">${items.map((i) => fila({ href: i[1], tit: i[3], det: i[4], iconoHtml: ic(i[2]), der: ico('sig') })).join('')}
+    ${S.admin ? fila({ href: '#/vista', tit: 'Ver como profesora', det: 'Comprueba qué ve cada profesora en el Inicio', iconoHtml: ic('ojo'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${S.admin ? fila({ href: '#/permisos', tit: 'Permisos', det: 'Quién ve y edita qué', iconoHtml: ic('llave'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${fila({ href: '#/nueva-clave', tit: 'Cambiar mi contraseña', iconoHtml: ic('llave'), der: ico('sig') })}
     </div>
@@ -1301,6 +1326,7 @@ async function router() {
         return await pantallaFormulario(p[1]);
       case 'respuesta': return await pantallaRespuesta(p[1]);
       case 'permisos': return await pantallaPermisos(params);
+      case 'vista': return await pantallaVista(p[1]);
       case 'logros':
         if (p[1] === 'reto') return await formReto(params);
         if (p[1] === 'profesora') return await pantallaLogrosProfesora(p[2], params);
