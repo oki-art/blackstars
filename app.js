@@ -271,15 +271,31 @@ async function pantallaInicio(vista = null) {
   const n = clases.length;
   const tarjetas = clases.map((c, i) => {
     const alumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
+    const dias = [...new Set(horariosDe(c).map((h) => h.dia_semana))];
+    const textoDias = dias.length ? (dias.length === 1 ? DIAS[dias[0]] : dias.slice(0, -1).map((d) => DIAS[d]).join(', ') + ' y ' + DIAS[dias[dias.length - 1]]) : 'Sin horario';
     return `<a class="clase-hero" href="#/clase/${c.id}">
     <div class="k"><span>${i === 0 ? 'Próxima clase · ' : ''}${cuando(c)}</span><span class="hora">${c._h ? hora(c._h.hora_inicio) : ''}</span></div>
     <h2>${esc(c.nombre)}</h2>
-    <div class="d">${[esc(textoHorario(c)), c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div></a>`;
+    <div class="ch-pie"><div class="ch-izq"><div class="ch-dias">${esc(textoDias)}</div><div class="ch-prof">Profesora ${esc(c.profesoras ? c.profesoras.nombre : 'sin asignar')}</div></div>
+      <div class="ch-num"><span>Alumnas</span><b>${alumnas}</b></div></div></a>`;
   }).join('');
   const bloqueClases = !ver('clases') ? '' : n
     ? `<div class="slider"><div class="carrusel uno" id="carrusel">${tarjetas}</div>${n > 1 ? `<div class="puntos-slider" id="puntos">${clases.map((c, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`
     : `<div class="clase-hero vacia"><div class="k"><span>Clases</span></div><h2>Aún no hay clases</h2><div class="d">${editar('clases') ? 'Crea la primera y aparecerá aquí.' : 'Cuando tengas clases asignadas aparecerán aquí.'}</div>
        ${editar('clases') ? `<a class="btn-hero" href="#/clase/nueva">${ico('mas', 16)} Crear clase</a>` : ''}</div>`;
+  // Barra de Logros de la profesora (su progreso del mes)
+  let barraLogros = '';
+  if (profesora && ver('logros')) {
+    const yo = vista ? vista.profesora : await miProfesora();
+    if (yo) {
+      const mes = mesDe();
+      const retos = await intentar(() => q(sb.from('logros_retos').select('id').eq('mes', mes)));
+      const hechos = retos.length ? await intentar(() => q(sb.from('logros_cumplidos').select('reto_id').eq('profesora_id', yo.id).in('reto_id', retos.map((r) => r.id)))) : [];
+      const v = pct(hechos.length, retos.length * SEMANAS);
+      barraLogros = `<a class="tarjeta logros-inicio" href="#/logros/profesora/${yo.id}"><div class="li-cab"><span><b>Mis logros</b> · ${nombreMes(mes)}</span><span class="li-pct">${v}%</span></div>${barra(v)}
+        <div class="nota">${retos.length ? `${hechos.length} de ${retos.length * SEMANAS} conseguidos` : 'Aún no hay retos este mes'}</div></a>`;
+    }
+  }
   const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
   const accesos = (profesora ? [
     ['clases', '#/clases', 'clases', 'Mis clases', 'Horarios y alumnas', false],
@@ -299,6 +315,7 @@ async function pantallaInicio(vista = null) {
   ]).filter((x) => x[5] ? editar(x[0]) : ver(x[0]));
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="#/vista">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? 'Profesora' : null }) + `<main class="cont">
     ${bloqueClases}
+    ${barraLogros}
     ${tarjetaCaja}
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}

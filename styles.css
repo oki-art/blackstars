@@ -238,3 +238,14 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .banda-vista span{flex:1}
 .banda-vista button{border:0;border-radius:999px;padding:8px 14px;background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08;font-weight:700;cursor:pointer}
 .banda-vista + .cab{padding-top:14px}
+
+/* Tarjeta de clase del Inicio: días, profesora y número de alumnas */
+.clase-hero .ch-pie{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:8px}
+.clase-hero .ch-dias{font-size:15px;font-weight:600;color:#fff}
+.clase-hero .ch-prof{font-size:14px;color:#EDE7FF;margin-top:2px}
+.clase-hero .ch-num{display:flex;flex-direction:column;align-items:flex-end;line-height:1}
+.clase-hero .ch-num span{font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#E6DDFF;margin-bottom:4px}
+.clase-hero .ch-num b{font-family:'Sora',sans-serif;font-size:22px;font-weight:600;color:#fff}
+.logros-inicio{display:flex;flex-direction:column;gap:8px}
+.logros-inicio .li-cab{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.logros-inicio .li-pct{font-family:'Sora',sans-serif;font-weight:700;font-size:18px;color:var(--morado3)}
