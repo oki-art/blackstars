@@ -412,7 +412,7 @@ async function formClase(id, escuela = null) {
     try {
       if (id) await q(sb.from('clases').update(datos).eq('id', id));
       else claseId = (await q(sb.from('clases').insert(datos).select('id').single())).id;
-      try { await q(sb.rpc('guardar_horarios', { p_clase: claseId, p_horarios: horarios })); }
+      try { await guardarHorarios(claseId, horarios); }
       catch (e) { if (!id) await sb.from('clases').delete().eq('id', claseId); throw e; }
       aviso('Guardado'); location.hash = escuela && !id ? `#/escuela/${escuela}` : `#/clase/${claseId}`;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
@@ -422,6 +422,14 @@ async function formClase(id, escuela = null) {
     if (!confirm('¿Borrar la clase definitivamente? Se perderán sus inscripciones. Si solo deja de darse, mejor desmarca "Clase activa".')) return;
     try { await q(sb.from('clases').delete().eq('id', id)); aviso('Borrada'); location.hash = escuela ? `#/escuela/${escuela}` : '#/clases'; } catch (e) { aviso(traducirError(e), true); }
   };
+}
+
+// Cambia los horarios de una clase; si alguno choca con otra clase, deja los que tenía
+async function guardarHorarios(claseId, horarios) {
+  const antes = await q(sb.from('clase_horarios').select('dia_semana,hora_inicio,hora_fin').eq('clase_id', claseId));
+  await q(sb.from('clase_horarios').delete().eq('clase_id', claseId));
+  try { await q(sb.from('clase_horarios').insert(horarios.map((h) => ({ clase_id: claseId, ...h })))); }
+  catch (e) { if (antes.length) await sb.from('clase_horarios').insert(antes.map((h) => ({ clase_id: claseId, ...h }))); throw e; }
 }
 
 async function pantallaClases(params) {

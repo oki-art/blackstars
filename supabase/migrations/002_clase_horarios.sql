@@ -54,20 +54,8 @@ create policy clase_horarios_update on public.clase_horarios for update using (p
 create policy clase_horarios_delete on public.clase_horarios for delete using (public.puede_escribir('clases'));
 revoke all on public.clase_horarios from anon;
 
--- Guardar todos los horarios de una clase de una vez (si alguno choca, no se cambia nada)
-create or replace function public.guardar_horarios(p_clase uuid, p_horarios jsonb)
-returns void language plpgsql security invoker set search_path = public as $$
-begin
-  if jsonb_array_length(coalesce(p_horarios, '[]'::jsonb)) = 0 then
-    raise exception 'La clase necesita al menos un día y una hora';
-  end if;
-  delete from public.clase_horarios where clase_id = p_clase;
-  insert into public.clase_horarios (clase_id, dia_semana, hora_inicio, hora_fin)
-  select p_clase, (h->>'dia_semana')::smallint, (h->>'hora_inicio')::time, (h->>'hora_fin')::time
-  from jsonb_array_elements(p_horarios) h;
-end; $$;
-revoke all on function public.guardar_horarios(uuid, jsonb) from public, anon;
-grant execute on function public.guardar_horarios(uuid, jsonb) to authenticated;
+-- Los horarios se guardan desde la app (borra los de la clase e inserta los nuevos;
+-- si alguno choca, vuelve a poner los que tenía). No se usa función en la base de datos.
 
 -- La cuota de escuela amiga ahora suma todos los horarios de sus clases
 create or replace view public.escuela_amiga_resumen with (security_invoker = true) as
