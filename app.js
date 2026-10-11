@@ -300,10 +300,11 @@ async function pantallaInicio() {
   </main>`, 'inicio');
   const car = document.getElementById('carrusel'), puntos = document.getElementById('puntos');
   if (car && puntos) {
-    const actual = () => Math.round(car.scrollLeft / car.clientWidth);
+    const paso = () => car.clientWidth + 14;   // ancho de tarjeta + separación
+    const actual = () => Math.round(car.scrollLeft / paso());
     car.addEventListener('scroll', () => { const k = actual(); puntos.querySelectorAll('i').forEach((p, j) => p.classList.toggle('on', j === k)); }, { passive: true });
     // Tocar un punto lleva a esa tarjeta
-    puntos.querySelectorAll('i').forEach((p, j) => p.onclick = () => car.scrollTo({ left: j * car.clientWidth, behavior: 'smooth' }));
+    puntos.querySelectorAll('i').forEach((p, j) => p.onclick = () => car.scrollTo({ left: j * paso(), behavior: 'smooth' }));
   }
 }
 
