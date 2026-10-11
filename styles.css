@@ -3,7 +3,7 @@
   --texto:#1F1D2B; --texto2:#6B6881;
   --borde:rgba(70,55,140,0.10);
   --morado:#7650E0; --morado2:#5A3BC4; --morado3:#4F34B5;
-  --dorado:#8F6A1C; --oro1:#E8D096; --oro2:#C9A55A;
+  --dorado:#9A6B00; --oro1:#F2CF6B; --oro2:#C8961F; --oro3:#A97A0E;
   --ingreso:#1F8A5C; --gasto:#D12F3B;
   --sombra:0 6px 20px rgba(60,40,140,0.08);
   --radio:18px;
@@ -31,10 +31,10 @@ h1,h2,h3{font-family:'Sora',sans-serif;font-weight:600;letter-spacing:-0.01em;ma
 .cab .logo{width:48px;height:48px;border-radius:50%;box-shadow:0 0 0 1px rgba(70,55,140,0.14),0 8px 24px rgba(138,104,240,0.30);flex:none}
 .cab .volver{width:44px;height:44px;border-radius:50%;border:1px solid var(--borde);background:#fff;display:grid;place-items:center;flex:none;box-shadow:var(--sombra);cursor:pointer}
 .cab .t{flex:1;min-width:0}
-.cab .sup{font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--dorado)}
+.cab .sup{font-size:11px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;background:linear-gradient(90deg,#B07A00,#D9A520 55%,#B07A00);-webkit-background-clip:text;background-clip:text;color:transparent}
 .cab h1{font-size:26px;line-height:1.1;margin-top:2px}
 .cab .sub{font-size:13px;color:var(--texto2);margin-top:2px}
-.insignia{padding:5px 11px;border-radius:999px;border:1px solid rgba(176,134,40,0.5);background:rgba(201,165,90,0.14);color:var(--dorado);font-size:12px;font-weight:700;white-space:nowrap}
+.insignia{padding:5px 12px;border-radius:999px;border:0;background:linear-gradient(135deg,#F6D978,#D9A520 55%,#B8860B);color:#3A2600;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 4px 12px rgba(184,134,11,0.30),inset 0 1px 0 rgba(255,255,255,0.45)}
 
 main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 
@@ -57,7 +57,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .chip.ok{background:rgba(31,138,92,0.12);color:var(--ingreso)}
 .chip.no{background:rgba(209,47,59,0.10);color:var(--gasto)}
 .chip.gris{background:rgba(107,104,129,0.12);color:var(--texto2)}
-.chip.oro{background:rgba(201,165,90,0.18);color:var(--dorado)}
+.chip.oro{background:rgba(217,165,32,0.18);color:var(--dorado)}
 .chip.mor{background:rgba(118,80,224,0.12);color:var(--morado3)}
 .filtros{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .filtros::-webkit-scrollbar{display:none}
@@ -205,8 +205,8 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .nota{font-size:13px;color:var(--texto2);margin:0}
 .fila .tit.envolver{white-space:normal}
 .fila-btn{width:100%;text-align:left;font:inherit}
-.barra{height:10px;border-radius:999px;background:rgba(118,80,224,0.12);overflow:hidden}
-.barra i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--morado),var(--oro2));transition:width .3s}
+.barra{height:10px;border-radius:999px;background:rgba(201,150,31,0.16);overflow:hidden}
+.barra i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#B8860B,#E0AE2B 60%,#F6D978);box-shadow:inset 0 1px 0 rgba(255,255,255,0.45);transition:width .3s}
 .contador.oro{background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08}
 .tarjeta-clase .contador{font-size:15px}
 .quitar-r{border:0;background:none;color:var(--gasto);font-weight:700;font-size:13px;cursor:pointer;padding:8px}
@@ -248,4 +248,4 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .clase-hero .ch-num b{font-family:'Sora',sans-serif;font-size:22px;font-weight:600;color:#fff}
 .logros-inicio{display:flex;flex-direction:column;gap:8px}
 .logros-inicio .li-cab{display:flex;justify-content:space-between;align-items:center;font-size:15px}
-.logros-inicio .li-pct{font-family:'Sora',sans-serif;font-weight:700;font-size:18px;color:var(--morado3)}
+.logros-inicio .li-pct{font-family:'Sora',sans-serif;font-weight:700;font-size:18px;color:var(--dorado)}
