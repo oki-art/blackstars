@@ -200,3 +200,35 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 #aviso.ver{opacity:1;transform:translateX(-50%) translateY(0)}
 #aviso.error{background:var(--gasto)}
 .oculto{display:none!important}
+
+/* Logros */
+.nota{font-size:13px;color:var(--texto2);margin:0}
+.fila .tit.envolver{white-space:normal}
+.fila-btn{width:100%;text-align:left;font:inherit}
+.barra{height:10px;border-radius:999px;background:rgba(118,80,224,0.12);overflow:hidden}
+.barra i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--morado),var(--oro2));transition:width .3s}
+.contador.oro{background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08}
+.tarjeta-clase .contador{font-size:15px}
+.quitar-r{border:0;background:none;color:var(--gasto);font-weight:700;font-size:13px;cursor:pointer;padding:8px}
+.input-oro{margin-top:6px;width:100%;min-height:42px;padding:8px 12px;border-radius:12px;border:1px solid rgba(143,106,28,0.35);background:rgba(255,255,255,0.65);font-size:16px;color:#3A2A08;outline:none}
+.tarjeta.reto{display:flex;flex-direction:column;gap:10px}
+.semanas{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.semanas button{min-height:56px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;color:var(--texto2);font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer}
+.semanas button.hoy{border-color:var(--morado)}
+.semanas button.on{background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08;border-color:transparent}
+.semanas button.on svg{fill:currentColor}
+.semanas button:disabled{cursor:default}
+.puntuar{display:flex;flex-direction:column;gap:8px}
+.p-cab{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.p-fila{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--texto2);font-weight:600}
+.estrellas{display:flex;gap:2px}
+.est{width:44px;height:40px;border:0;background:none;display:grid;place-items:center;cursor:pointer;padding:0}
+.est svg{fill:rgba(118,80,224,0.12);stroke:rgba(118,80,224,0.35);stroke-width:1.2}
+.est.on svg{fill:var(--oro2);stroke:#B08628}
+.est:disabled{cursor:default}
+.podio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;text-align:center}
+.podio div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:13px}
+.podio div span:last-child{color:var(--texto2)}
+.medalla{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#3A2A08;background:linear-gradient(135deg,var(--oro1),var(--oro2))}
+.medalla.m2{background:linear-gradient(135deg,#E6E6EE,#B9B8C8)}
+.medalla.m3{background:linear-gradient(135deg,#F0CDB0,#C98E5F)}

@@ -13,7 +13,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -62,6 +62,7 @@ function ico(nombre, t = 20) {
     insc: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M16 11h6"/>',
     profe: '<circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', salir: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
     wa: '<path d="M3 21l1.7-5A8.5 8.5 0 1 1 8 19.4z"/>', copiar: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    trofeo: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>',
     euro: '<path d="M17 6.5A7 7 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>'
   }[nombre] || '';
   return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -280,6 +281,7 @@ async function pantallaInicio() {
   const accesos = (profesora ? [
     ['clases', '#/clases', 'clases', 'Mis clases', 'Horarios y alumnas', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
+    ['logros', '#/logros', 'trofeo', 'Logros', 'Mis retos y estrellas', false],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
     ['eventos', '#/eventos', 'evento', 'Mis eventos', 'Próximos', false],
     ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false]
@@ -288,6 +290,7 @@ async function pantallaInicio() {
     ['caja', `#/caja/nuevo?fecha=${hoy}`, 'euro', 'Movimiento', 'Ingreso o gasto', true],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Próximos', false],
+    ['logros', '#/logros', 'trofeo', 'Logros', 'Retos y estrellas', false],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
   ]).filter((x) => x[5] ? puedeEditar(x[0]) : puedeVer(x[0]));
@@ -311,6 +314,7 @@ async function pantallaInicio() {
 /* ---------- más ---------- */
 function pantallaMas() {
   const items = [
+    ['logros', '#/logros', 'trofeo', 'Logros', 'Retos del mes y estrellas de alumnas'],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Talleres, shows y fiestas'],
     ['profesoras', '#/profesoras', 'profe', 'Profesoras', 'Equipo y clases asignadas'],
     ['incidencias', '#/incidencias', 'alerta', 'Incidencias', 'Lo que pasa en clase'],
@@ -465,6 +469,7 @@ async function pantallaClase(id) {
       <dt>Estado</dt><dd>${c.activa ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Inactiva</span>'}</dd>
     </dl></div>
     ${puedeEditar('clases') ? `<a class="btn sec" href="#/clase/${id}/editar">${ico('lapiz')} Editar clase</a>` : ''}
+    ${!c.escuela_amiga_id && puedeVer('logros') ? `<a class="btn sec" href="#/logros/clase/${id}">${ico('trofeo')} ${puedeEditar('logros') ? 'Dar estrellas' : 'Ver estrellas'}</a>` : ''}
     ${!c.escuela_amiga_id && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
       <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '' })).join('') || vacio('Nadie inscrita todavía.')}</div>
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
@@ -1057,6 +1062,190 @@ async function pantallaPermisos(params) {
 }
 
 /* ======================================================================
+   LOGROS: retos del mes para profesoras y estrellas semanales para alumnas
+   ====================================================================== */
+const MAX_RETOS = 5, SEMANAS = 4;
+const CATEG = [['esfuerzo', 'Esfuerzo'], ['tareas', 'Tareas'], ['actitud', 'Actitud']];
+const mesDe = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+const mesParam = (params) => /^\d{4}-\d{2}$/.test(params.get('mes') || '') ? params.get('mes') + '-01' : mesDe();
+const mesCorto = (mes) => mes.slice(0, 7);
+const nombreMes = (mes) => capital(aFecha(mes).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }));
+const otroMes = (mes, n) => { const d = aFecha(mes); return mesDe(new Date(d.getFullYear(), d.getMonth() + n, 1)); };
+const semanaHoy = (mes) => mes === mesDe() ? Math.min(SEMANAS, Math.ceil(new Date().getDate() / 7)) : 1;
+const textoSemana = (mes, s) => { const fin = new Date(aFecha(mes).getFullYear(), aFecha(mes).getMonth() + 1, 0).getDate(); return `del ${(s - 1) * 7 + 1} al ${s === SEMANAS ? fin : s * 7}`; };
+const gestionaLogros = () => S.admin || (puedeEditar('logros') && !(S.permisos.logros && S.permisos.logros.solo_propias));
+const pct = (a, b) => b ? Math.round((a / b) * 100) : 0;
+const barra = (p) => `<div class="barra"><i style="width:${Math.min(100, p)}%"></i></div>`;
+const totalEstrellas = (e) => (+e.esfuerzo || 0) + (+e.tareas || 0) + (+e.actitud || 0);
+const MAX_ALUMNA = CATEG.length * 3 * SEMANAS;
+function selectorMes(mes, base) {
+  return `<div class="mes"><button data-ir="${base}mes=${mesCorto(otroMes(mes, -1))}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes)}</h2><button data-ir="${base}mes=${mesCorto(otroMes(mes, 1))}" aria-label="Mes siguiente">${ico('sig')}</button></div>`;
+}
+async function miProfesora() {
+  const r = await intentar(() => q(sb.from('profesoras').select('id,nombre').eq('perfil_id', S.usuario.id)));
+  return r[0] || null;
+}
+
+async function pantallaLogros(params) {
+  if (!puedeVer('logros')) return sinPermiso();
+  const mes = mesParam(params), gestiona = gestionaLogros();
+  const [retos, meses, yo] = await Promise.all([
+    q(sb.from('logros_retos').select('id,titulo').eq('mes', mes).order('creado_en')),
+    q(sb.from('logros_meses').select('recompensa').eq('mes', mes)),
+    gestiona ? null : miProfesora()
+  ]);
+  const recompensa = meses[0] ? meses[0].recompensa || '' : '';
+  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,profesora_id,semana').in('reto_id', retos.map((r) => r.id))) : [];
+  const profesoras = gestiona ? await q(sb.from('profesoras').select('id,nombre').eq('activa', true).order('nombre')) : (yo ? [yo] : []);
+  const posibles = retos.length * SEMANAS;
+  const tarjetaProfe = (p) => {
+    const n = cumplidos.filter((c) => c.profesora_id === p.id).length, v = pct(n, posibles);
+    return `<a class="tarjeta-clase" href="#/logros/profesora/${p.id}?mes=${mesCorto(mes)}">
+      <div class="tc-cab"><h2>${esc(p.nombre)}</h2><span class="contador ${v >= 100 ? 'oro' : ''}">${v}%</span></div>
+      ${barra(v)}<div class="tc-pie"><span>${n} de ${posibles} conseguidos</span>${ico('sig', 18)}</div></a>`;
+  };
+  // Clases para puntuar a las alumnas (a una profesora con "solo lo suyo" solo le llegan las suyas)
+  const clases = await intentar(() => q(sb.from('clases').select('id,nombre,inscripciones(alumna_id,fecha_baja),' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null)));
+  clases.sort((a, b) => ordenClase(a) - ordenClase(b));
+  const estrellas = clases.length ? await intentar(() => q(sb.from('logros_estrellas').select('clase_id,esfuerzo,tareas,actitud').eq('mes', mes))) : [];
+  const tarjetaClase = (c) => {
+    const n = (c.inscripciones || []).filter((i) => !i.fecha_baja).length;
+    const v = pct(estrellas.filter((e) => e.clase_id === c.id).reduce((a, e) => a + totalEstrellas(e), 0), n * MAX_ALUMNA);
+    return `<a class="tarjeta-clase" href="#/logros/clase/${c.id}?mes=${mesCorto(mes)}">
+      <div class="tc-cab"><h2>${esc(c.nombre)}</h2><span class="contador">${n}</span></div>
+      <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
+      ${barra(v)}<div class="tc-pie"><span>Media de la clase: ${v}%</span>${ico('sig', 18)}</div></a>`;
+  };
+  pintar(cabecera('Logros', { volver: '#/mas', sub: 'Retos de profesoras y estrellas de alumnas' }) + `<main class="cont">
+    ${selectorMes(mes, '#/logros?')}
+    <div class="tarjeta-caja"><span class="ico-caja">${ico('evento', 26)}</span><span class="txt"><b>Recompensa del mes</b>
+      ${gestiona ? `<input id="recompensa" class="input-oro" placeholder="Ej.: entrada a un taller" value="${esc(recompensa)}">` : `<span>${esc(recompensa || 'Aún sin decidir')}</span>`}</span></div>
+    <div class="seccion">Retos del mes (${retos.length}/${MAX_RETOS})</div>
+    <div class="lista">${retos.map((r, i) => `<div class="fila"><span class="ini">${i + 1}</span><span class="txt"><div class="tit envolver">${esc(r.titulo)}</div></span>
+      ${gestiona ? `<button class="quitar-r" data-quitar="${r.id}" aria-label="Quitar reto">Quitar</button>` : ''}</div>`).join('') || vacio(gestiona ? 'Aún no hay retos este mes. Añade de 1 a 5.' : 'Aún no hay retos este mes.')}</div>
+    ${gestiona && retos.length < MAX_RETOS ? `<a class="btn sec" href="#/logros/reto?mes=${mesCorto(mes)}">${ico('mas')} Añadir reto</a>` : ''}
+    ${retos.length ? `<p class="nota">Cada reto se marca por semana (4 semanas). Todos valen lo mismo.</p>` : ''}
+    <div class="seccion">${gestiona ? 'Profesoras' : 'Mi progreso'}</div>
+    <div class="lista">${profesoras.map(tarjetaProfe).join('') || vacio(gestiona ? 'No hay profesoras activas.' : 'Tu usuario aún no está enlazado con tu ficha de profesora. Pídeselo a la administración.')}</div>
+    <div class="seccion">Estrellas de alumnas</div>
+    <div class="lista">${clases.map(tarjetaClase).join('') || vacio('No hay clases.')}</div>
+  </main>`, 'mas');
+  const rec = document.getElementById('recompensa');
+  if (rec) rec.onchange = async () => {
+    try { await q(sb.from('logros_meses').upsert({ mes, recompensa: rec.value.trim() || null })); aviso('Recompensa guardada'); } catch (e) { aviso(traducirError(e), true); }
+  };
+  $app.querySelectorAll('[data-quitar]').forEach((b) => b.onclick = async () => {
+    if (!confirm('¿Quitar este reto del mes? Se perderá lo marcado en él.')) return;
+    try { await q(sb.from('logros_retos').delete().eq('id', b.dataset.quitar)); aviso('Reto quitado'); router(); } catch (e) { aviso(traducirError(e), true); }
+  });
+}
+
+async function formReto(params) {
+  if (!gestionaLogros()) return sinPermiso();
+  const mes = mesParam(params);
+  const [plantillas, retos] = await Promise.all([
+    q(sb.from('logros_plantillas').select('id,titulo').eq('activa', true).order('creado_en')),
+    q(sb.from('logros_retos').select('titulo').eq('mes', mes))
+  ]);
+  const usados = new Set(retos.map((r) => r.titulo));
+  const libres = plantillas.filter((p) => !usados.has(p.titulo));
+  const volver = `#/logros?mes=${mesCorto(mes)}`;
+  pintar(cabecera('Añadir reto', { volver, sub: nombreMes(mes) + ` · ${retos.length}/${MAX_RETOS}` }) + `<main class="cont">
+    ${retos.length >= MAX_RETOS ? vacio('Este mes ya tiene 5 retos, que es el máximo.') : `
+    ${libres.length ? `<div class="seccion">Retos fijos (un toque y listo)</div>
+      <div class="lista">${libres.map((p) => `<button class="fila fila-btn" data-plantilla="${esc(p.titulo)}"><span class="ini">${ico('evento', 18)}</span><span class="txt"><div class="tit envolver">${esc(p.titulo)}</div></span>${ico('mas')}</button>`).join('')}</div>` : ''}
+    <div class="seccion">O escribe uno nuevo</div>
+    <form class="form" id="f">
+      <div class="campo"><label for="titulo">Reto</label><input id="titulo" maxlength="120" placeholder="Ej.: Trae una idea de coreografía" required></div>
+      <label class="check"><input type="checkbox" id="fijo"><span><b>Guardarlo también como reto fijo</b><br><span class="nota">Así lo tendrás a mano otros meses.</span></span></label>
+      <button class="btn pri" type="submit">${ico('mas')} Añadir al mes</button>
+    </form>`}
+  </main>`, 'mas');
+  const anadir = async (titulo, fijo) => {
+    try {
+      await q(sb.from('logros_retos').insert({ mes, titulo }));
+      if (fijo && !plantillas.some((p) => p.titulo === titulo)) await intentar(() => q(sb.from('logros_plantillas').insert({ titulo })));
+      aviso('Reto añadido'); location.hash = volver;
+    } catch (e) { aviso(/Máximo 5/.test(e.message || '') ? 'Este mes ya tiene 5 retos, que es el máximo.' : traducirError(e), true); }
+  };
+  $app.querySelectorAll('[data-plantilla]').forEach((b) => b.onclick = () => { b.disabled = true; anadir(b.dataset.plantilla, false); });
+  const f = document.getElementById('f');
+  if (f) f.onsubmit = (ev) => { ev.preventDefault(); const t = document.getElementById('titulo').value.trim(); if (t) anadir(t, document.getElementById('fijo').checked); };
+}
+
+async function pantallaLogrosProfesora(id, params) {
+  if (!puedeVer('logros')) return sinPermiso();
+  const mes = mesParam(params), gestiona = gestionaLogros();
+  const [prof, retos] = await Promise.all([
+    q(sb.from('profesoras').select('id,nombre').eq('id', id).single()),
+    q(sb.from('logros_retos').select('id,titulo').eq('mes', mes).order('creado_en'))
+  ]);
+  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,semana').eq('profesora_id', id).in('reto_id', retos.map((r) => r.id))) : [];
+  const hecho = new Set(cumplidos.map((c) => c.reto_id + '|' + c.semana));
+  const posibles = retos.length * SEMANAS, sHoy = semanaHoy(mes);
+  const pintarPct = () => { const v = pct(hecho.size, posibles); document.getElementById('pct').textContent = v + '%'; document.querySelector('.tarjeta .barra i').style.width = Math.min(100, v) + '%'; document.getElementById('cuenta').textContent = `${hecho.size} de ${posibles} conseguidos`; };
+  pintar(cabecera(prof.nombre, { volver: `#/logros?mes=${mesCorto(mes)}`, sub: 'Logros · ' + nombreMes(mes) }) + `<main class="cont">
+    ${selectorMes(mes, `#/logros/profesora/${id}?`)}
+    <div class="tarjeta"><div class="tc-cab" style="display:flex;justify-content:space-between;align-items:center"><h2>Progreso del mes</h2><span class="contador" id="pct">0%</span></div>
+      ${barra(0)}<div class="nota" id="cuenta"></div></div>
+    ${retos.length ? retos.map((r) => `<div class="tarjeta reto"><h3>${esc(r.titulo)}</h3>
+      <div class="semanas">${[1, 2, 3, 4].map((s) => `<button class="${hecho.has(r.id + '|' + s) ? 'on' : ''} ${s === sHoy ? 'hoy' : ''}" data-reto="${r.id}" data-s="${s}" ${gestiona ? '' : 'disabled'} aria-pressed="${hecho.has(r.id + '|' + s)}" title="Semana ${s}: ${textoSemana(mes, s)}">${ico('evento', 16)}<span>Sem. ${s}</span></button>`).join('')}</div></div>`).join('')
+      : vacio('Aún no hay retos este mes.')}
+    ${gestiona && retos.length ? '<p class="nota">Toca una semana para marcarla como conseguida. Vuelve a tocar para quitarla.</p>' : ''}
+  </main>`, 'mas');
+  pintarPct();
+  $app.querySelectorAll('[data-reto]').forEach((b) => b.onclick = async () => {
+    const k = b.dataset.reto + '|' + b.dataset.s, on = hecho.has(k);
+    b.disabled = true;
+    try {
+      if (on) await q(sb.from('logros_cumplidos').delete().eq('reto_id', b.dataset.reto).eq('profesora_id', id).eq('semana', b.dataset.s));
+      else await q(sb.from('logros_cumplidos').insert({ reto_id: b.dataset.reto, profesora_id: id, semana: +b.dataset.s }));
+      on ? hecho.delete(k) : hecho.add(k);
+      b.classList.toggle('on', !on); b.setAttribute('aria-pressed', !on); pintarPct();
+    } catch (e) { aviso(traducirError(e), true); }
+    b.disabled = false;
+  });
+}
+
+async function pantallaLogrosClase(id, params) {
+  if (!puedeVer('logros')) return sinPermiso();
+  const mes = mesParam(params), semana = Math.min(SEMANAS, Math.max(1, +params.get('s') || semanaHoy(mes)));
+  const puede = puedeEditar('logros');
+  const [c, est] = await Promise.all([
+    q(sb.from('clases').select('id,nombre,inscripciones(fecha_baja,alumnas(id,nombre,apellidos))').eq('id', id).single()),
+    q(sb.from('logros_estrellas').select('alumna_id,semana,esfuerzo,tareas,actitud').eq('clase_id', id).eq('mes', mes))
+  ]);
+  const alumnas = (c.inscripciones || []).filter((i) => !i.fecha_baja && i.alumnas).map((i) => i.alumnas)
+    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
+  const de = (aid, s) => est.find((e) => e.alumna_id === aid && +e.semana === s) || { alumna_id: aid, semana: s, esfuerzo: 0, tareas: 0, actitud: 0 };
+  const totalMes = (aid) => est.filter((e) => e.alumna_id === aid).reduce((a, e) => a + totalEstrellas(e), 0);
+  const base = `#/logros/clase/${id}?mes=${mesCorto(mes)}&`;
+  const ranking = alumnas.map((a) => ({ a, t: totalMes(a.id) })).sort((x, y) => y.t - x.t).filter((x) => x.t > 0).slice(0, 3);
+  const estrellasHtml = (a, k) => { const v = +de(a.id, semana)[k] || 0;
+    return [1, 2, 3].map((n) => `<button class="est ${n <= v ? 'on' : ''}" data-a="${a.id}" data-k="${k}" data-n="${n}" ${puede ? '' : 'disabled'} aria-label="${n} estrella${n > 1 ? 's' : ''}"><svg width="26" height="26" viewBox="0 0 24 24"><polygon points="12,2 14.9,8.6 22,9.3 16.6,14 18.2,21 12,17.3 5.8,21 7.4,14 2,9.3 9.1,8.6"/></svg></button>`).join(''); };
+  pintar(cabecera(c.nombre, { volver: `#/logros?mes=${mesCorto(mes)}`, sub: 'Estrellas · ' + nombreMes(mes) }) + `<main class="cont">
+    <div class="filtros">${[1, 2, 3, 4].map((s) => `<button data-ir="${base}s=${s}" class="${s === semana ? 'on' : ''}">Sem. ${s}</button>`).join('')}</div>
+    <p class="nota" style="margin:-4px 2px 0">Semana ${semana}: ${textoSemana(mes, semana)} de ${aFecha(mes).toLocaleDateString('es-ES', { month: 'long' })}. De 1 a 3 estrellas en cada apartado.</p>
+    ${ranking.length ? `<div class="tarjeta"><h3>Las que más brillan este mes</h3><div class="podio">${ranking.map((x, i) => `<div><span class="medalla m${i + 1}">${i + 1}</span><b>${esc(x.a.nombre)}</b><span>${pct(x.t, MAX_ALUMNA)}%</span></div>`).join('')}</div></div>` : ''}
+    ${alumnas.map((a) => `<div class="tarjeta puntuar" data-al="${a.id}">
+      <div class="p-cab"><b>${esc(a.nombre)} ${esc(a.apellidos || '')}</b><span class="chip mor" data-pct="${a.id}">${pct(totalMes(a.id), MAX_ALUMNA)}% del mes</span></div>
+      ${CATEG.map(([k, t]) => `<div class="p-fila"><span>${t}</span><div class="estrellas">${estrellasHtml(a, k)}</div></div>`).join('')}
+    </div>`).join('') || vacio('No hay alumnas inscritas en esta clase.')}
+  </main>`, 'mas');
+  $app.querySelectorAll('.est').forEach((b) => b.onclick = async () => {
+    const aid = b.dataset.a, k = b.dataset.k, n = +b.dataset.n;
+    const fila = de(aid, semana), nuevo = +fila[k] === n ? n - 1 : n;   // tocar la última estrella encendida la apaga
+    const datos = { alumna_id: aid, clase_id: id, mes, semana, esfuerzo: +fila.esfuerzo || 0, tareas: +fila.tareas || 0, actitud: +fila.actitud || 0, [k]: nuevo, modificado_en: new Date().toISOString() };
+    try {
+      await q(sb.from('logros_estrellas').upsert(datos, { onConflict: 'alumna_id,clase_id,mes,semana' }));
+      const i = est.indexOf(fila); if (i >= 0) est[i] = datos; else est.push(datos);
+      b.parentElement.querySelectorAll('.est').forEach((x) => x.classList.toggle('on', +x.dataset.n <= nuevo));
+      $app.querySelector(`[data-pct="${aid}"]`).textContent = pct(totalMes(aid), MAX_ALUMNA) + '% del mes';
+    } catch (e) { aviso(traducirError(e), true); }
+  });
+}
+
+/* ======================================================================
    ENRUTADOR
    ====================================================================== */
 async function router() {
@@ -1115,6 +1304,11 @@ async function router() {
         return await pantallaFormulario(p[1]);
       case 'respuesta': return await pantallaRespuesta(p[1]);
       case 'permisos': return await pantallaPermisos(params);
+      case 'logros':
+        if (p[1] === 'reto') return await formReto(params);
+        if (p[1] === 'profesora') return await pantallaLogrosProfesora(p[2], params);
+        if (p[1] === 'clase') return await pantallaLogrosClase(p[2], params);
+        return await pantallaLogros(params);
       default: location.hash = '#/inicio';
     }
   } catch (e) {
