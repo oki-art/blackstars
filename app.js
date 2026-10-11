@@ -17,6 +17,8 @@ const MODULOS = [
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+const DIAS_ABR = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const SEL_HOR = 'clase_horarios(dia_semana,hora_inicio,hora_fin)';
 const METODOS = [['efectivo', 'Efectivo'], ['tarjeta', 'Tarjeta'], ['bizum', 'Bizum'], ['transferencia', 'Transferencia']];
 
 /* ---------- utilidades ---------- */
@@ -32,6 +34,16 @@ const diaISO = (d = new Date()) => ((d.getDay() + 6) % 7) + 1;
 const iniciales = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const edad = (iso) => { if (!iso) return null; const n = aFecha(iso), h = new Date(); let e = h.getFullYear() - n.getFullYear(); if (h < new Date(h.getFullYear(), n.getMonth(), n.getDate())) e--; return e; };
 const toMin = (h) => { const [a, b] = String(h || '0:0').split(':').map(Number); return a * 60 + b; };
+const horariosDe = (c) => (c.clase_horarios || []).slice().sort((a, b) => a.dia_semana - b.dia_semana || toMin(a.hora_inicio) - toMin(b.hora_inicio));
+const ordenClase = (c) => { const h = horariosDe(c)[0]; return h ? h.dia_semana * 1440 + toMin(h.hora_inicio) : 99999; };
+// "Lun y Mié · 17:00–18:00" (agrupa los días que comparten horario)
+function textoHorario(c, largo = false) {
+  const g = {};
+  horariosDe(c).forEach((h) => { const k = `${hora(h.hora_inicio)}–${hora(h.hora_fin)}`; (g[k] = g[k] || []).push(h.dia_semana); });
+  const n = largo ? DIAS : DIAS_ABR;
+  const lista = (ds) => ds.length === 1 ? n[ds[0]] : ds.slice(0, -1).map((d) => n[d]).join(', ') + ' y ' + n[ds[ds.length - 1]];
+  return Object.entries(g).map(([k, ds]) => `${lista(ds)} · ${k}`).join(' / ') || 'Sin horario';
+}
 const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
@@ -62,7 +74,7 @@ function aviso(msg, error = false) {
 }
 function traducirError(e) {
   const m = (e && (e.message || e.error_description)) || String(e);
-  if (/clases_sala|exclusion|conflicting key value violates exclusion/i.test(m)) return 'Esa sala ya está ocupada ese día a esa hora.';
+  if (/exclusion|conflicting key value violates exclusion/i.test(m)) return 'La sala ya está ocupada ese día a esa hora por otra clase.';
   if (/row-level security|permission denied/i.test(m)) return 'No tienes permiso para hacer esto.';
   if (/inscripcion_activa_unica|duplicate key/i.test(m)) return 'Ese registro ya existe.';
   if (/Invalid login credentials/i.test(m)) return 'Correo o contraseña incorrectos.';
@@ -184,9 +196,9 @@ async function pantallaForm({ titulo, tabla, modulo, campos, id = null, volver, 
 async function opcionesProfesoras() { return (await q(sb.from('profesoras').select('id,nombre').eq('activa', true).order('nombre'))).map((p) => [p.id, p.nombre]); }
 async function opcionesAlumnas() { return (await q(sb.from('alumnas').select('id,nombre,apellidos').eq('estado', 'activa').order('nombre'))).map((a) => [a.id, `${a.nombre} ${a.apellidos || ''}`.trim()]); }
 async function opcionesClases(propias = true) {
-  let r = sb.from('clases').select('id,nombre,dia_semana,hora_inicio').eq('activa', true).order('dia_semana').order('hora_inicio');
+  let r = sb.from('clases').select('id,nombre,' + SEL_HOR).eq('activa', true);
   if (propias) r = r.is('escuela_amiga_id', null);
-  return (await q(r)).map((c) => [c.id, `${c.nombre} · ${DIAS[c.dia_semana]} ${hora(c.hora_inicio)}`]);
+  return (await q(r)).sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => [c.id, `${c.nombre} · ${textoHorario(c)}`]);
 }
 async function opcionesEscuelas() { return (await q(sb.from('escuelas_amigas').select('id,nombre').order('nombre'))).map((e) => [e.id, e.nombre]); }
 const intentar = async (f) => { try { return await f(); } catch (e) { return []; } };
@@ -236,25 +248,28 @@ async function pantallaInicio() {
   const profesora = !S.admin && Object.values(S.permisos).some((p) => p.solo_propias);
   // Todas las clases activas propias (a una profesora con "solo lo suyo" la base de datos solo le da las suyas).
   const clases = puedeVer('clases') ? await intentar(() => q(sb.from('clases')
-    .select('id,nombre,dia_semana,hora_inicio,hora_fin,sala,profesoras(nombre),inscripciones(count)')
-    .eq('activa', true).is('escuela_amiga_id', null).order('dia_semana').order('hora_inicio'))) : [];
+    .select('id,nombre,profesoras(nombre),inscripciones(count),' + SEL_HOR)
+    .eq('activa', true).is('escuela_amiga_id', null))) : [];
   // Orden: empezando por la próxima clase de la semana (o la que está en curso).
   const ahora = new Date().toTimeString().slice(0, 5);
-  const minutos = (c) => { const d = (c.dia_semana - dia + 7) % 7; const fin = hora(c.hora_fin); return (d === 0 && fin <= ahora ? 7 : d) * 1440 + toMin(hora(c.hora_inicio)); };
-  clases.sort((x, y) => minutos(x) - minutos(y));
+  const minutos = (h) => { const d = (h.dia_semana - dia + 7) % 7; return (d === 0 && hora(h.hora_fin) <= ahora ? 7 : d) * 1440 + toMin(hora(h.hora_inicio)); };
+  // Cada clase se coloca según su próximo horario de la semana
+  clases.forEach((c) => { c._h = horariosDe(c).sort((a, b) => minutos(a) - minutos(b))[0]; c._m = c._h ? minutos(c._h) : 1e9; });
+  clases.sort((x, y) => x._m - y._m);
   const cuando = (c) => {
-    if (c.dia_semana === dia && hora(c.hora_fin) > ahora) return hora(c.hora_inicio) <= ahora ? 'Ahora' : 'Hoy';
-    if (c.dia_semana === (dia % 7) + 1) return 'Mañana';
-    return DIAS[c.dia_semana];
+    const h = c._h; if (!h) return 'Sin horario';
+    if (h.dia_semana === dia && hora(h.hora_fin) > ahora) return hora(h.hora_inicio) <= ahora ? 'Ahora' : 'Hoy';
+    if (h.dia_semana === (dia % 7) + 1) return 'Mañana';
+    return DIAS[h.dia_semana];
   };
   const n = clases.length;
   const tarjetas = clases.map((c, i) => {
     const alumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
     return `<a class="clase-hero" href="#/clase/${c.id}">
     <svg class="estrella" width="96" height="96" viewBox="0 0 24 24"><polygon points="12,2 14.9,8.6 22,9.3 16.6,14 18.2,21 12,17.3 5.8,21 7.4,14 2,9.3 9.1,8.6" fill="#fff"/></svg>
-    <div class="k"><span>${i === 0 ? 'Próxima clase · ' : ''}${cuando(c)}</span><span class="hora">${hora(c.hora_inicio)}</span></div>
+    <div class="k"><span>${i === 0 ? 'Próxima clase · ' : ''}${cuando(c)}</span><span class="hora">${c._h ? hora(c._h.hora_inicio) : ''}</span></div>
     <h2>${esc(c.nombre)}</h2>
-    <div class="d">${[c.sala ? 'Sala ' + esc(c.sala) : '', c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div>
+    <div class="d">${[esc(textoHorario(c)), c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div>
     ${n > 1 ? `<button class="sig-clase" data-sig="${i}" aria-label="Siguiente clase">${ico('sig', 22)}</button>` : ''}</a>`;
   }).join('');
   const bloqueClases = !puedeVer('clases') ? '' : n
@@ -318,49 +333,132 @@ function pantallaMas() {
 }
 
 /* ---------- clases ---------- */
-const CAMPOS_CLASE = async () => [
-  { k: 'nombre', label: 'Nombre de la clase', req: true, ph: 'Salsa adultas' },
-  { k: 'dia_semana', label: 'Día', tipo: 'select', req: true, vacio: false, opciones: DIAS.slice(1).map((d, i) => [i + 1, d]) },
-  { k: 'hora_inicio', label: 'Empieza', tipo: 'hora', req: true },
-  { k: 'hora_fin', label: 'Termina', tipo: 'hora', req: true },
-  { k: 'sala', label: 'Sala', ph: '1' },
-  { k: 'nivel', label: 'Nivel', ph: 'Iniciación' },
-  { k: 'profesora_id', label: 'Profesora', tipo: 'select', opciones: await intentar(opcionesProfesoras), vacio: 'Sin asignar' },
-  { k: 'activa', label: 'Clase activa', tipo: 'bool', def: true }
-];
+/* Editor de horarios: cada fila = días (L M X J V S D) + hora de inicio y fin. */
+function editorHorarios(horarios) {
+  // Agrupa los horarios guardados por franja horaria para mostrarlos como filas con varios días
+  const g = {};
+  (horarios || []).forEach((h) => { const k = hora(h.hora_inicio) + '-' + hora(h.hora_fin); (g[k] = g[k] || { ini: hora(h.hora_inicio), fin: hora(h.hora_fin), dias: [] }).dias.push(h.dia_semana); });
+  const filas = Object.values(g);
+  if (!filas.length) filas.push({ ini: '', fin: '', dias: [] });
+  return `<div class="campo"><label>Días y horario *</label><div id="horarios" class="horarios">${filas.map(filaHorario).join('')}</div>
+    <button type="button" class="btn sec" id="otroHorario">${ico('mas')} Añadir otro horario</button>
+    <div class="ayuda">Marca todos los días que tienen el mismo horario. Si un día tiene otra hora, añade otro horario. Si son grupos distintos (con otras alumnas), crea otra clase.</div></div>`;
+}
+function filaHorario(f) {
+  return `<div class="horario"><div class="dias-sel">${DIAS_C.map((d, i) => `<button type="button" data-dia="${i + 1}" class="${f.dias.includes(i + 1) ? 'on' : ''}" aria-pressed="${f.dias.includes(i + 1)}" aria-label="${DIAS[i + 1]}">${d}</button>`).join('')}</div>
+    <div class="horas"><label>De<input type="time" class="h-ini" value="${esc(f.ini)}"></label><label>a<input type="time" class="h-fin" value="${esc(f.fin)}"></label></div>
+    <button type="button" class="quitar-h">Quitar este horario</button></div>`;
+}
+function activarEditorHorarios() {
+  const cont = document.getElementById('horarios');
+  cont.addEventListener('click', (ev) => {
+    const d = ev.target.closest('[data-dia]');
+    if (d) { d.classList.toggle('on'); d.setAttribute('aria-pressed', d.classList.contains('on')); return; }
+    const x = ev.target.closest('.quitar-h');
+    if (x && cont.children.length > 1) x.closest('.horario').remove();
+  });
+  document.getElementById('otroHorario').onclick = () => cont.insertAdjacentHTML('beforeend', filaHorario({ ini: '', fin: '', dias: [] }));
+}
+function leerHorarios() {
+  const out = [];
+  for (const el of document.querySelectorAll('#horarios .horario')) {
+    const dias = [...el.querySelectorAll('[data-dia].on')].map((b) => +b.dataset.dia);
+    const ini = el.querySelector('.h-ini').value, fin = el.querySelector('.h-fin').value;
+    if (!dias.length && !ini && !fin) continue;
+    if (!dias.length) throw new Error('Marca al menos un día en cada horario.');
+    if (!ini || !fin) throw new Error('Pon la hora de inicio y de fin de cada horario.');
+    if (fin <= ini) throw new Error('La hora de fin tiene que ser después de la de inicio.');
+    dias.forEach((d) => out.push({ dia_semana: d, hora_inicio: ini, hora_fin: fin }));
+  }
+  if (!out.length) throw new Error('Marca al menos un día y su horario.');
+  return out;
+}
+
+/* Alta / edición de una clase (propia o de escuela amiga) */
+async function formClase(id, escuela = null) {
+  if (!puedeEditar('clases')) return sinPermiso();
+  const reg = id ? await q(sb.from('clases').select('*,' + SEL_HOR).eq('id', id).single()) : null;
+  escuela = escuela || (reg && reg.escuela_amiga_id);
+  const profes = escuela ? [] : await intentar(opcionesProfesoras);
+  const campos = escuela
+    ? [{ k: 'nombre', label: 'Nombre de la clase', req: true }, { k: 'profesora_externa', label: 'Su profesora' }, { k: 'alumnas_externas', label: 'Número de alumnas', tipo: 'numero' }, { k: 'activa', label: 'Clase activa', tipo: 'bool', def: true }]
+    : [{ k: 'nombre', label: 'Nombre de la clase', req: true, ph: 'STARSDANCE' }, { k: 'nivel', label: 'Nivel', ph: 'Iniciación' },
+       { k: 'profesora_id', label: 'Profesora', tipo: 'select', opciones: profes, vacio: profes.length ? 'Sin asignar' : 'Aún no hay profesoras',
+         ayuda: profes.length ? '' : 'Primero da de alta a las profesoras en Más › Profesoras.' },
+       { k: 'activa', label: 'Clase activa', tipo: 'bool', def: true }];
+  const volver = id ? `#/clase/${id}` : escuela ? `#/escuela/${escuela}` : '#/clases';
+  const vals = Object.assign({}, reg || {});
+  pintar(cabecera(id ? 'Editar clase' : escuela ? 'Nueva clase externa' : 'Nueva clase', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${campoHtml(campos[0], vals.nombre)}
+    ${editorHorarios(reg ? reg.clase_horarios : [])}
+    ${campos.slice(1).map((c) => campoHtml(c, vals[c.k])).join('')}
+    ${!escuela && !profes.length && puedeEditar('profesoras') ? `<a class="btn sec" href="#/profesora/nueva">${ico('mas')} Añadir profesora</a>` : ''}
+    <button class="btn pri ancho" type="submit">Guardar</button>
+    ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
+  </form>${autorDe(reg)}</main>`, false);
+  activarEditorHorarios();
+  const form = document.getElementById('frm');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('[type=submit]');
+    let horarios;
+    try { horarios = leerHorarios(); } catch (e) { aviso(e.message, true); return; }
+    btn.disabled = true;
+    const datos = leerForm(form, campos);
+    if (escuela) Object.assign(datos, { escuela_amiga_id: escuela, profesora_id: null });
+    // Copia del primer horario en la clase (columnas antiguas); la sala ya no se usa: hay una sola.
+    Object.assign(datos, { dia_semana: horarios[0].dia_semana, hora_inicio: horarios[0].hora_inicio, hora_fin: horarios[0].hora_fin, sala: null });
+    let claseId = id;
+    try {
+      if (id) await q(sb.from('clases').update(datos).eq('id', id));
+      else claseId = (await q(sb.from('clases').insert(datos).select('id').single())).id;
+      try { await q(sb.rpc('guardar_horarios', { p_clase: claseId, p_horarios: horarios })); }
+      catch (e) { if (!id) await sb.from('clases').delete().eq('id', claseId); throw e; }
+      aviso('Guardado'); location.hash = escuela && !id ? `#/escuela/${escuela}` : `#/clase/${claseId}`;
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
+  };
+  const b = document.getElementById('borrar');
+  if (b) b.onclick = async () => {
+    if (!confirm('¿Borrar la clase definitivamente? Se perderán sus inscripciones. Si solo deja de darse, mejor desmarca "Clase activa".')) return;
+    try { await q(sb.from('clases').delete().eq('id', id)); aviso('Borrada'); location.hash = escuela ? `#/escuela/${escuela}` : '#/clases'; } catch (e) { aviso(traducirError(e), true); }
+  };
+}
+
 async function pantallaClases(params) {
   if (!puedeVer('clases')) return sinPermiso();
   const f = params.get('f') || 'propias';
-  let r = sb.from('clases').select('id,nombre,dia_semana,hora_inicio,hora_fin,sala,activa,escuela_amiga_id,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count)').order('dia_semana').order('hora_inicio');
-  const clases = await q(r);
-  const lista = clases.filter((c) => f === 'propias' ? !c.escuela_amiga_id && c.activa : f === 'amigas' ? c.escuela_amiga_id && c.activa : !c.activa);
-  let html = '', dia = 0;
-  lista.forEach((c) => {
-    if (c.dia_semana !== dia) { dia = c.dia_semana; html += `<div class="seccion">${DIAS[dia]}</div>`; }
+  const clases = await q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR));
+  const lista = clases.filter((c) => f === 'propias' ? !c.escuela_amiga_id && c.activa : f === 'amigas' ? c.escuela_amiga_id && c.activa : !c.activa)
+    .sort((a, b) => ordenClase(a) - ordenClase(b));
+  const tarjetas = lista.map((c) => {
     const n = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
-    html += fila({ href: `#/clase/${c.id}`, ini: hora(c.hora_inicio), tit: c.nombre,
-      det: [`${hora(c.hora_inicio)}–${hora(c.hora_fin)}`, c.sala ? 'Sala ' + esc(c.sala) : '', c.profesoras ? esc(c.profesoras.nombre) : '', c.escuelas_amigas ? esc(c.escuelas_amigas.nombre) : ''].filter(Boolean).join(' · '),
-      der: c.escuela_amiga_id ? '<span class="chip oro">Externa</span>' : `<span class="chip mor">${n}</span>` });
-  });
-  pintar(cabecera('Clases', { sub: `${lista.length} ${f === 'inactivas' ? 'inactivas' : 'activas'}` }) + `<main class="cont">
-    <div class="filtros">${[['propias', 'Nuestras'], ['amigas', 'Escuela amiga'], ['inactivas', 'Inactivas']].map(([k, t]) => `<button data-ir="#/clases?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
-    <div class="lista">${html || vacio('No hay clases todavía.' + (puedeEditar('clases') ? ' Pulsa + para crear la primera.' : ''))}</div></main>`, 'clases', puedeEditar('clases') ? '#/clase/nueva' : null);
+    const quien = c.escuela_amiga_id ? `${esc(c.escuelas_amigas ? c.escuelas_amigas.nombre : '')}${c.profesora_externa ? ' · ' + esc(c.profesora_externa) : ''}` : (c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : 'Sin profesora');
+    return `<a class="tarjeta-clase ${c.escuela_amiga_id ? 'externa' : ''}" href="#/clase/${c.id}">
+      <div class="tc-cab"><h2>${esc(c.nombre)}</h2>${c.escuela_amiga_id ? '<span class="chip oro">Externa</span>' : `<span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span>`}</div>
+      <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
+      <div class="tc-pie"><span>${quien}</span>${ico('sig', 18)}</div></a>`;
+  }).join('');
+  const titulo = S.admin || !(S.permisos.clases && S.permisos.clases.solo_propias) ? 'Clases' : 'Mis clases';
+  pintar(cabecera(titulo, { sub: `${lista.length} ${f === 'inactivas' ? 'inactivas' : (lista.length === 1 ? 'activa' : 'activas')}` }) + `<main class="cont">
+    ${titulo === 'Clases' ? `<div class="filtros">${[['propias', 'Nuestras'], ['amigas', 'Escuela amiga'], ['inactivas', 'Inactivas']].map(([k, t]) => `<button data-ir="#/clases?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+    <div class="lista">${tarjetas || vacio(titulo === 'Mis clases' ? 'Todavía no tienes clases asignadas.' : 'No hay clases todavía.' + (puedeEditar('clases') ? ' Pulsa + para crear la primera.' : ''))}</div></main>`,
+    'clases', puedeEditar('clases') && f === 'propias' ? '#/clase/nueva' : null);
 }
 async function pantallaClase(id) {
   if (!puedeVer('clases')) return sinPermiso();
-  const c = await q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre)').eq('id', id).single());
-  const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos)').eq('clase_id', id).is('fecha_baja', null))) : [];
-  const editar = c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}/clase/${id}` : `#/clase/${id}/editar`;
-  pintar(cabecera(c.nombre, { volver: c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}` : '#/clases', sub: `${DIAS[c.dia_semana]} · ${hora(c.hora_inicio)}–${hora(c.hora_fin)}` }) + `<main class="cont">
+  const c = await q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),' + SEL_HOR).eq('id', id).single());
+  const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : [];
+  ins.sort((a, b) => (a.alumnas.nombre || '').localeCompare(b.alumnas.nombre || '', 'es'));
+  pintar(cabecera(c.nombre, { volver: c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}` : '#/clases', sub: esc(textoHorario(c, true)) }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
-      <dt>Sala</dt><dd>${esc(c.sala || '—')}</dd>
+      <dt>Horario</dt><dd>${horariosDe(c).map((h) => `${DIAS[h.dia_semana]} ${hora(h.hora_inicio)}–${hora(h.hora_fin)}`).join('<br>') || '—'}</dd>
       ${c.escuela_amiga_id ? `<dt>Escuela</dt><dd>${esc(c.escuelas_amigas.nombre)}</dd><dt>Profesora</dt><dd>${esc(c.profesora_externa || '—')}</dd><dt>Alumnas</dt><dd>${c.alumnas_externas ?? '—'}</dd>`
         : `<dt>Profesora</dt><dd>${esc(c.profesoras ? c.profesoras.nombre : 'Sin asignar')}</dd><dt>Nivel</dt><dd>${esc(c.nivel || '—')}</dd>`}
       <dt>Estado</dt><dd>${c.activa ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Inactiva</span>'}</dd>
     </dl></div>
-    ${puedeEditar('clases') ? `<a class="btn sec" href="${editar}">${ico('lapiz')} Editar clase</a>` : ''}
+    ${puedeEditar('clases') ? `<a class="btn sec" href="#/clase/${id}/editar">${ico('lapiz')} Editar clase</a>` : ''}
     ${!c.escuela_amiga_id && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
-      <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta) })).join('') || vacio('Nadie inscrita todavía.')}</div>
+      <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '' })).join('') || vacio('Nadie inscrita todavía.')}</div>
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
     ${autorDe(c)}
   </main>`, 'clases');
@@ -372,43 +470,75 @@ const CAMPOS_ALUMNA = [
   { k: 'fecha_nacimiento', label: 'Fecha de nacimiento', tipo: 'fecha' },
   { k: 'telefono', label: 'Teléfono', tipo: 'tel' }, { k: 'email', label: 'Correo', tipo: 'email' },
   { k: 'tutor_nombre', label: 'Madre / padre / tutor (si es menor)' }, { k: 'tutor_telefono', label: 'Teléfono del tutor', tipo: 'tel' },
+  { k: 'cuota', label: 'Mensualidad', tipo: 'select', vacio: false, opciones: [['completa', 'Mes completo'], ['media', 'Medio mes']] },
   { k: 'fecha_alta', label: 'Fecha de alta', tipo: 'fecha', def: hoyISO() },
   { k: 'notas', label: 'Notas', tipo: 'textarea' }
 ];
 async function pantallaAlumnas(params) {
   if (!puedeVer('alumnas')) return sinPermiso();
-  const f = params.get('f') || 'activa';
-  const todas = await q(sb.from('alumnas').select('id,nombre,apellidos,estado,telefono,inscripciones(fecha_baja,clases(nombre))').order('nombre'));
-  const activas = todas.filter((a) => a.estado === 'activa').length;
-  pintar(cabecera('Alumnas', { sub: `${activas} activas` }) + `<main class="cont">
-    <div class="buscar">${ico('buscar')}<input id="buscar" type="search" placeholder="Buscar alumna" autocomplete="off"></div>
-    <div class="filtros">${[['activa', 'Activas'], ['baja', 'Baja'], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/alumnas?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+  const f = params.get('f') || 'activa', claseSel = params.get('clase');
+  const [todas, clases] = await Promise.all([
+    q(sb.from('alumnas').select('id,nombre,apellidos,estado,telefono,cuota,inscripciones(clase_id,fecha_baja,clases(nombre))').order('nombre')),
+    puedeVer('clases') ? intentar(() => q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,' + SEL_HOR).is('escuela_amiga_id', null))) : []
+  ]);
+  // Alumnas de cada clase: activas = inscripción en curso; bajas = estuvo en la clase y ya no.
+  const enClase = (a, cid) => (a.inscripciones || []).some((i) => i.clase_id === cid && !i.fecha_baja);
+  const bajaDeClase = (a, cid) => (a.inscripciones || []).some((i) => i.clase_id === cid && i.fecha_baja) && !enClase(a, cid);
+  const sinClase = (a) => !(a.inscripciones || []).some((i) => !i.fecha_baja);
+  const deClase = (cid) => todas.filter((a) => cid === 'sin'
+    ? (f === 'activa' ? a.estado === 'activa' && sinClase(a) : a.estado === 'baja' && !(a.inscripciones || []).length)
+    : (f === 'activa' ? a.estado === 'activa' && enClase(a, cid) : bajaDeClase(a, cid) || (a.estado === 'baja' && enClase(a, cid))));
+  const nActivas = todas.filter((a) => a.estado === 'activa').length;
+  const claseObj = clases.find((c) => c.id === claseSel);
+  const titulo = claseSel ? (claseSel === 'sin' ? 'Sin clase' : claseObj ? claseObj.nombre : 'Clase') : 'Alumnas';
+  const sub = claseSel ? `${deClase(claseSel).length} ${f === 'activa' ? 'activas' : 'de baja'}` : `${nActivas} activas · ${todas.length - nActivas} de baja`;
+  pintar(cabecera(titulo, { sub, volver: claseSel ? `#/alumnas?f=${f}` : null }) + `<main class="cont">
+    <div class="buscar">${ico('buscar')}<input id="buscar" type="search" placeholder="${claseSel ? 'Buscar en esta clase' : 'Buscar alumna'}" autocomplete="off"></div>
+    ${claseSel ? '' : `<div class="filtros">${[['activa', 'Activas'], ['baja', 'Bajas'], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/alumnas?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>`}
     <div class="lista" id="lista"></div></main>`, 'alumnas', puedeEditar('alumnas') ? '#/alumna/nueva' : null);
   const quitarTildes = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const filaAlumna = (a) => {
+    const cls = (a.inscripciones || []).filter((i) => !i.fecha_baja && i.clases).map((i) => i.clases.nombre).join(' · ');
+    const chips = (a.estado === 'activa' ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Baja</span>') + (a.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '');
+    return fila({ href: `#/alumna/${a.id}`, tit: `${a.nombre} ${a.apellidos || ''}`, det: esc(cls || 'Sin clase'), der: `<span class="chips">${chips}</span>` });
+  };
+  const tarjetaClase = (id, nombre, horario, n) => `<a class="tarjeta-clase" href="#/alumnas?f=${f}&clase=${id}">
+    <div class="tc-cab"><h2>${esc(nombre)}</h2><span class="contador ${f === 'baja' ? 'gris' : ''}">${n}</span></div>
+    ${horario ? `<div class="tc-hor">${ico('clases', 16)} ${esc(horario)}</div>` : ''}
+    <div class="tc-pie"><span>${n === 1 ? '1 alumna' : n + ' alumnas'} ${f === 'activa' ? (n === 1 ? 'activa' : 'activas') : 'de baja'}</span>${ico('sig', 18)}</div></a>`;
   const dibujar = () => {
     const t = quitarTildes(document.getElementById('buscar').value.trim());
-    const l = todas.filter((a) => (f === 'todas' || a.estado === f) && (!t || quitarTildes(`${a.nombre} ${a.apellidos || ''} ${a.telefono || ''}`).includes(t)));
-    document.getElementById('lista').innerHTML = l.map((a) => {
-      const cls = (a.inscripciones || []).filter((i) => !i.fecha_baja && i.clases).map((i) => i.clases.nombre).join(' · ');
-      return fila({ href: `#/alumna/${a.id}`, tit: `${a.nombre} ${a.apellidos || ''}`, det: esc(cls || 'Sin clase'), der: a.estado === 'activa' ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Baja</span>' });
-    }).join('') || vacio(todas.length ? 'No hay coincidencias.' : 'Aún no hay alumnas. Pulsa + para dar de alta la primera.');
+    const coincide = (a) => quitarTildes(`${a.nombre} ${a.apellidos || ''} ${a.telefono || ''}`).includes(t);
+    let html;
+    if (claseSel) html = deClase(claseSel).filter((a) => !t || coincide(a)).map(filaAlumna).join('') || vacio(t ? 'No hay coincidencias.' : 'No hay alumnas aquí.');
+    else if (t || f === 'todas') html = todas.filter((a) => (f === 'todas' || a.estado === f) && (!t || coincide(a))).map(filaAlumna).join('') || vacio(todas.length ? 'No hay coincidencias.' : 'Aún no hay alumnas. Pulsa + para dar de alta la primera.');
+    else {
+      const visibles = clases.filter((c) => f === 'activa' ? c.activa : true).sort((a, b) => ordenClase(a) - ordenClase(b));
+      html = visibles.map((c) => ({ c, n: deClase(c.id).length })).filter((x) => f === 'activa' || x.n > 0)
+        .map((x) => tarjetaClase(x.c.id, x.c.nombre, textoHorario(x.c), x.n)).join('');
+      const ns = deClase('sin').length;
+      if (ns) html += tarjetaClase('sin', 'Sin clase', '', ns);
+      html = html || vacio(f === 'activa' ? 'Aún no hay clases ni alumnas.' : 'No hay alumnas de baja.');
+    }
+    document.getElementById('lista').innerHTML = html;
   };
   document.getElementById('buscar').oninput = dibujar; dibujar();
 }
 async function pantallaAlumna(id) {
   if (!puedeVer('alumnas')) return sinPermiso();
   const a = await q(sb.from('alumnas').select('*').eq('id', id).single());
-  const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,clases(id,nombre,dia_semana,hora_inicio)').eq('alumna_id', id).order('fecha_alta', { ascending: false }))) : [];
+  const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,clases(id,nombre,' + SEL_HOR + ')').eq('alumna_id', id).order('fecha_alta', { ascending: false }))) : [];
   const e = edad(a.fecha_nacimiento);
   const tel = (t) => t ? `<a href="tel:${esc(t)}" style="color:var(--morado3)">${esc(t)}</a> · <a href="https://wa.me/${esc(t.replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1'))}" target="_blank" rel="noopener" style="color:#1FA855">WhatsApp</a>` : '—';
-  pintar(cabecera(`${a.nombre} ${a.apellidos || ''}`, { volver: '#/alumnas', sub: a.estado === 'activa' ? 'Activa desde ' + fechaCorta(a.fecha_alta) : 'De baja' }) + `<main class="cont">
+  pintar(cabecera(`${a.nombre} ${a.apellidos || ''}`, { volver: '#/alumnas', sub: (a.estado === 'activa' ? 'Activa desde ' + fechaCorta(a.fecha_alta) : 'De baja') + (a.cuota === 'media' ? ' · Medio mes' : '') }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
+      <dt>Mensualidad</dt><dd>${a.cuota === 'media' ? '<span class="chip oro">Medio mes</span>' : 'Mes completo'}</dd>
       <dt>Edad</dt><dd>${e != null ? e + ' años' : '—'}</dd>
       <dt>Teléfono</dt><dd>${tel(a.telefono)}</dd><dt>Correo</dt><dd>${esc(a.email || '—')}</dd>
       ${a.tutor_nombre || (e != null && e < 18) ? `<dt>Tutor</dt><dd>${esc(a.tutor_nombre || '—')}</dd><dt>Tel. tutor</dt><dd>${tel(a.tutor_telefono)}</dd>` : ''}
       ${a.notas ? `<dt>Notas</dt><dd>${esc(a.notas)}</dd>` : ''}
     </dl></div>
-    ${puedeVer('inscripciones') ? `<div class="seccion">Clases</div><div class="lista">${ins.filter((i) => !i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${DIAS[i.clases.dia_semana]} ${hora(i.clases.hora_inicio)} · desde ${fechaCorta(i.fecha_alta)}`, der: puedeEditar('inscripciones') ? `<button class="chip no" data-baja-ins="${i.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('No está en ninguna clase.')}</div>
+    ${puedeVer('inscripciones') ? `<div class="seccion">Clases</div><div class="lista">${ins.filter((i) => !i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${esc(textoHorario(i.clases))} · desde ${fechaCorta(i.fecha_alta)}`, der: puedeEditar('inscripciones') ? `<button class="chip no" data-baja-ins="${i.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('No está en ninguna clase.')}</div>
       ${ins.some((i) => i.fecha_baja) ? `<div class="seccion">Clases anteriores</div><div class="lista">${ins.filter((i) => i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${fechaCorta(i.fecha_alta)} – ${fechaCorta(i.fecha_baja)}` })).join('')}</div>` : ''}
       ${puedeEditar('inscripciones') && a.estado === 'activa' ? `<a class="btn sec" href="#/inscripcion/nueva?alumna=${id}">${ico('mas')} Añadir a una clase</a>` : ''}` : ''}
     ${puedeEditar('alumnas') ? `<div class="botones"><a class="btn sec" href="#/alumna/${id}/editar">${ico('lapiz')} Editar</a>
@@ -675,7 +805,7 @@ async function pantallaEscuela(id) {
   const [e, res, clases, notas, coinc] = await Promise.all([
     q(sb.from('escuelas_amigas').select('*').eq('id', id).single()),
     q(sb.from('escuela_amiga_resumen').select('*').eq('id', id).single()),
-    puedeVer('clases') ? intentar(() => q(sb.from('clases').select('*').eq('escuela_amiga_id', id).order('dia_semana').order('hora_inicio'))) : [],
+    puedeVer('clases') ? intentar(() => q(sb.from('clases').select('*,' + SEL_HOR).eq('escuela_amiga_id', id))) : [],
     q(sb.from('notas_escuela_amiga').select('*').eq('escuela_amiga_id', id).order('fecha', { ascending: false })),
     q(sb.from('coincidencias_escuela_amiga').select('*').eq('escuela_amiga_id', id))
   ]);
@@ -687,7 +817,7 @@ async function pantallaEscuela(id) {
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
       ${puedeEditar('caja') && +res.cuota_mensual > 0 ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes)}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
     ${puedeVer('clases') ? `<div class="seccion">Sus clases en nuestra sala</div>
-      <div class="lista">${clases.map((c) => fila({ href: `#/clase/${c.id}`, ini: hora(c.hora_inicio), tit: c.nombre, det: esc(`${DIAS[c.dia_semana]} ${hora(c.hora_inicio)}–${hora(c.hora_fin)} · Sala ${c.sala || '—'} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: c.activa ? '' : '<span class="chip gris">Inactiva</span>' })).join('') || vacio('Sin clases registradas.')}</div>
+      <div class="lista">${clases.sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => fila({ href: `#/clase/${c.id}`, ini: iniciales(c.nombre), tit: c.nombre, det: esc(`${textoHorario(c)} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: c.activa ? '' : '<span class="chip gris">Inactiva</span>' })).join('') || vacio('Sin clases registradas.')}</div>
       ${puedeEditar('clases') ? `<a class="btn sec" href="#/escuela/${id}/clase/nueva">${ico('mas')} Añadir clase externa</a>` : ''}` : ''}
     <div class="seccion">Coincidencias (${coinc.length})</div>
     <div class="lista">${coinc.map((c) => fila({ href: `#/alumna/${c.alumna_id}`, tit: `${c.nombre} ${c.apellidos || ''}`, det: esc([c.clase_externa, c.notas].filter(Boolean).join(' · ')) })).join('') || vacio('Ninguna alumna nuestra va a esta escuela.')}</div>
@@ -706,18 +836,7 @@ const formEscuela = (id) => pantallaForm({
     { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
   ]
 });
-async function formClaseExterna(escuela, id) {
-  await pantallaForm({
-    titulo: id ? 'Editar clase externa' : 'Nueva clase externa', tabla: 'clases', modulo: 'clases', id, volver: `#/escuela/${escuela}`,
-    valoresIniciales: { escuela_amiga_id: escuela },
-    transformar: (d) => Object.assign(d, { escuela_amiga_id: escuela, profesora_id: null }),
-    campos: [
-      { k: 'nombre', label: 'Nombre de la clase', req: true }, { k: 'dia_semana', label: 'Día', tipo: 'select', req: true, vacio: false, opciones: DIAS.slice(1).map((d, i) => [i + 1, d]) },
-      { k: 'hora_inicio', label: 'Empieza', tipo: 'hora', req: true }, { k: 'hora_fin', label: 'Termina', tipo: 'hora', req: true }, { k: 'sala', label: 'Sala' },
-      { k: 'profesora_externa', label: 'Su profesora' }, { k: 'alumnas_externas', label: 'Número de alumnas', tipo: 'numero' }, { k: 'activa', label: 'Clase activa', tipo: 'bool', def: true }
-    ]
-  });
-}
+const formClaseExterna = (escuela, id) => formClase(id, escuela);
 async function pantallaCoincidencias() {
   if (!puedeVer('escuelas_amigas')) return sinPermiso();
   const l = await q(sb.from('coincidencias_escuela_amiga').select('*').order('nombre'));
@@ -730,7 +849,7 @@ async function formCoincidencia(params) {
   const campos = [
     { k: 'alumna_id', label: 'Alumna nuestra', tipo: 'select', req: true, opciones: puedeVer('alumnas') ? await intentar(opcionesAlumnas) : [] },
     { k: 'escuela_amiga_id', label: 'Escuela amiga', tipo: 'select', req: true, opciones: await intentar(opcionesEscuelas) },
-    { k: 'clase_id', label: 'Clase de la escuela amiga', tipo: 'select', opciones: puedeVer('clases') ? (await intentar(() => q(sb.from('clases').select('id,nombre,dia_semana').not('escuela_amiga_id', 'is', null)))).map((c) => [c.id, `${c.nombre} · ${DIAS[c.dia_semana]}`]) : [] },
+    { k: 'clase_id', label: 'Clase de la escuela amiga', tipo: 'select', opciones: puedeVer('clases') ? (await intentar(() => q(sb.from('clases').select('id,nombre,' + SEL_HOR).not('escuela_amiga_id', 'is', null)))).map((c) => [c.id, `${c.nombre} · ${textoHorario(c)}`]) : [] },
     { k: 'notas', label: 'Notas', tipo: 'textarea' }
   ];
   const volver = escuela ? `#/escuela/${escuela}` : '#/coincidencias';
@@ -946,8 +1065,8 @@ async function router() {
       case 'nueva-clave': return pantallaNuevaClave();
       case 'clases': return await pantallaClases(params);
       case 'clase':
-        if (p[1] === 'nueva') return await pantallaForm({ titulo: 'Nueva clase', tabla: 'clases', modulo: 'clases', campos: await CAMPOS_CLASE(), volver: '#/clases', despues: (r) => `#/clase/${r.id}` });
-        if (p[2] === 'editar') return await pantallaForm({ titulo: 'Editar clase', tabla: 'clases', modulo: 'clases', id: p[1], campos: await CAMPOS_CLASE(), volver: `#/clase/${p[1]}` });
+        if (p[1] === 'nueva') return await formClase(null);
+        if (p[2] === 'editar') return await formClase(p[1]);
         return await pantallaClase(p[1]);
       case 'alumnas': return await pantallaAlumnas(params);
       case 'alumna':
@@ -1003,7 +1122,7 @@ document.addEventListener('click', (ev) => {
   const v = ev.target.closest('[data-volver]');
   if (v) { ev.preventDefault(); location.hash = v.dataset.volver; }
 });
-window.addEventListener('hashchange', router);
+window.addEventListener('hashchange', () => { document.getElementById('aviso').className = ''; router(); });
 
 sb.auth.onAuthStateChange((evento) => {
   if (evento === 'PASSWORD_RECOVERY') { location.hash = '#/nueva-clave'; }

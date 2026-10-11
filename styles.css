@@ -131,6 +131,28 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .tarjeta-caja b{font-family:'Sora',sans-serif;font-size:19px}
 .tarjeta-caja .txt span{font-size:13px;opacity:0.8}
 
+/* Clases: tarjetas y editor de horarios */
+.tarjeta-clase{display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:20px;background:#fff;border:1px solid var(--borde);box-shadow:var(--sombra);border-left:5px solid var(--morado)}
+.tarjeta-clase.externa{border-left-color:var(--oro2)}
+.tarjeta-clase .tc-cab{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.tarjeta-clase h2{font-size:18px}
+.tarjeta-clase .tc-hor{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--morado3);font-size:14px}
+.tarjeta-clase .tc-pie{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--texto2)}
+.horarios{display:flex;flex-direction:column;gap:10px}
+.horario{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:14px;background:var(--bg1);border:1px solid rgba(70,55,140,0.14)}
+.dias-sel{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.dias-sel button{height:42px;border-radius:12px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-weight:700;cursor:pointer;color:var(--texto2)}
+.dias-sel button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;border-color:transparent}
+.horas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.horas label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:var(--texto2)}
+.horas input{width:100%;min-width:0;min-height:46px;padding:10px;border-radius:12px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-size:16px}
+.quitar-h{align-self:flex-end;border:0;background:none;color:var(--gasto);font-weight:700;font-size:13px;cursor:pointer;padding:4px}
+.horarios .horario:only-child .quitar-h{display:none}
+
+.chips{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.contador{min-width:40px;height:40px;padding:0 10px;border-radius:999px;display:grid;place-items:center;font-family:'Sora',sans-serif;font-weight:700;font-size:18px;color:#fff;background:linear-gradient(135deg,var(--morado),var(--morado2))}
+.contador.gris{background:rgba(107,104,129,0.6)}
+
 /* Caja */
 .totales{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .totales div{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:10px;text-align:center;box-shadow:var(--sombra)}
