@@ -31,6 +31,7 @@ const hora = (t) => t ? t.slice(0, 5) : '';
 const diaISO = (d = new Date()) => ((d.getDay() + 6) % 7) + 1;
 const iniciales = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const edad = (iso) => { if (!iso) return null; const n = aFecha(iso), h = new Date(); let e = h.getFullYear() - n.getFullYear(); if (h < new Date(h.getFullYear(), n.getMonth(), n.getDate())) e--; return e; };
+const toMin = (h) => { const [a, b] = String(h || '0:0').split(':').map(Number); return a * 60 + b; };
 const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
@@ -232,32 +233,64 @@ function pantallaNuevaClave() {
 /* ---------- inicio ---------- */
 async function pantallaInicio() {
   const hoy = hoyISO(), dia = diaISO();
-  const [clases, caja] = await Promise.all([
-    puedeVer('clases') ? intentar(() => q(sb.from('clases').select('id,nombre,hora_inicio,hora_fin,sala,profesora_externa,profesoras(nombre),escuelas_amigas(nombre)').eq('activa', true).eq('dia_semana', dia).order('hora_inicio'))) : [],
-    puedeVer('caja') ? intentar(() => q(sb.from('caja').select('tipo,importe').eq('fecha', hoy))) : []
-  ]);
+  const profesora = !S.admin && Object.values(S.permisos).some((p) => p.solo_propias);
+  // Todas las clases activas propias (a una profesora con "solo lo suyo" la base de datos solo le da las suyas).
+  const clases = puedeVer('clases') ? await intentar(() => q(sb.from('clases')
+    .select('id,nombre,dia_semana,hora_inicio,hora_fin,sala,profesoras(nombre),inscripciones(count)')
+    .eq('activa', true).is('escuela_amiga_id', null).order('dia_semana').order('hora_inicio'))) : [];
+  // Orden: empezando por la próxima clase de la semana (o la que está en curso).
   const ahora = new Date().toTimeString().slice(0, 5);
-  const proximas = clases.filter((c) => hora(c.hora_fin) > ahora);
-  const resto = clases.filter((c) => hora(c.hora_fin) <= ahora);
-  const tarj = [...proximas, ...resto].map((c, i) => `<a class="clase-hero" href="#/clase/${c.id}">
+  const minutos = (c) => { const d = (c.dia_semana - dia + 7) % 7; const fin = hora(c.hora_fin); return (d === 0 && fin <= ahora ? 7 : d) * 1440 + toMin(hora(c.hora_inicio)); };
+  clases.sort((x, y) => minutos(x) - minutos(y));
+  const cuando = (c) => {
+    if (c.dia_semana === dia && hora(c.hora_fin) > ahora) return hora(c.hora_inicio) <= ahora ? 'Ahora' : 'Hoy';
+    if (c.dia_semana === (dia % 7) + 1) return 'Mañana';
+    return DIAS[c.dia_semana];
+  };
+  const n = clases.length;
+  const tarjetas = clases.map((c, i) => {
+    const alumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
+    return `<a class="clase-hero" href="#/clase/${c.id}">
     <svg class="estrella" width="96" height="96" viewBox="0 0 24 24"><polygon points="12,2 14.9,8.6 22,9.3 16.6,14 18.2,21 12,17.3 5.8,21 7.4,14 2,9.3 9.1,8.6" fill="#fff"/></svg>
-    <div class="k"><span>${i === 0 && proximas.length ? 'Próxima clase' : (hora(c.hora_fin) <= ahora ? 'Terminada' : 'Hoy')}</span><span class="hora">${hora(c.hora_inicio)}</span></div>
-    <h2>${esc(c.nombre)}</h2><div class="d">${[c.sala ? 'Sala ' + esc(c.sala) : '', c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : (c.profesora_externa ? esc(c.profesora_externa) : ''), c.escuelas_amigas ? esc(c.escuelas_amigas.nombre) : ''].filter(Boolean).join(' · ')}</div></a>`).join('');
-  let ing = 0, gas = 0; caja.forEach((m) => { if (m.tipo === 'ingreso') ing += +m.importe; else gas += +m.importe; });
-  const accesos = [
+    <div class="k"><span>${i === 0 ? 'Próxima clase · ' : ''}${cuando(c)}</span><span class="hora">${hora(c.hora_inicio)}</span></div>
+    <h2>${esc(c.nombre)}</h2>
+    <div class="d">${[c.sala ? 'Sala ' + esc(c.sala) : '', c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div>
+    ${n > 1 ? `<button class="sig-clase" data-sig="${i}" aria-label="Siguiente clase">${ico('sig', 22)}</button>` : ''}</a>`;
+  }).join('');
+  const bloqueClases = !puedeVer('clases') ? '' : n
+    ? `<div class="slider"><div class="carrusel uno" id="carrusel">${tarjetas}</div>${n > 1 ? `<div class="puntos-slider" id="puntos">${clases.map((c, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`
+    : `<div class="clase-hero vacia"><div class="k"><span>Clases</span></div><h2>Aún no hay clases</h2><div class="d">${puedeEditar('clases') ? 'Crea la primera y aparecerá aquí.' : 'Cuando tengas clases asignadas aparecerán aquí.'}</div>
+       ${puedeEditar('clases') ? `<a class="btn-hero" href="#/clase/nueva">${ico('mas', 16)} Crear clase</a>` : ''}</div>`;
+  const tarjetaCaja = puedeVer('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
+  const accesos = (profesora ? [
+    ['clases', '#/clases', 'clases', 'Mis clases', 'Horarios y alumnas', false],
+    ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
+    ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
+    ['eventos', '#/eventos', 'evento', 'Mis eventos', 'Próximos', false],
+    ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false]
+  ] : [
     ['alumnas', '#/alumna/nueva', 'insc', 'Nueva alumna', 'Dar de alta', true],
     ['caja', `#/caja/nuevo?fecha=${hoy}`, 'euro', 'Movimiento', 'Ingreso o gasto', true],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Próximos', false],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
-  ].filter((a) => a[5] ? puedeEditar(a[0]) : puedeVer(a[0]));
+  ]).filter((x) => x[5] ? puedeEditar(x[0]) : puedeVer(x[0]));
   pintar(cabecera('Inicio', { sub: capital(fechaLarga(hoy)) }) + `<main class="cont">
-    ${puedeVer('clases') ? (tarj ? `<div class="carrusel">${tarj}</div>` : vacio('Hoy no hay clases.')) : ''}
-    ${puedeVer('caja') ? `<a class="tarjeta" href="#/caja/dia/${hoy}" style="display:flex;justify-content:space-between;align-items:center"><div><div class="seccion" style="margin:0">Caja de hoy</div><div style="margin-top:6px"><b class="in">+${eur(ing)}</b> &nbsp; <b class="out">−${eur(gas)}</b></div></div>${ico('sig')}</a>` : ''}
-    ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((a) => `<a class="acceso" href="${a[1]}"><span class="ico">${ico(a[2])}</span><b>${a[3]}</b><span>${a[4]}</span></a>`).join('')}</div>` : ''}
+    ${bloqueClases}
+    ${tarjetaCaja}
+    ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${!S.admin && !Object.values(S.permisos).some((p) => p.puede_ver) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>`, 'inicio');
+  const car = document.getElementById('carrusel'), puntos = document.getElementById('puntos');
+  if (car && puntos) {
+    const actual = () => Math.round(car.scrollLeft / car.clientWidth);
+    car.addEventListener('scroll', () => { const k = actual(); puntos.querySelectorAll('i').forEach((p, j) => p.classList.toggle('on', j === k)); }, { passive: true });
+    car.querySelectorAll('[data-sig]').forEach((b) => b.onclick = (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      const k = (+b.dataset.sig + 1) % n; car.scrollTo({ left: k * car.clientWidth, behavior: 'smooth' });
+    });
+  }
 }
 
 /* ---------- más ---------- */
