@@ -121,9 +121,9 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
   background:rgba(255,255,255,0.18);color:#fff;display:grid;place-items:center;cursor:pointer}
 .clase-hero.vacia{width:100%}
 .clase-hero .btn-hero{position:relative;display:inline-flex;align-items:center;gap:6px;margin-top:12px;min-height:44px;padding:0 16px;border-radius:999px;background:#fff;color:var(--morado3);font-weight:700;font-size:14px}
-.puntos-slider{display:flex;justify-content:center;gap:7px}
-.puntos-slider i{width:8px;height:8px;border-radius:999px;background:rgba(118,80,224,0.22);transition:all .2s}
-.puntos-slider i.on{width:22px;background:var(--morado)}
+.puntos-slider{display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 0}
+.puntos-slider i{width:8px;height:8px;border-radius:999px;background:rgba(118,80,224,0.18);transition:all .25s;cursor:pointer}
+.puntos-slider i.on{width:26px;height:10px;background:linear-gradient(90deg,#9B7BFF,var(--morado));box-shadow:0 0 0 3px rgba(118,80,224,0.18),0 0 12px 2px rgba(138,104,240,0.75)}
 .tarjeta-caja{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:20px;color:#3A2A08;
   background:linear-gradient(135deg,#F3E3B4 0%,var(--oro1) 45%,var(--oro2) 100%);border:1px solid rgba(176,134,40,0.35);box-shadow:0 12px 26px rgba(160,120,40,0.25)}
 .tarjeta-caja .ico-caja{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,0.45);flex:none}

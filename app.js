@@ -267,11 +267,9 @@ async function pantallaInicio() {
   const tarjetas = clases.map((c, i) => {
     const alumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
     return `<a class="clase-hero" href="#/clase/${c.id}">
-    <svg class="estrella" width="96" height="96" viewBox="0 0 24 24"><polygon points="12,2 14.9,8.6 22,9.3 16.6,14 18.2,21 12,17.3 5.8,21 7.4,14 2,9.3 9.1,8.6" fill="#fff"/></svg>
     <div class="k"><span>${i === 0 ? 'Próxima clase · ' : ''}${cuando(c)}</span><span class="hora">${c._h ? hora(c._h.hora_inicio) : ''}</span></div>
     <h2>${esc(c.nombre)}</h2>
-    <div class="d">${[esc(textoHorario(c)), c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div>
-    ${n > 1 ? `<button class="sig-clase" data-sig="${i}" aria-label="Siguiente clase">${ico('sig', 22)}</button>` : ''}</a>`;
+    <div class="d">${[esc(textoHorario(c)), c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : '', alumnas + (alumnas === 1 ? ' alumna' : ' alumnas')].filter(Boolean).join(' · ')}</div></a>`;
   }).join('');
   const bloqueClases = !puedeVer('clases') ? '' : n
     ? `<div class="slider"><div class="carrusel uno" id="carrusel">${tarjetas}</div>${n > 1 ? `<div class="puntos-slider" id="puntos">${clases.map((c, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`
@@ -304,10 +302,8 @@ async function pantallaInicio() {
   if (car && puntos) {
     const actual = () => Math.round(car.scrollLeft / car.clientWidth);
     car.addEventListener('scroll', () => { const k = actual(); puntos.querySelectorAll('i').forEach((p, j) => p.classList.toggle('on', j === k)); }, { passive: true });
-    car.querySelectorAll('[data-sig]').forEach((b) => b.onclick = (ev) => {
-      ev.preventDefault(); ev.stopPropagation();
-      const k = (+b.dataset.sig + 1) % n; car.scrollTo({ left: k * car.clientWidth, behavior: 'smooth' });
-    });
+    // Tocar un punto lleva a esa tarjeta
+    puntos.querySelectorAll('i').forEach((p, j) => p.onclick = () => car.scrollTo({ left: j * car.clientWidth, behavior: 'smooth' }));
   }
 }
 
