@@ -3,7 +3,7 @@
   --texto:#1F1D2B; --texto2:#6B6881;
   --borde:rgba(70,55,140,0.10);
   --morado:#7650E0; --morado2:#5A3BC4; --morado3:#4F34B5;
-  --dorado:#A87A00; --oro1:#FFCB2E; --oro2:#FFBF00; --oro3:#E0A800; --negro:#161616;
+  --dorado:#D94848; --oro1:#FF8A8A; --oro2:#FF6B6B; --oro3:#E85555; --negro:#161616;
   --ingreso:#1F8A5C; --gasto:#D12F3B;
   --sombra:0 6px 20px rgba(60,40,140,0.08);
   --radio:18px;
@@ -31,10 +31,10 @@ h1,h2,h3{font-family:'Sora',sans-serif;font-weight:600;letter-spacing:-0.01em;ma
 .cab .logo{width:48px;height:48px;border-radius:50%;box-shadow:0 0 0 1px rgba(70,55,140,0.14),0 8px 24px rgba(138,104,240,0.30);flex:none}
 .cab .volver{width:44px;height:44px;border-radius:50%;border:1px solid var(--borde);background:#fff;display:grid;place-items:center;flex:none;box-shadow:var(--sombra);cursor:pointer}
 .cab .t{flex:1;min-width:0}
-.cab .sup{font-size:11px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#B88600}
+.cab .sup{font-size:11px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#E04F4F}
 .cab h1{font-size:26px;line-height:1.1;margin-top:2px}
 .cab .sub{font-size:13px;color:var(--texto2);margin-top:2px}
-.insignia{padding:5px 12px;border-radius:999px;border:0;background:#FFBF00;color:var(--negro);font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 4px 12px rgba(255,191,0,0.35)}
+.insignia{padding:5px 12px;border-radius:999px;border:0;background:#FF6B6B;color:var(--negro);font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 4px 12px rgba(255,107,107,0.35)}
 
 main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 
@@ -57,7 +57,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .chip.ok{background:rgba(31,138,92,0.12);color:var(--ingreso)}
 .chip.no{background:rgba(209,47,59,0.10);color:var(--gasto)}
 .chip.gris{background:rgba(107,104,129,0.12);color:var(--texto2)}
-.chip.oro{background:rgba(217,165,32,0.18);color:var(--dorado)}
+.chip.oro{background:rgba(255,107,107,0.14);color:#C93B3B}
 .chip.mor{background:rgba(118,80,224,0.12);color:var(--morado3)}
 .filtros{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .filtros::-webkit-scrollbar{display:none}
@@ -75,7 +75,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .botones{display:flex;gap:10px;flex-wrap:wrap}
 .botones .btn{flex:1}
 .mas-flotante{position:fixed;right:max(20px,calc(50% - 220px));bottom:calc(96px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:50%;border:0;z-index:5;cursor:pointer;
-  background:#FFBF00;color:var(--negro);box-shadow:0 12px 26px rgba(160,120,40,0.40);display:grid;place-items:center}
+  background:#FF6B6B;color:var(--negro);box-shadow:0 12px 26px rgba(255,107,107,0.40);display:grid;place-items:center}
 
 /* Formularios */
 .campo{display:flex;flex-direction:column;gap:6px}
@@ -125,7 +125,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .puntos-slider i{width:8px;height:8px;border-radius:999px;background:rgba(118,80,224,0.22);transition:all .2s;cursor:pointer}
 .puntos-slider i.on{width:22px;background:var(--morado)}
 .tarjeta-caja{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:20px;color:var(--negro);
-  background:#FFBF00;border:0;box-shadow:0 12px 26px rgba(160,120,40,0.25)}
+  background:#FF6B6B;border:0;box-shadow:0 12px 26px rgba(255,107,107,0.30)}
 .tarjeta-caja .ico-caja{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,0.45);flex:none}
 .tarjeta-caja .txt{flex:1;display:flex;flex-direction:column}
 .tarjeta-caja b{font-family:'Sora',sans-serif;font-size:19px}
@@ -205,9 +205,9 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .nota{font-size:13px;color:var(--texto2);margin:0}
 .fila .tit.envolver{white-space:normal}
 .fila-btn{width:100%;text-align:left;font:inherit}
-.barra{height:10px;border-radius:999px;background:rgba(255,191,0,0.18);overflow:hidden}
-.barra i{display:block;height:100%;border-radius:999px;background:#FFBF00;transition:width .3s}
-.contador.oro{background:#FFBF00;color:var(--negro)}
+.barra{height:10px;border-radius:999px;background:rgba(255,107,107,0.18);overflow:hidden}
+.barra i{display:block;height:100%;border-radius:999px;background:#FF6B6B;transition:width .3s}
+.contador.oro{background:#FF6B6B;color:var(--negro)}
 .tarjeta-clase .contador{font-size:15px}
 .quitar-r{border:0;background:none;color:var(--gasto);font-weight:700;font-size:13px;cursor:pointer;padding:8px}
 .input-oro{margin-top:6px;width:100%;min-height:42px;padding:8px 12px;border-radius:12px;border:1px solid rgba(143,106,28,0.35);background:rgba(255,255,255,0.65);font-size:16px;color:var(--negro);outline:none}
@@ -215,7 +215,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .semanas{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .semanas button{min-height:56px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;color:var(--texto2);font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer}
 .semanas button.hoy{border-color:var(--morado)}
-.semanas button.on{background:#FFBF00;color:var(--negro);border-color:transparent}
+.semanas button.on{background:#FF6B6B;color:var(--negro);border-color:transparent}
 .semanas button.on svg{fill:currentColor}
 .semanas button:disabled{cursor:default}
 .puntuar{display:flex;flex-direction:column;gap:8px}
@@ -229,14 +229,14 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .podio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;text-align:center}
 .podio div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:13px}
 .podio div span:last-child{color:var(--texto2)}
-.medalla{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--negro);background:#FFBF00}
+.medalla{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--negro);background:#FF6B6B}
 .medalla.m2{background:linear-gradient(135deg,#E6E6EE,#B9B8C8)}
 .medalla.m3{background:linear-gradient(135deg,#F0CDB0,#C98E5F)}
 
 /* Vista previa de profesora */
 .banda-vista{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:#1F1D2B;color:#fff;font-size:14px}
 .banda-vista span{flex:1}
-.banda-vista button{border:0;border-radius:999px;padding:8px 14px;background:#FFBF00;color:var(--negro);font-weight:700;cursor:pointer}
+.banda-vista button{border:0;border-radius:999px;padding:8px 14px;background:#FF6B6B;color:var(--negro);font-weight:700;cursor:pointer}
 .banda-vista + .cab{padding-top:14px}
 
 /* Tarjeta de clase del Inicio: días, profesora y número de alumnas */
