@@ -250,13 +250,17 @@ function pantallaLogin() {
   };
 }
 function pantallaNuevaClave() {
-  pintar(cabecera('Nueva contraseña', { volver: '#/inicio' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+  // Primera vez que entra con la contraseña que le dio la administración: tiene que poner la suya
+  const primera = !!(S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave);
+  pintar(cabecera(primera ? 'Crea tu contraseña' : 'Nueva contraseña', primera ? { sub: '¡Bienvenida a Blackstars!' } : { volver: '#/inicio' }) + `<main class="cont">
+    ${primera ? '<div class="tarjeta"><p style="margin:0">Es tu primera vez en la app. Elige una contraseña tuya, que solo sepas tú. A partir de ahora entrarás con tu email y esta contraseña.</p></div>' : ''}
+    <form class="form tarjeta" id="frm">
     <div class="campo"><label for="pw">Nueva contraseña</label><input id="pw" type="password" minlength="8" autocomplete="new-password" required><div class="ayuda">Mínimo 8 caracteres.</div></div>
     <button class="btn pri ancho">Guardar</button></form></main>`, false);
   document.getElementById('frm').onsubmit = async (ev) => {
     ev.preventDefault();
-    const { error } = await sb.auth.updateUser({ password: ev.target.pw.value });
-    if (error) aviso(traducirError(error), true); else { aviso('Contraseña cambiada'); location.hash = '#/inicio'; }
+    const { data, error } = await sb.auth.updateUser({ password: ev.target.pw.value, data: { cambiar_clave: false } });
+    if (error) aviso(traducirError(error), true); else { if (data && data.user) S.usuario = data.user; aviso('Contraseña guardada'); location.hash = '#/inicio'; router(); }
   };
 }
 
@@ -425,7 +429,7 @@ async function formAcceso(params) {
   pintar(cabecera(prof ? 'Darle acceso' : 'Añadir persona', { volver: '#/equipo', sub: prof ? esc(prof.nombre) : 'Entrará con su email y contraseña' }) + `<main class="cont"><form class="form tarjeta" id="frm">
     ${campoHtml({ k: 'nombre', label: 'Nombre', req: true }, prof ? prof.nombre : '')}
     ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', req: true, ph: 'nombre@gmail.com' }, prof ? prof.email : '')}
-    ${campoHtml({ k: 'clave', label: 'Contraseña para su primer acceso', req: true, ayuda: 'Luego la puede cambiar en Más › Cambiar mi contraseña.' }, clave)}
+    ${campoHtml({ k: 'clave', label: 'Contraseña provisional', req: true, ayuda: 'Solo sirve para la primera vez: al entrar, la app le pide crear la suya.' }, clave)}
     ${campoHtml({ k: 'plantilla', label: 'Permisos', tipo: 'select', req: true, opciones: Object.entries(PLANTILLAS).map(([k, t]) => [k, t.nombre]) }, prof ? 'profesora' : 'gestion')}
     <button class="btn pri ancho" type="submit">Dar acceso</button></form></main>`, false);
   const form = document.getElementById('frm');
@@ -441,7 +445,7 @@ async function formAcceso(params) {
         throw new Error(msg);
       }
       const url = location.origin + location.pathname;
-      const texto = `Hola ${d.nombre.split(' ')[0]}, ya tienes acceso a la app de Academia Blackstars.\n\nEntra en: ${url}\nEmail: ${d.email}\nContraseña: ${d.clave}\n\nTe recomiendo añadirla a la pantalla de inicio del móvil y activar los avisos en la campana.`;
+      const texto = `Hola ${d.nombre.split(' ')[0]}, ya tienes acceso a la app de Academia Blackstars.\n\nEntra en: ${url}\nEmail: ${d.email}\nContraseña provisional: ${d.clave}\n\nAl entrar la primera vez te pedirá crear tu propia contraseña. Te recomiendo añadirla a la pantalla de inicio del móvil y activar los avisos en la campana.`;
       const tel = prof && prof.telefono ? prof.telefono.replace(/\D/g, '') : '';
       pintar(cabecera('¡Acceso creado!', { volver: '#/equipo' }) + `<main class="cont"><div class="tarjeta"><h2>${esc(d.nombre)} ya puede entrar</h2>
         <p class="nota" style="margin:8px 0 0">Mándale estos datos. Tiene los permisos de "${esc(t.nombre)}"; puedes cambiarlos en Equipo.</p>
@@ -1690,6 +1694,7 @@ async function router() {
   const qs = new URLSearchParams(location.search);
   if (qs.get('f')) return formularioPublico(qs.get('f'));
   if (!S.usuario) return pantallaLogin();
+  if (S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave) return pantallaNuevaClave();
   const [ruta, query] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
   const params = new URLSearchParams(query || '');
   const p = ruta.split('/');

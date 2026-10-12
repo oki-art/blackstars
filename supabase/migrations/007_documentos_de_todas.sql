@@ -17,19 +17,15 @@ returns table (id uuid, nombre text) language sql stable security definer set se
   order by p.nombre;
 $$;
 
-drop policy documentos_select on public.documentos;
-create policy documentos_select on public.documentos for select using (
+alter policy documentos_select on public.documentos using (
   public.gestiona_documentos() or para_perfil = auth.uid() or creado_por = auth.uid());
-drop policy documentos_insert on public.documentos;
-create policy documentos_insert on public.documentos for insert with check (
+alter policy documentos_insert on public.documentos with check (
   public.gestiona_documentos() or (creado_por = auth.uid() and not pide_firma and public.recibe_documentos(para_perfil)));
 
-drop policy documentos_archivos_ver on storage.objects;
-create policy documentos_archivos_ver on storage.objects for select to authenticated using (
+alter policy documentos_archivos_ver on storage.objects using (
   bucket_id = 'documentos' and (public.gestiona_documentos() or exists (
     select 1 from public.documentos d where d.id::text = (storage.foldername(name))[1] and (d.para_perfil = auth.uid() or d.creado_por = auth.uid()))));
-drop policy documentos_archivos_subir on storage.objects;
-create policy documentos_archivos_subir on storage.objects for insert to authenticated with check (
+alter policy documentos_archivos_subir on storage.objects with check (
   bucket_id = 'documentos' and (public.gestiona_documentos()
     or (storage.filename(name) like 'firmado.%' and exists (
       select 1 from public.documentos d where d.id::text = (storage.foldername(name))[1] and d.para_perfil = auth.uid()))

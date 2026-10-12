@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
 
     const { nombre, email, clave, profesora_id, permisos } = await req.json();
     if (!nombre || !email || !clave || String(clave).length < 8) return resp({ error: 'Faltan datos (la contraseña necesita 8 caracteres o más)' }, 400);
-    const { data: nuevo, error } = await admin.auth.admin.createUser({ email: String(email).trim().toLowerCase(), password: String(clave), email_confirm: true, user_metadata: { nombre } });
+    const { data: nuevo, error } = await admin.auth.admin.createUser({ email: String(email).trim().toLowerCase(), password: String(clave), email_confirm: true, user_metadata: { nombre, cambiar_clave: true } });
     if (error || !nuevo.user) return resp({ error: /already|registered|exists/i.test(error?.message || '') ? 'Ese email ya tiene acceso' : 'No se pudo crear el usuario' }, 400);
     const id = nuevo.user.id;
     await admin.from('perfiles').update({ nombre: String(nombre).trim() }).eq('id', id);
