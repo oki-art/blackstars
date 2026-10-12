@@ -668,24 +668,28 @@ function cajaPorClase(movs, { conFecha, volver }) {
       <div class="cc-movs">${g.l.map((x) => movCaja(x, { conFecha, volver })).join('')}</div></details>`;
   }).join('');
 }
-// Mensualidad: por clase, alumnas que han pagado y lo cobrado; arriba el total de todas las clases
-function cajaMensualidad(movs, inscritas) {
-  const grupos = new Map();
+// Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
+function cajaMensualidad(movs, ins) {
+  const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
+  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
   movs.filter((x) => x.tipo === 'ingreso' && x.alumna_id && x.clase_id).forEach((x) => {
-    if (!grupos.has(x.clase_id)) grupos.set(x.clase_id, { nombre: x.clases ? x.clases.nombre : 'Clase', al: new Map(), total: 0 });
-    const g = grupos.get(x.clase_id), a = g.al.get(x.alumna_id) || { nombre: x.alumnas ? `${x.alumnas.nombre} ${x.alumnas.apellidos || ''}`.trim() : 'Alumna', importe: 0, n: 0 };
+    const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0 };
     a.importe += +x.importe; a.n++; g.al.set(x.alumna_id, a); g.total += +x.importe;
   });
+  (ins || []).forEach((x) => { const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'); if (!g.al.has(x.alumna_id)) g.faltan.set(x.alumna_id, nom(x.alumnas)); });
   if (!grupos.size) return vacio('Este mes todavía no hay cobros de alumnas con su clase.');
-  const lista = [...grupos.entries()].sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
-  const nAl = lista.reduce((t, [, g]) => t + g.al.size, 0), total = lista.reduce((t, [, g]) => t + g.total, 0);
-  const tarjetas = lista.map(([id, g]) => {
-    const de = inscritas && inscritas[id] ? ` de ${inscritas[id]}` : '';
-    return `<details class="caja-clase"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${g.al.size}${de} alumna${g.al.size === 1 && !de ? '' : 's'} pagada${g.al.size === 1 && !de ? '' : 's'}</small></span>
+  const lista = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const nAl = lista.reduce((t, g) => t + g.al.size, 0), nFal = lista.reduce((t, g) => t + g.faltan.size, 0), total = lista.reduce((t, g) => t + g.total, 0);
+  const porNombre = (a, b) => a.localeCompare(b, 'es');
+  const tarjetas = lista.map((g) => {
+    const n = g.al.size, de = ins ? ` de ${n + g.faltan.size}` : '';
+    const pagadas = [...g.al.values()].sort((a, b) => porNombre(a.nombre, b.nombre)).map((a) => `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(a.nombre)}</span>${a.n > 1 ? `<span class="det">${a.n} pagos</span>` : ''}</span><b class="in">${eur(a.importe)}</b></div>`).join('');
+    const faltan = [...g.faltan.values()].sort(porNombre).map((f) => `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(f)}</span></span><b>Pendiente</b></div>`).join('');
+    return `<details class="caja-clase"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
-      <div class="cc-movs">${[...g.al.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((a) => `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(a.nombre)}</span>${a.n > 1 ? `<span class="det">${a.n} pagos</span>` : ''}</span><b class="in">${eur(a.importe)}</b></div>`).join('')}</div></details>`;
+      <div class="cc-movs">${pagadas}${faltan}</div></details>`;
   }).join('');
-  return `<div class="lista"><div class="mens-total"><span><small>Total mensualidades</small><b>${nAl} alumna${nAl === 1 ? '' : 's'} · ${lista.length} clase${lista.length === 1 ? '' : 's'}</b></span><b class="mens-eur">${eur(total)}</b></div>${tarjetas}</div>`;
+  return `<div class="lista"><div class="mens-total"><span><small>Total mensualidades</small><b>${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}</b>${ins ? `<em>Faltan ${nFal}</em>` : ''}</span><b class="mens-eur">${eur(total)}</b></div>${tarjetas}</div>`;
 }
 const filtrosCaja = (base, v, mens = false) => `<div class="filtros">${[['clase', 'Por clase'], ['todas', 'Todas'], ...(mens ? [['mensualidad', 'Mensualidad']] : [])].map(([k, t]) => `<button data-ir="${base}v=${k}" class="${v === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
 function listaCaja(movs, v, { conFecha, volver }) {
@@ -702,11 +706,9 @@ async function pantallaCaja(params) {
   const movs = await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en'));
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
-  let inscritas = null;
-  if (v === 'mensualidad' && puedeVer('inscripciones')) {
-    const ins = await intentar(() => q(sb.from('inscripciones').select('clase_id').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`)));
-    if (ins) { inscritas = {}; ins.forEach((x) => { inscritas[x.clase_id] = (inscritas[x.clase_id] || 0) + 1; }); }
-  }
+  // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
+  const ins = v === 'mensualidad' && puedeVer('inscripciones')
+    ? await intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
   const primero = (new Date(y, m - 1, 1).getDay() + 6) % 7, nDias = new Date(y, m, 0).getDate();
   let cal = DIAS_C.map((d) => `<div class="dow">${d}</div>`).join('') + '<div></div>'.repeat(primero);
@@ -722,7 +724,7 @@ async function pantallaCaja(params) {
     <div class="tarjeta"><div class="calendario">${cal}</div></div>
     <div class="seccion">Movimientos del mes</div>
     ${movs.length ? filtrosCaja(`#/caja?mes=${mes}&`, v, true) : ''}
-    ${!movs.length ? vacio('Sin movimientos este mes.') : v === 'mensualidad' ? cajaMensualidad(movs, inscritas) : listaCaja(movs, v, { conFecha: true, volver: `#/caja?mes=${mes}&v=${v}` })}
+    ${!movs.length ? vacio('Sin movimientos este mes.') : v === 'mensualidad' ? cajaMensualidad(movs, ins) : listaCaja(movs, v, { conFecha: true, volver: `#/caja?mes=${mes}&v=${v}` })}
   </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}` : null);
 }
 async function pantallaCajaDia(fecha, params) {

@@ -1,5 +1,5 @@
 // Guarda la app en el móvil para que abra rápido. Los datos siempre vienen de Supabase.
-const VERSION = 'bs-v10';
+const VERSION = 'bs-v11';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/logo.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ARCHIVOS))); self.skipWaiting(); });
