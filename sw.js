@@ -16,3 +16,21 @@ self.addEventListener('fetch', (e) => {
     const copia = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copia)); return r;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))));
 });
+
+// Avisos al móvil (los manda el servicio "enviar-push" de Supabase)
+self.addEventListener('push', (e) => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch (_) { d = { titulo: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.titulo || 'Blackstars', {
+    body: d.texto || '', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', data: { enlace: d.enlace || '#/avisos' }
+  }));
+});
+// Al tocar el aviso se abre la app en esa pantalla
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL('./' + (e.notification.data && e.notification.data.enlace || '#/avisos'), self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ws) => {
+    const w = ws.find((c) => c.url.startsWith(self.registration.scope));
+    if (w) { w.navigate(url); return w.focus(); }
+    return self.clients.openWindow(url);
+  }));
+});

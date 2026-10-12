@@ -7,13 +7,13 @@ const sb = supabase.createClient(window.BS_CONFIG.url, window.BS_CONFIG.key, {
 });
 
 const $app = document.getElementById('app');
-const S = { usuario: null, perfil: null, permisos: {}, admin: false, nombres: {} };
+const S = { usuario: null, perfil: null, permisos: {}, admin: false, nombres: {}, noLeidas: 0 };
 
 const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -48,6 +48,9 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
   const p = {
+    doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+    subir: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+    bajar: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v4h16v-4"/>',
     campana: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
     idea: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     volver: '<path d="M15 5l-7 7 7 7"/>', sig: '<path d="M9 5l7 7-7 7"/>', mas: '<path d="M12 5v14M5 12h14"/>',
@@ -118,7 +121,8 @@ function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
     ? `<button class="volver" data-volver="${esc(volver)}" aria-label="Volver">${ico('volver')}</button>`
     : `<img class="logo" src="icons/logo.png" alt="Blackstars">`;
   const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin' : (S.perfil ? esc(S.perfil.nombre) : '');
-  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${rol ? `<span class="insignia">${rol}</span>` : ''}</header>`;
+  const campana = S.usuario && insignia == null ? `<a class="campana ${S.noLeidas ? 'con' : ''}" id="campana" href="#/avisos" aria-label="Avisos">${ico('campana', 22)}<i></i></a>` : '';
+  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana) ? `<span class="insignia">${rol}</span>` : ''}</div></header>`;
 }
 function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
@@ -127,6 +131,15 @@ function navegacion(activa, ver = puedeVer) {
 function pintar(html, nav = null, botonMas = null) {
   $app.innerHTML = html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
   window.scrollTo(0, 0);
+  if (document.getElementById('campana')) actualizarCampana();
+}
+// Punto de la campana: hay avisos sin leer
+async function actualizarCampana() {
+  try {
+    const { count } = await sb.from('notificaciones').select('id', { count: 'exact', head: true }).is('leida_en', null);
+    S.noLeidas = count || 0;
+    const c = document.getElementById('campana'); if (c) c.classList.toggle('con', S.noLeidas > 0);
+  } catch (e) { /* sin avisos todavía */ }
 }
 function fila({ href, ini, tit, det = '', der = '', iconoHtml = '' }) {
   return `<a class="fila" href="${esc(href)}">${iconoHtml || `<span class="ini">${esc(ini ?? iniciales(tit))}</span>`}<span class="txt"><div class="tit">${esc(tit)}</div>${det ? `<div class="det">${det}</div>` : ''}</span>${der}</a>`;
@@ -298,30 +311,10 @@ async function pantallaInicio(vista = null) {
         <div class="nota">${retos.length ? `${hechos.length} de ${retos.length * SEMANAS} conseguidos` : 'Aún no hay retos este mes'}</div></a>`;
     }
   }
-  // Novedades desde la última vez que la persona las marcó como vistas (se guarda en este móvil)
-  let novedades = '';
-  if (!vista) {
-    const clave = 'bs-visto-' + S.usuario.id;
-    let desde = null; try { desde = localStorage.getItem(clave); } catch (e) {}
-    if (!desde) { const d = new Date(); d.setDate(d.getDate() - 14); desde = d.toISOString(); }
-    const [ns, evs, ins] = await Promise.all([
-      ver('normas') ? intentar(() => q(sb.from('normas').select('id,titulo,creado_en,modificado_en,creado_por,modificado_por').eq('activa', true).or(`creado_en.gt.${desde},modificado_en.gt.${desde}`))) : [],
-      ver('eventos') ? intentar(() => q(sb.from('eventos').select('id,titulo,fecha,creado_en,modificado_en,creado_por,modificado_por').or(`creado_en.gt.${desde},modificado_en.gt.${desde}`))) : [],
-      ver('iniciativas') && !S.admin ? intentar(() => q(sb.from('iniciativas').select('id,titulo,estado,modificado_en').eq('creado_por', S.usuario.id).gt('modificado_en', desde))) : []
-    ]);
-    // Lo que cambió una misma no es novedad para ella
-    const deOtra = (x) => (x.modificado_en && x.modificado_en > desde ? x.modificado_por : x.creado_por) !== S.usuario.id;
-    const items = [
-      ...ns.filter(deOtra).map((x) => ({ t: x.modificado_en || x.creado_en, ic: 'normas', k: x.modificado_en && x.modificado_en > desde && x.creado_en <= desde ? 'Norma cambiada' : 'Norma nueva', tit: x.titulo, href: '#/normas' })),
-      ...evs.filter(deOtra).map((x) => ({ t: x.modificado_en || x.creado_en, ic: 'evento', k: x.creado_en > desde ? 'Evento nuevo' : 'Evento cambiado', tit: `${x.titulo} · ${fechaCorta(x.fecha)}`, href: `#/evento/${x.id}` })),
-      ...ins.map((x) => ({ t: x.modificado_en, ic: 'idea', k: 'Respuesta a tu iniciativa', tit: `${x.titulo} · ${ESTADOS_INI[x.estado][0]}`, href: `#/iniciativa/${x.id}` }))
-    ].sort((a, b) => String(b.t).localeCompare(String(a.t))).slice(0, 6);
-    if (items.length) novedades = `<section class="novedades"><div class="nv-cab"><b>${ico('campana', 20)} Novedades <span class="nv-n">${items.length}</span></b><button id="nv-visto">Marcar como visto</button></div>
-      ${items.map((x) => `<a class="nv-item" href="${x.href}"><span class="ico">${ico(x.ic, 18)}</span><span class="txt"><small>${x.k}</small><b>${esc(x.tit)}</b></span>${ico('sig', 18)}</a>`).join('')}</section>`;
-  }
   const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
   const accesos = (profesora ? [
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
+    ['*', '#/documentos', 'doc', 'Documentos', 'Para leer y firmar', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
     ['logros', '#/logros', 'trofeo', 'Logros', 'Mis retos y estrellas', false],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
@@ -335,17 +328,14 @@ async function pantallaInicio(vista = null) {
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos y estrellas', false],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
-  ]).filter((x) => x[5] ? editar(x[0]) : ver(x[0]));
+  ]).filter((x) => x[0] === '*' || (x[5] ? editar(x[0]) : ver(x[0])));
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="#/vista">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? 'Profesora' : null }) + `<main class="cont">
-    ${novedades}
     ${bloqueClases}
     ${barraLogros}
     ${tarjetaCaja}
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
-  const nv = document.getElementById('nv-visto');
-  if (nv) nv.onclick = () => { try { localStorage.setItem('bs-visto-' + S.usuario.id, new Date().toISOString()); } catch (e) {} nv.closest('.novedades').remove(); };
   const car = document.getElementById('carrusel'), puntos = document.getElementById('puntos');
   if (car && puntos) {
     const paso = () => car.clientWidth + 14;   // ancho de tarjeta + separación
@@ -380,6 +370,7 @@ function pantallaMas() {
   const items = [
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos del mes y estrellas de alumnas'],
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propuestas de las profesoras'],
+    ['*', '#/documentos', 'doc', 'Documentos', 'Enviar, firmar y devolver'],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Talleres, shows y fiestas'],
     ['profesoras', '#/profesoras', 'profe', 'Profesoras', 'Equipo y clases asignadas'],
     ['incidencias', '#/incidencias', 'alerta', 'Incidencias', 'Lo que pasa en clase'],
@@ -387,7 +378,7 @@ function pantallaMas() {
     ['inscripciones', '#/inscripciones', 'insc', 'Inscripciones', 'Altas y bajas en clases'],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces para alumnas y respuestas'],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuelas amigas', 'Clases externas, cuota y coincidencias']
-  ].filter((i) => puedeVer(i[0]));
+  ].filter((i) => i[0] === '*' || puedeVer(i[0]));
   const ic = (n) => `<span class="ini">${ico(n)}</span>`;
   pintar(cabecera('Más', { sub: 'Todo lo demás, a un toque' }) + `<main class="cont">
     <div class="tarjeta" style="display:flex;gap:12px;align-items:center"><span class="ini" style="width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:rgba(201,165,90,0.18);color:#8F6A1C;font-weight:700">${esc(iniciales(S.perfil && S.perfil.nombre))}</span>
@@ -903,6 +894,151 @@ async function pantallaIniciativa(id) {
   if (b) b.onclick = async () => {
     if (!confirm('¿Borrar esta iniciativa? No se puede deshacer.')) return;
     try { await q(sb.from('iniciativas').delete().eq('id', id)); aviso('Borrado'); location.hash = '#/iniciativas'; } catch (e) { aviso(traducirError(e), true); }
+  };
+}
+
+/* ---------- avisos (campana) ---------- */
+const ICO_AVISO = { aviso: 'campana', norma: 'normas', evento: 'evento', iniciativa: 'idea', documento: 'doc' };
+const pushPosible = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && !!window.BS_CONFIG.vapid;
+const b64aBytes = (b) => { const p = '='.repeat((4 - b.length % 4) % 4), r = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
+async function activarPush() {
+  if (await Notification.requestPermission() !== 'granted') throw new Error('Has dicho que no a los avisos. Puedes cambiarlo en los ajustes del móvil.');
+  const reg = await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64aBytes(window.BS_CONFIG.vapid) });
+  const j = sub.toJSON();
+  await sb.from('push_suscripciones').delete().eq('endpoint', j.endpoint);
+  await q(sb.from('push_suscripciones').insert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }));
+}
+async function pantallaAvisos() {
+  const l = await q(sb.from('notificaciones').select('*').order('creado_en', { ascending: false }).limit(100));
+  let pushActivo = false;
+  if (pushPosible() && Notification.permission === 'granted') { try { pushActivo = !!(await (await navigator.serviceWorker.ready).pushManager.getSubscription()); } catch (e) {} }
+  const instalada = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const tarjetaPush = pushActivo ? '' : pushPosible()
+    ? `<button class="tarjeta-caja ini-nueva" id="activar-push" style="width:100%;text-align:left;cursor:pointer"><span class="ico-caja">${ico('campana', 26)}</span><span class="txt"><b>Avisos en el móvil</b><span>Actívalos para enterarte al momento</span></span>${ico('sig', 22)}</button>`
+    : `<div class="nota">${/iPhone|iPad/.test(navigator.userAgent) && !instalada ? 'Para recibir avisos en el iPhone, primero añade la app a la pantalla de inicio (Compartir › Añadir a pantalla de inicio) y ábrela desde ahí.' : 'Este móvil no permite avisos de la app.'}</div>`;
+  pintar(cabecera('Avisos', { volver: '#/inicio', sub: 'Lo nuevo para ti' }) + `<main class="cont">
+    ${tarjetaPush}
+    <div class="lista">${l.map((n) => `<a class="aviso-fila ${n.leida_en ? '' : 'nueva'}" href="${esc(n.enlace || '#/avisos')}" data-aviso="${n.id}">
+      <span class="ico">${ico(ICO_AVISO[n.tipo] || 'campana', 18)}</span><span class="txt"><b>${esc(n.titulo)}</b>${n.texto ? `<span class="det">${esc(n.texto)}</span>` : ''}<small>${fechaCorta(n.creado_en)}</small></span>${n.leida_en ? '' : '<i class="punto"></i>'}</a>`).join('') || vacio('No tienes avisos.')}</div>
+  </main>`, 'inicio', S.admin ? '#/aviso' : null);
+  const b = document.getElementById('activar-push');
+  if (b) b.onclick = async () => { try { await activarPush(); aviso('Avisos activados en este móvil'); router(); } catch (e) { aviso(e.message || traducirError(e), true); } };
+  // Al entrar en un aviso, deja de estar sin leer
+  $app.querySelectorAll('[data-aviso]').forEach((a) => a.addEventListener('click', () => {
+    if (a.classList.contains('nueva')) sb.from('notificaciones').update({ leida_en: new Date().toISOString() }).eq('id', a.dataset.aviso).then(() => actualizarCampana());
+  }));
+}
+async function formAviso() {
+  if (!S.admin) return sinPermiso();
+  const ps = (await q(sb.from('perfiles').select('id,nombre').eq('activo', true).order('nombre'))).filter((p) => p.id !== S.usuario.id);
+  pintar(cabecera('Enviar aviso', { volver: '#/avisos', sub: 'Les llega a la campana y al móvil' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: 'Ej.: Ya está subido el calendario de diciembre' })}
+    ${campoHtml({ k: 'texto', label: 'Mensaje', tipo: 'textarea', ph: 'Opcional' })}
+    <div class="campo"><label>Para</label><label class="check"><input type="checkbox" id="todas" checked><span><b>Todo el equipo</b></span></label>
+      ${ps.map((p) => `<label class="check"><input type="checkbox" name="para" value="${p.id}" checked><span>${esc(p.nombre)}</span></label>`).join('')}</div>
+    <button class="btn pri ancho" type="submit">Enviar aviso</button></form></main>`, false);
+  const form = document.getElementById('frm'), todas = document.getElementById('todas');
+  todas.onchange = () => form.querySelectorAll('[name=para]').forEach((c) => { c.checked = todas.checked; });
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const para = [...form.querySelectorAll('[name=para]:checked')].map((c) => c.value);
+    if (!para.length) { aviso('Elige al menos una persona', true); return; }
+    try {
+      await q(sb.from('notificaciones').insert(para.map((id) => ({ perfil_id: id, tipo: 'aviso', titulo: form.titulo.value.trim(), texto: form.texto.value.trim() || null }))));
+      aviso('Aviso enviado'); location.hash = '#/avisos';
+    } catch (e) { aviso(traducirError(e), true); }
+  };
+}
+
+/* ---------- documentos ---------- */
+const gestionaDocs = () => S.admin || !!(S.permisos.documentos && S.permisos.documentos.puede_escribir && !S.permisos.documentos.solo_propias);
+const EST_DOC = { pendiente: ['Pendiente', 'oro'], firmado: ['Firmado', 'ok'], visto: ['Visto', 'mor'] };
+const extDe = (f) => (f.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '');
+async function abrirArchivo(ruta) {
+  const v = window.open('', '_blank');
+  try { const { data, error } = await sb.storage.from('documentos').createSignedUrl(ruta, 300); if (error) throw error; if (v) v.location = data.signedUrl; else location.href = data.signedUrl; }
+  catch (e) { if (v) v.close(); aviso(traducirError(e), true); }
+}
+async function pantallaDocumentos(params) {
+  const ges = gestionaDocs(), f = ['pendiente', 'firmado', 'todos'].includes(params.get('f')) ? params.get('f') : 'pendiente';
+  let r = sb.from(S.admin ? 'documentos_con_autor' : 'documentos').select('*').order('creado_en', { ascending: false }).limit(200);
+  if (!ges) r = r.eq('para_perfil', S.usuario.id); else if (f !== 'todos') r = f === 'pendiente' ? r.eq('estado', 'pendiente') : r.neq('estado', 'pendiente');
+  const [l, dest] = await Promise.all([q(r), ges ? intentar(async () => q(sb.rpc('destinatarias'))) : []]);
+  const nombre = Object.fromEntries((dest || []).map((d) => [d.id, d.nombre]));
+  pintar(cabecera('Documentos', { volver: ges ? '#/mas' : '#/inicio', sub: ges ? 'Enviados al equipo' : 'Para leer y firmar' }) + `<main class="cont">
+    ${ges ? `<div class="filtros">${[['pendiente', 'Pendientes'], ['firmado', 'Devueltos'], ['todos', 'Todos']].map(([k, t]) => `<button data-ir="#/documentos?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+    <div class="lista">${l.map((d) => fila({ href: `#/documento/${d.id}`, iconoHtml: `<span class="ini">${ico('doc', 18)}</span>`, tit: d.titulo,
+      det: esc([ges ? 'Para ' + (nombre[d.para_perfil] || '¿?') : d.pide_firma ? 'Hay que firmarlo' : 'Para leer', fechaCorta(d.creado_en)].join(' · ')),
+      der: `<span class="chip ${EST_DOC[d.estado][1]}">${d.estado === 'pendiente' && !d.pide_firma ? 'Nuevo' : EST_DOC[d.estado][0]}</span>` })).join('') || vacio(ges ? 'No hay documentos aquí.' : 'No tienes documentos.')}</div>
+  </main>`, ges ? 'mas' : 'inicio', ges ? '#/documento/nuevo' : null);
+}
+async function formDocumento() {
+  if (!gestionaDocs()) return sinPermiso();
+  const dest = (await q(sb.rpc('destinatarias'))).filter((d) => d.id !== S.usuario.id);
+  pintar(cabecera('Enviar documento', { volver: '#/documentos', sub: 'PDF o foto, máx. 10 MB' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: 'Ej.: Acuerdo de colaboración 2026' })}
+    ${campoHtml({ k: 'para', label: 'Para', tipo: 'select', req: true, opciones: dest.map((d) => [d.id, d.nombre]) })}
+    ${campoHtml({ k: 'nota', label: 'Nota', tipo: 'textarea', ph: 'Opcional: qué tiene que hacer con él' })}
+    <div class="campo"><label for="f_archivo">Archivo *</label><label class="subir-archivo">${ico('subir', 20)}<span id="nom-archivo">Elegir PDF o foto</span><input id="f_archivo" type="file" accept="application/pdf,image/*" required hidden></label></div>
+    <label class="check"><input type="checkbox" name="pide_firma" checked><span>Tiene que devolverlo firmado</span></label>
+    <button class="btn pri ancho" type="submit">Enviar</button></form></main>`, false);
+  const form = document.getElementById('frm'), inp = document.getElementById('f_archivo');
+  inp.onchange = () => { document.getElementById('nom-archivo').textContent = inp.files[0] ? inp.files[0].name : 'Elegir PDF o foto'; };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const file = inp.files[0]; if (!file) { aviso('Elige el archivo', true); return; }
+    if (file.size > 10485760) { aviso('El archivo pasa de 10 MB', true); return; }
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Subiendo…';
+    try {
+      const id = crypto.randomUUID(), ruta = `${id}/original.${extDe(file)}`;
+      const { error } = await sb.storage.from('documentos').upload(ruta, file, { contentType: file.type });
+      if (error) throw error;
+      await q(sb.from('documentos').insert({ id, titulo: form.titulo.value.trim(), para_perfil: form.para.value, nota: form.nota.value.trim() || null, archivo: ruta, pide_firma: form.pide_firma.checked }));
+      aviso('Documento enviado'); location.hash = '#/documentos';
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; btn.textContent = 'Enviar'; }
+  };
+}
+async function pantallaDocumento(id) {
+  const d = await q(sb.from(S.admin ? 'documentos_con_autor' : 'documentos').select('*').eq('id', id).single());
+  const ges = gestionaDocs(), mio = d.para_perfil === S.usuario.id;
+  const dest = ges ? await intentar(async () => q(sb.rpc('destinatarias'))) : [];
+  const para = (dest.find((x) => x.id === d.para_perfil) || {}).nombre;
+  pintar(cabecera('Documento', { volver: '#/documentos' }) + `<main class="cont">
+    <div class="tarjeta"><div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><span class="chip mor">${d.pide_firma ? 'Para firmar' : 'Para leer'}</span><span class="chip ${EST_DOC[d.estado][1]}">${EST_DOC[d.estado][0]}</span></div>
+      <h2 style="margin-top:10px">${esc(d.titulo)}</h2>
+      ${d.nota ? `<p style="margin:8px 0 0;white-space:pre-wrap;color:var(--texto2)">${esc(d.nota)}</p>` : ''}
+      <div class="nota" style="margin-top:10px">${[d.registrado_por ? 'Enviado por ' + esc(d.registrado_por) : '', para ? 'para ' + esc(para) : '', fechaCorta(d.creado_en)].filter(Boolean).join(' · ')}</div></div>
+    <button class="btn sec ancho" id="ver-original">${ico('bajar')} Descargar documento</button>
+    ${d.archivo_firmado ? `<div class="tarjeta doc-firmado"><b>${ico('doc', 18)} Devuelto firmado</b><div class="nota">${fechaCorta(d.devuelto_en)}</div><button class="btn sec ancho" id="ver-firmado">${ico('bajar')} Ver el firmado</button></div>` : ''}
+    ${mio && d.pide_firma ? `<div class="tarjeta"><h3>${d.archivo_firmado ? '¿Te has equivocado?' : 'Devolverlo firmado'}</h3>
+      <p class="nota" style="margin:6px 0 12px">1. Descárgalo. 2. Fírmalo en el móvil (en el iPhone: Archivos › Marcación; en Android: con tu app de PDF) o imprímelo, fírmalo y hazle una foto. 3. Súbelo aquí.</p>
+      <label class="subir-archivo">${ico('subir', 20)}<span>${d.archivo_firmado ? 'Subir otra vez' : 'Subir firmado'}</span><input id="subir-firmado" type="file" accept="application/pdf,image/*" hidden></label></div>` : ''}
+    ${mio && !d.pide_firma && d.estado === 'pendiente' ? '<button class="btn pri ancho" id="visto">Ya lo he leído</button>' : ''}
+    ${S.admin ? '<button class="btn peligro ancho" id="borrar">Borrar definitivamente</button>' : ''}
+  </main>`, ges ? 'mas' : 'inicio');
+  document.getElementById('ver-original').onclick = () => abrirArchivo(d.archivo);
+  const vf = document.getElementById('ver-firmado'); if (vf) vf.onclick = () => abrirArchivo(d.archivo_firmado);
+  const sf = document.getElementById('subir-firmado');
+  if (sf) sf.onchange = async () => {
+    const file = sf.files[0]; if (!file) return;
+    if (file.size > 10485760) { aviso('El archivo pasa de 10 MB', true); return; }
+    aviso('Subiendo…');
+    try {
+      const ruta = `${d.id}/firmado.${extDe(file)}`;
+      const { error } = await sb.storage.from('documentos').upload(ruta, file, { contentType: file.type, upsert: true });
+      if (error) throw error;
+      await q(sb.from('documentos').update({ archivo_firmado: ruta, estado: 'firmado' }).eq('id', d.id));
+      aviso('¡Enviado firmado!'); router();
+    } catch (e) { aviso(traducirError(e), true); }
+  };
+  const vi = document.getElementById('visto');
+  if (vi) vi.onclick = async () => { try { await q(sb.from('documentos').update({ estado: 'visto' }).eq('id', d.id)); aviso('Hecho'); router(); } catch (e) { aviso(traducirError(e), true); } };
+  const b = document.getElementById('borrar');
+  if (b) b.onclick = async () => {
+    if (!confirm('¿Borrar este documento y sus archivos? No se puede deshacer.')) return;
+    try { await sb.storage.from('documentos').remove([d.archivo, d.archivo_firmado].filter(Boolean)); await q(sb.from('documentos').delete().eq('id', d.id)); aviso('Borrado'); location.hash = '#/documentos'; }
+    catch (e) { aviso(traducirError(e), true); }
   };
 }
 
@@ -1455,6 +1591,10 @@ async function router() {
     switch (p[0]) {
       case 'inicio': return await pantallaInicio();
       case 'mas': return pantallaMas();
+      case 'avisos': return await pantallaAvisos();
+      case 'aviso': return await formAviso();
+      case 'documentos': return await pantallaDocumentos(params);
+      case 'documento': return p[1] === 'nuevo' ? await formDocumento() : await pantallaDocumento(p[1]);
       case 'nueva-clave': return pantallaNuevaClave();
       case 'clases': return await pantallaClases(params);
       case 'clase':
