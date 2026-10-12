@@ -851,7 +851,7 @@ function cajaMensualidad(movs, ins) {
   }).join('');
   return `<div class="lista"><div class="mens-total"><span><small>Total mensualidades</small><b>${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}</b>${ins ? `<em>Faltan ${nFal}</em>` : ''}</span><b class="mens-eur">${eur(total)}</b></div>${tarjetas}</div>`;
 }
-const filtrosCaja = (base, v, mens = false) => `<div class="filtros">${[['clase', 'Por clase'], ['todas', 'Todas'], ...(mens ? [['mensualidad', 'Mensualidad']] : [])].map(([k, t]) => `<button data-ir="${base}v=${k}" class="${v === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+const filtrosCaja = (base, v, mens = false) => `<div class="filtros">${[['clase', 'Por clase'], ['todas', 'Todas'], ...(mens ? [['mensualidad', 'Mensualidad'], ['horas', 'Horas']] : [])].map(([k, t]) => `<button data-ir="${base}v=${k}" class="${v === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
 function listaCaja(movs, v, { conFecha, volver }) {
   if (!movs.length) return '';
   if (v === 'todas') return `<div class="tarjeta caja-todas">${movs.slice().sort(ordenRegistro).map((x) => movCaja(x, { conFecha, conClase: true, volver })).join('')}</div>`;
@@ -859,6 +859,7 @@ function listaCaja(movs, v, { conFecha, volver }) {
 }
 async function pantallaCaja(params) {
   if (!puedeVer('caja')) return sinPermiso();
+  if (params.get('v') === 'horas') return await pantallaHoras(params);
   const hoy = hoyISO();
   const mes = params.get('mes') || hoy.slice(0, 7), v = ['todas', 'mensualidad'].includes(params.get('v')) ? params.get('v') : 'clase';
   const [y, m] = mes.split('-').map(Number);
@@ -883,9 +884,162 @@ async function pantallaCaja(params) {
     ${totalesCaja(tIn, tOut)}
     <div class="tarjeta"><div class="calendario">${cal}</div></div>
     <div class="seccion">Movimientos del mes</div>
-    ${movs.length ? filtrosCaja(`#/caja?mes=${mes}&`, v, true) : ''}
+    ${filtrosCaja(`#/caja?mes=${mes}&`, v, true)}
     ${!movs.length ? vacio('Sin movimientos este mes.') : v === 'mensualidad' ? cajaMensualidad(movs, ins) : listaCaja(movs, v, { conFecha: true, volver: `#/caja?mes=${mes}&v=${v}` })}
   </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}` : null);
+}
+/* ---------- Caja › Horas de las profesoras ----------
+   Se calculan con el horario de cada clase y los días del mes; las faltas, cambios y días sin clase
+   se apuntan aparte (tablas clases_cambios y dias_sin_clase). */
+const horasTxt = (min) => (min / 60).toLocaleString('es-ES', { maximumFractionDigits: 2 }) + ' h';
+const diasDelMes = (mes) => { const [y, m] = mes.split('-').map(Number), n = new Date(y, m, 0).getDate(); return Array.from({ length: n }, (_, i) => `${mes}-${pad(i + 1)}`); };
+async function datosHoras(mes) {
+  const dias = diasDelMes(mes), ini = dias[0], fin = dias[dias.length - 1];
+  const [clases, profes, equipo, cambios, festivos] = await Promise.all([
+    q(sb.from('clases').select('id,nombre,activa,profesora_id,escuela_amiga_id,' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null)),
+    q(sb.from('profesoras').select('id,nombre,activa').order('nombre')),
+    intentar(() => q(sb.rpc('equipo_sin_ficha'))),
+    q(sb.from('clases_cambios').select('*').gte('fecha', ini).lte('fecha', fin).order('fecha')),
+    q(sb.from('dias_sin_clase').select('*').gte('fecha', ini).lte('fecha', fin).order('fecha'))
+  ]);
+  return { dias, clases, profes, equipo, cambios, festivos };
+}
+function calcularHoras(mes, { dias, clases, profes, equipo, cambios, festivos }) {
+  const nombre = {}; profes.forEach((p) => { nombre['p:' + p.id] = p.nombre; }); equipo.forEach((e) => { nombre['e:' + e.id] = e.nombre; });
+  const sinClase = new Set(festivos.map((f) => f.fecha));
+  const cambio = {}; cambios.forEach((c) => { cambio[c.fecha + '|' + c.clase_id] = c; });
+  const P = {}; // persona → { min, clases: {claseId: {nombre, min, n, txt}}, extra: [], faltas: [] }
+  const de = (k) => (P[k] = P[k] || { k, nombre: nombre[k] || 'Sin profesora', min: 0, n: 0, clases: {}, extra: [], faltas: [] });
+  dias.forEach((f) => {
+    if (sinClase.has(f)) return;
+    const ds = diaISO(aFecha(f));
+    clases.forEach((c) => {
+      const hs = (c.clase_horarios || []).filter((h) => h.dia_semana === ds); if (!hs.length) return;
+      const min = hs.reduce((t, h) => t + toMin(h.hora_fin) - toMin(h.hora_inicio), 0);
+      const titular = c.profesora_id ? 'p:' + c.profesora_id : 'sin', cb = cambio[f + '|' + c.id];
+      if (cb) {
+        const quien = cb.anulada ? null : cb.cubre_profesora_id ? 'p:' + cb.cubre_profesora_id : 'e:' + cb.cubre_perfil_id;
+        if (quien === titular) { /* sin cambio real */ } else {
+          if (quien) { const x = de(quien); x.min += min; x.n++; x.extra.push({ f, c, min, por: nombre[titular] }); }
+          de(titular).faltas.push({ f, c, min, cubre: quien ? nombre[quien] || '¿?' : null, cb });
+          return;
+        }
+      }
+      const x = de(titular); x.min += min; x.n++;
+      const g = (x.clases[c.id] = x.clases[c.id] || { c, min: 0, n: 0, dur: min }); g.min += min; g.n++;
+    });
+  });
+  const lista = Object.values(P).sort((a, b) => (a.k === 'sin') - (b.k === 'sin') || a.nombre.localeCompare(b.nombre));
+  const semanas = Math.ceil((dias.length + ((aFecha(dias[0]).getDay() + 6) % 7)) / 7);
+  return { lista, total: lista.filter((x) => x.k !== 'sin').reduce((t, x) => t + x.min, 0), semanas };
+}
+async function pantallaHoras(params) {
+  const hoy = hoyISO(), mes = params.get('mes') || hoy.slice(0, 7);
+  const d = await datosHoras(mes), r = calcularHoras(mes, d), ed = puedeEditar('caja');
+  const [y, m] = mes.split('-').map(Number);
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
+  const diaC = (f) => capital(aFecha(f).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' }));
+  const tarjeta = (x) => {
+    const filas = Object.values(x.clases).sort((a, b) => ordenClase(a.c) - ordenClase(b.c)).map((g) => `<div class="mov"><span class="txt"><span class="tit">${esc(g.c.nombre)}</span><span class="det">${esc(textoHorario(g.c))} · ${g.n} clase${g.n === 1 ? '' : 's'}</span></span><b>${horasTxt(g.min)}</b></div>`)
+      .concat(x.extra.map((e) => `<div class="mov"><span class="txt"><span class="tit">Cubrió${e.por ? ' a ' + esc(e.por.split(' ')[0]) : ''} · ${esc(e.c.nombre)}</span><span class="det">${diaC(e.f)}</span></span><b class="in">+${horasTxt(e.min)}</b></div>`))
+      .concat(x.faltas.map((e) => `<div class="mov"><span class="txt"><span class="tit">${e.cubre ? 'Faltó · la cubrió ' + esc(e.cubre.split(' ')[0]) : 'Clase anulada'} · ${esc(e.c.nombre)}</span><span class="det">${diaC(e.f)}${e.cb.nota ? ' · ' + esc(e.cb.nota) : ''}</span></span><b class="out">−${horasTxt(e.min)}</b></div>`));
+    const det = [`${x.n} clase${x.n === 1 ? '' : 's'}`, x.extra.length ? `cubrió ${x.extra.length}` : '', x.faltas.length ? `faltó ${x.faltas.length}` : ''].filter(Boolean).join(' · ');
+    return `<details class="caja-clase ${x.k === 'sin' ? 'otros' : ''}"><summary class="cc-cab"><span><h3>${esc(x.nombre)}</h3><small>${det}</small></span><span class="cc-tot"><b style="color:var(--morado3)">${horasTxt(x.min)}</b></span><span class="cc-flecha">${ico('sig', 18)}</span></summary>
+      <div class="cc-movs">${filas.join('')}</div></details>`;
+  };
+  const cambiosTxt = d.cambios.length + d.festivos.length;
+  pintar(cabecera('Caja', { sub: 'Horas de las profesoras' }) + `<main class="cont">
+    <div class="mes"><button data-ir="#/caja?mes=${prev}&v=horas" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/caja?mes=${next}&v=horas" aria-label="Mes siguiente">${ico('sig')}</button></div>
+    ${filtrosCaja(`#/caja?mes=${mes}&`, 'horas', true)}
+    <div class="tarjeta horas-total"><div class="ht-sup">Horas del mes · ${r.semanas} semanas</div><div class="ht-num">${horasTxt(r.total)}</div>
+      <div class="ht-det">${r.lista.filter((x) => x.k !== 'sin').length} persona${r.lista.filter((x) => x.k !== 'sin').length === 1 ? '' : 's'}${cambiosTxt ? ` · ${d.cambios.length} cambio${d.cambios.length === 1 ? '' : 's'} · ${d.festivos.length} día${d.festivos.length === 1 ? '' : 's'} sin clase` : ''}</div></div>
+    <div class="lista">${r.lista.map(tarjeta).join('') || vacio('No hay clases con horario este mes.')}</div>
+    ${ed ? `<a class="btn sec" href="#/caja/cambio?mes=${mes}">${ico('mas')} Apuntar una falta o un cambio</a>` : ''}
+    <div class="seccion">Faltas y cambios del mes</div>
+    <div class="lista">${d.cambios.map((c) => { const cl = d.clases.find((x) => x.id === c.clase_id); const quien = c.anulada ? 'Anulada' : 'La da ' + ((c.cubre_profesora_id ? (d.profes.find((p) => p.id === c.cubre_profesora_id) || {}).nombre : (d.equipo.find((e) => e.id === c.cubre_perfil_id) || {}).nombre) || '¿?');
+      return fila({ iconoHtml: `<span class="ini">${ico('profe', 18)}</span>`, href: ed ? `#/caja/cambio?mes=${mes}&id=${c.id}` : `#/caja?mes=${mes}&v=horas`, tit: `${diaC(c.fecha)} · ${cl ? cl.nombre : 'Clase'}`, det: esc(quien + (c.nota ? ' · ' + c.nota : '')) }); }).join('') || vacio('Ninguna falta apuntada.')}</div>
+    <div class="seccion">Días sin clase</div>
+    <div class="lista">${d.festivos.map((f) => fila({ iconoHtml: `<span class="ini" style="color:#9A6326;background:rgba(242,196,141,0.25)">${ico('clases', 18)}</span>`, href: ed ? `#/caja/festivo?mes=${mes}&fecha=${f.fecha}` : `#/caja?mes=${mes}&v=horas`, tit: diaC(f.fecha), det: esc(f.motivo || 'Sin clase para nadie') })).join('') || vacio('Ningún festivo este mes.')}</div>
+    ${ed ? `<a class="btn sec" href="#/caja/festivo?mes=${mes}">${ico('mas')} Marcar un día sin clase</a>` : ''}
+  </main>`, 'caja');
+}
+async function formCambio(params) {
+  if (!puedeEditar('caja')) return sinPermiso();
+  const id = params.get('id'), mes = params.get('mes') || hoyISO().slice(0, 7), volver = `#/caja?mes=${mes}&v=horas`;
+  const reg = id ? await q(sb.from('clases_cambios').select('*').eq('id', id).single()) : null;
+  const d = await datosHoras((reg ? reg.fecha : mes + '-01').slice(0, 7));
+  const fecha0 = reg ? reg.fecha : (mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01');
+  const profeDe = (c) => d.profes.find((p) => p.id === c.profesora_id);
+  pintar(cabecera(id ? 'Editar cambio' : 'Falta o cambio', { volver, sub: 'Horas de las profesoras' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_fecha">Día *</label><input id="f_fecha" type="date" value="${fecha0}" required></div>
+    <div class="campo"><label for="f_clase">Clase *</label><select id="f_clase" required></select></div>
+    <div class="campo"><label for="f_quien">¿Quién la da ese día? *</label><select id="f_quien" required></select>
+      <div class="ayuda">Si la da otra persona, se le suma la hora. Si nadie, la clase no cuenta para nadie.</div></div>
+    <div class="campo"><label for="f_nota">Nota (opcional)</label><input id="f_nota" value="${esc(reg ? reg.nota || '' : '')}" placeholder="Por ejemplo: de médico"></div>
+  </form>
+  <div class="resumen-cambio" id="resumen"></div>
+  <button class="btn pri" id="guardar">Guardar</button>
+  ${reg ? '<button class="btn peligro" id="borrar">Borrar este cambio</button>' : ''}</main>`, 'caja');
+  const $f = document.getElementById('f_fecha'), $c = document.getElementById('f_clase'), $q = document.getElementById('f_quien'), $r = document.getElementById('resumen');
+  const clasesDia = () => { const ds = $f.value ? diaISO(aFecha($f.value)) : 0; return d.clases.filter((c) => (c.clase_horarios || []).some((h) => h.dia_semana === ds)).sort((a, b) => ordenClase(a) - ordenClase(b)); };
+  const pintarClases = (sel) => {
+    const l = clasesDia();
+    $c.innerHTML = l.length ? l.map((c) => { const h = c.clase_horarios.filter((x) => x.dia_semana === diaISO(aFecha($f.value)))[0]; const p = profeDe(c);
+      return `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.nombre)} · ${hora(h.hora_inicio)}–${hora(h.hora_fin)}${p ? ' (' + esc(p.nombre) + ')' : ''}</option>`; }).join('') : '<option value="">Ese día no hay clases</option>';
+  };
+  const pintarQuien = (sel) => {
+    const c = d.clases.find((x) => x.id === $c.value);
+    const otras = d.profes.filter((p) => p.activa && (!c || p.id !== c.profesora_id));
+    $q.innerHTML = (otras.length ? `<optgroup label="Profesoras">${otras.map((p) => `<option value="p:${p.id}" ${sel === 'p:' + p.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</optgroup>` : '')
+      + (d.equipo.length ? `<optgroup label="Resto del equipo">${d.equipo.map((e) => `<option value="e:${e.id}" ${sel === 'e:' + e.id ? 'selected' : ''}>${esc(e.nombre)}</option>`).join('')}</optgroup>` : '')
+      + `<option value="nadie" ${sel === 'nadie' ? 'selected' : ''}>Nadie, se anula la clase</option>`;
+    resumen();
+  };
+  const resumen = () => {
+    const c = d.clases.find((x) => x.id === $c.value); if (!c) { $r.innerHTML = ''; return; }
+    const h = c.clase_horarios.filter((x) => x.dia_semana === diaISO(aFecha($f.value))).reduce((t, x) => t + toMin(x.hora_fin) - toMin(x.hora_inicio), 0);
+    const p = profeDe(c), txt = $q.options[$q.selectedIndex] ? $q.options[$q.selectedIndex].text : '';
+    $r.innerHTML = `${p ? `Se quita ${horasTxt(h)} a <b>${esc(p.nombre)}</b>` : 'Esta clase no tiene profesora'}${$q.value === 'nadie' ? ' y no se suma a nadie.' : ` y se suma ${horasTxt(h)} a <b>${esc(txt)}</b>.`}`;
+  };
+  pintarClases(reg && reg.clase_id);
+  pintarQuien(reg ? (reg.anulada ? 'nadie' : reg.cubre_profesora_id ? 'p:' + reg.cubre_profesora_id : 'e:' + reg.cubre_perfil_id) : null);
+  $f.onchange = () => { if ($f.value.slice(0, 7) !== d.dias[0].slice(0, 7)) { location.hash = `#/caja/cambio?mes=${$f.value.slice(0, 7)}`; return; } pintarClases(); pintarQuien(); };
+  $c.onchange = () => pintarQuien($q.value); $q.onchange = resumen;
+  document.getElementById('guardar').onclick = async (ev) => {
+    const c = d.clases.find((x) => x.id === $c.value); if (!c) return aviso('Elige una clase', true);
+    const v = $q.value, datos = { fecha: $f.value, clase_id: c.id, falta_profesora_id: c.profesora_id || null, anulada: v === 'nadie',
+      cubre_profesora_id: v.startsWith('p:') ? v.slice(2) : null, cubre_perfil_id: v.startsWith('e:') ? v.slice(2) : null, nota: document.getElementById('f_nota').value.trim() || null };
+    ev.target.disabled = true;
+    try {
+      await q(reg ? sb.from('clases_cambios').update(datos).eq('id', reg.id) : sb.from('clases_cambios').insert(datos));
+      aviso('Guardado'); location.hash = `#/caja?mes=${datos.fecha.slice(0, 7)}&v=horas`;
+    } catch (e) { ev.target.disabled = false; aviso(/duplicate key/i.test(e.message || '') ? 'Esa clase ya tiene un cambio apuntado ese día. Ábrelo desde la lista para cambiarlo.' : traducirError(e), true); }
+  };
+  const bb = document.getElementById('borrar');
+  if (bb) bb.onclick = async () => { if (!confirm('¿Borrar este cambio? La clase vuelve a contar para su profesora.')) return;
+    try { await q(sb.from('clases_cambios').delete().eq('id', reg.id)); aviso('Borrado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); } };
+}
+async function formFestivo(params) {
+  if (!puedeEditar('caja')) return sinPermiso();
+  const mes = params.get('mes') || hoyISO().slice(0, 7), f0 = params.get('fecha'), volver = `#/caja?mes=${mes}&v=horas`;
+  const reg = f0 ? await q(sb.from('dias_sin_clase').select('*').eq('fecha', f0).maybeSingle()) : null;
+  pintar(cabecera(reg ? 'Día sin clase' : 'Marcar día sin clase', { volver, sub: 'No cuenta horas para nadie' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_fecha">Día *</label><input id="f_fecha" type="date" value="${reg ? reg.fecha : (mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01')}" required ${reg ? 'disabled' : ''}></div>
+    <div class="campo"><label for="f_motivo">Motivo</label><input id="f_motivo" value="${esc(reg ? reg.motivo || '' : '')}" placeholder="Por ejemplo: Navidad, festivo local"></div>
+  </form>
+  <button class="btn pri" id="guardar">Guardar</button>
+  ${reg ? '<button class="btn peligro" id="borrar">Quitar: ese día sí hay clase</button>' : ''}</main>`, 'caja');
+  document.getElementById('guardar').onclick = async (ev) => {
+    const fecha = document.getElementById('f_fecha').value, motivo = document.getElementById('f_motivo').value.trim() || null;
+    if (!fecha) return aviso('Elige el día', true);
+    ev.target.disabled = true;
+    try {
+      await q(reg ? sb.from('dias_sin_clase').update({ motivo }).eq('fecha', reg.fecha) : sb.from('dias_sin_clase').insert({ fecha, motivo }));
+      aviso('Guardado'); location.hash = `#/caja?mes=${fecha.slice(0, 7)}&v=horas`;
+    } catch (e) { ev.target.disabled = false; aviso(traducirError(e), true); }
+  };
+  const bb = document.getElementById('borrar');
+  if (bb) bb.onclick = async () => { try { await q(sb.from('dias_sin_clase').delete().eq('fecha', reg.fecha)); aviso('Quitado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); } };
 }
 async function pantallaCajaDia(fecha, params) {
   if (!puedeVer('caja')) return sinPermiso();
@@ -1802,6 +1956,8 @@ async function router() {
       case 'caja':
         if (p[1] === 'dia') return await pantallaCajaDia(p[2], params);
         if (p[1] === 'nuevo') return await formCaja(params);
+        if (p[1] === 'cambio') return await formCambio(params);
+        if (p[1] === 'festivo') return await formFestivo(params);
         if (p[2] === 'editar') return await formCaja(params, p[1]);
         return await pantallaCaja(params);
       case 'iniciativas': return await pantallaIniciativas(params);

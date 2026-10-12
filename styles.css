@@ -335,3 +335,10 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .nota-mes[open] .cc-flecha{transform:rotate(90deg)}
 .nota-mes[open]{padding-bottom:12px}
 .nota-mes .nota:first-of-type{margin-top:0}
+/* Caja › Horas */
+.horas-total{background:linear-gradient(135deg,var(--oro1),var(--oro2));border:0;color:var(--negro)}
+.ht-sup{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.ht-num{font-family:'Sora',sans-serif;font-size:34px;font-weight:700;line-height:1.2}
+.ht-det{font-size:14px}
+.resumen-cambio{background:rgba(118,80,224,0.08);border-radius:16px;padding:12px 14px;font-size:14px;color:var(--morado3)}
+.resumen-cambio:empty{display:none}
