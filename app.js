@@ -31,7 +31,7 @@ const fechaLarga = (iso) => aFecha(iso).toLocaleDateString('es-ES', { weekday: '
 const fechaCorta = (iso) => iso ? aFecha(iso.slice(0, 10)).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 const hora = (t) => t ? t.slice(0, 5) : '';
 const diaISO = (d = new Date()) => ((d.getDay() + 6) % 7) + 1;
-const iniciales = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const iniciales = (n) => String(n || '?').trim().split(/\s+/).filter((w) => /^\p{L}/u.test(w)).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 const edad = (iso) => { if (!iso) return null; const n = aFecha(iso), h = new Date(); let e = h.getFullYear() - n.getFullYear(); if (h < new Date(h.getFullYear(), n.getMonth(), n.getDate())) e--; return e; };
 const toMin = (h) => { const [a, b] = String(h || '0:0').split(':').map(Number); return a * 60 + b; };
 const horariosDe = (c) => (c.clase_horarios || []).slice().sort((a, b) => a.dia_semana - b.dia_semana || toMin(a.hora_inicio) - toMin(b.hora_inicio));
@@ -121,8 +121,10 @@ function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
     ? `<button class="volver" data-volver="${esc(volver)}" aria-label="Volver">${ico('volver')}</button>`
     : `<img class="logo" src="icons/logo.png" alt="Blackstars">`;
   const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin' : (S.perfil ? esc(S.perfil.nombre) : '');
-  const campana = S.usuario && insignia == null ? `<a class="campana ${S.noLeidas ? 'con' : ''}" id="campana" href="#/avisos" aria-label="Avisos">${ico('campana', 22)}<i></i></a>` : '';
-  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana) ? `<span class="insignia">${rol}</span>` : ''}</div></header>`;
+  // En "Ver como…" la campana solo se enseña (no abre tus avisos)
+  const campana = !S.usuario ? '' : insignia == null ? `<a class="campana ${S.noLeidas ? 'con' : ''}" id="campana" href="#/avisos" aria-label="Avisos">${ico('campana', 22)}<i></i></a>`
+    : `<span class="campana" aria-hidden="true">${ico('campana', 22)}<i></i></span>`;
+  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana && insignia == null) ? `<span class="insignia">${rol}</span>` : ''}</div></header>`;
 }
 function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
@@ -329,7 +331,7 @@ async function pantallaInicio(vista = null) {
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
   ]).filter((x) => x[0] === '*' || (x[5] ? editar(x[0]) : ver(x[0])));
-  pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="#/vista">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? 'Profesora' : null }) + `<main class="cont">
+  pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
     ${barraLogros}
     ${tarjetaCaja}
@@ -357,12 +359,54 @@ async function pantallaVista(id) {
       <p class="nota">Los permisos recomendados para una profesora son: ver sus clases, sus alumnas, normas y eventos; apuntar incidencias; Logros (dar estrellas) e Iniciativas (proponer ideas). Nunca Caja.</p>
     </main>`, 'mas');
   }
+  if (id === 'p') return vistaPersona(location.hash.split('/')[3]);
   const profesora = await q(sb.from('profesoras').select('id,nombre,perfil_id').eq('id', id).single());
   const filas = profesora.perfil_id ? await q(sb.from('permisos').select('*').eq('perfil_id', profesora.perfil_id)) : [];
   const permisos = {}; filas.forEach((f) => { permisos[f.modulo] = f; });
   const recomendada = !filas.length;
   if (recomendada) Object.entries(PERMISOS_PROFE).forEach(([m, n]) => { permisos[m] = { puede_ver: true, puede_escribir: n > 1, solo_propias: true }; });
   return pantallaInicio({ profesora, permisos, recomendada });
+}
+
+// "Ver su Inicio" de cualquier persona del equipo, con sus permisos reales
+async function vistaPersona(perfilId) {
+  if (!S.admin) return sinPermiso();
+  const [p, filas, prof] = await Promise.all([
+    q(sb.from('perfiles').select('id,nombre').eq('id', perfilId).single()),
+    q(sb.from('permisos').select('*').eq('perfil_id', perfilId)),
+    intentar(() => q(sb.from('profesoras').select('id,nombre').eq('perfil_id', perfilId)))
+  ]);
+  const permisos = {}; filas.forEach((f) => { permisos[f.modulo] = f; });
+  return pantallaInicio({ profesora: { id: prof[0] ? prof[0].id : null, nombre: p.nombre }, permisos, salir: `#/permisos?p=${perfilId}` });
+}
+
+/* ---------- equipo ---------- */
+// Plantillas de permisos de un toque: [ver=1 / editar=2, solo lo suyo]
+const PLANTILLAS = {
+  profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
+  caja: { nombre: 'Caja y recepción', solo: false, mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 1 } },
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.map(([m]) => [m, 2])) }
+};
+function resumenPersona(p, filas) {
+  if (p.rol === 'admin') return { tipo: 'Administración total', chip: '<span class="chip oro">Todo</span>' };
+  if (!p.activo) return { tipo: 'Acceso quitado', chip: '<span class="chip no">Sin acceso</span>' };
+  if (!filas.length) return { tipo: 'Sin permisos todavía', chip: '<span class="chip gris">Nada</span>' };
+  const ver = filas.filter((f) => f.puede_ver).length, ed = filas.filter((f) => f.puede_escribir).length;
+  const caja = filas.find((f) => f.modulo === 'caja');
+  const tipo = filas.some((f) => f.solo_propias) ? 'Profesora · solo lo suyo' : `Gestión · ${ver} de ${MODULOS.length} secciones`;
+  return { tipo, chip: caja ? `<span class="chip ${caja.puede_escribir ? 'ok' : 'mor'}">Caja ${caja.puede_escribir ? 'abierta' : 'solo ver'}</span>` : ed ? '' : '<span class="chip gris">Solo ver</span>' };
+}
+async function pantallaEquipo() {
+  if (!S.admin) return sinPermiso();
+  const [ps, per] = await Promise.all([q(sb.from('perfiles').select('*').order('nombre')), q(sb.from('permisos').select('*'))]);
+  const de = (id) => per.filter((f) => f.perfil_id === id);
+  ps.sort((a, b) => (b.rol === 'admin') - (a.rol === 'admin') || a.nombre.localeCompare(b.nombre, 'es'));
+  pintar(cabecera('Equipo', { volver: '#/mas', sub: 'Todas las personas con acceso' }) + `<main class="cont">
+    <div class="lista">${ps.map((p) => { const r = resumenPersona(p, de(p.id)), yo = p.id === S.usuario.id;
+      return fila({ href: yo ? '#/equipo' : `#/permisos?p=${p.id}`, tit: p.nombre + (yo ? ' (tú)' : ''), det: esc(r.tipo), der: `<span class="chips">${r.chip}</span>` }); }).join('')}</div>
+    <div class="tarjeta"><h3>Añadir una persona</h3><p class="nota" style="margin:6px 0 12px">Se crea su usuario en Supabase (Authentication › Add user, con su email y una contraseña). Al momento aparece aquí sin permisos; tócala y elige una plantilla.</p>
+      <a class="btn sec ancho" href="https://supabase.com/dashboard/project/cwgkmdxdvzrqtgpgqrru/auth/users" target="_blank" rel="noopener">${ico('mas')} Añadir en Supabase</a></div>
+  </main>`, 'mas');
 }
 
 /* ---------- más ---------- */
@@ -385,7 +429,7 @@ function pantallaMas() {
       <div style="flex:1"><b>${esc(S.perfil ? S.perfil.nombre : '')}</b><div style="font-size:13px;color:var(--texto2)">${S.admin ? 'Administración · acceso completo' : esc(S.usuario.email)}</div></div></div>
     <div class="lista">${items.map((i) => fila({ href: i[1], tit: i[3], det: i[4], iconoHtml: ic(i[2]), der: ico('sig') })).join('')}
     ${S.admin ? fila({ href: '#/vista', tit: 'Ver como profesora', det: 'Comprueba qué ve cada profesora en el Inicio', iconoHtml: ic('ojo'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
-    ${S.admin ? fila({ href: '#/permisos', tit: 'Permisos', det: 'Quién ve y edita qué', iconoHtml: ic('llave'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
+    ${S.admin ? fila({ href: '#/equipo', tit: 'Equipo y permisos', det: 'Todas las personas y lo que puede ver cada una', iconoHtml: ic('alumnas'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${fila({ href: '#/nueva-clave', tit: 'Cambiar mi contraseña', iconoHtml: ic('llave'), der: ico('sig') })}
     </div>
     <button class="btn sec ancho" id="salir">${ico('salir')} Cerrar sesión</button>
@@ -1342,15 +1386,17 @@ async function formularioPublico(slug) {
 async function pantallaPermisos(params) {
   if (!S.admin) return sinPermiso();
   const perfiles = await q(sb.from('perfiles').select('*').neq('id', S.usuario.id).order('nombre'));
-  const sel = params.get('p') || (perfiles[0] && perfiles[0].id);
+  const sel = params.get('p');
+  if (!sel) { location.hash = '#/equipo'; return; }
   const p = perfiles.find((x) => x.id === sel);
   const filas = p ? await q(sb.from('permisos').select('*').eq('perfil_id', p.id)) : [];
   const per = {}; filas.forEach((f) => { per[f.modulo] = f; });
   const soloSuyo = filas.some((f) => f.solo_propias);
-  const enlaceUsuarios = 'https://supabase.com/dashboard/project/cwgkmdxdvzrqtgpgqrru/auth/users';
-  pintar(cabecera('Permisos', { volver: '#/mas', sub: 'Quién ve y edita qué' }) + `<main class="cont">
-    ${perfiles.length ? `<div class="filtros">${perfiles.map((x) => `<button data-ir="#/permisos?p=${x.id}" class="${x.id === sel ? 'on' : ''}">${esc(x.nombre)}</button>`).join('')}</div>` : ''}
-    ${p ? `<div class="tarjeta">
+  pintar(cabecera(p ? p.nombre : 'Permisos', { volver: '#/equipo', sub: p ? esc(resumenPersona(p, filas).tipo) : '' }) + `<main class="cont">
+    ${p ? `<button class="btn sec ancho" data-ir="#/vista/p/${p.id}">${ico('ojo')} Ver su Inicio</button>
+    <div class="tarjeta"><h3>Plantillas</h3><p class="nota" style="margin:4px 0 10px">Un toque pone los permisos típicos. Luego puedes cambiar los que quieras abajo.</p>
+      <div class="filtros tipos-ini">${Object.entries(PLANTILLAS).map(([k, t]) => `<button data-plantilla="${k}">${t.nombre}</button>`).join('')}</div></div>
+    <div class="tarjeta">
       <div class="perm"><span class="cab-p" style="text-align:left">Módulo</span><span class="cab-p">Ver</span><span class="cab-p">Editar</span></div>
       ${MODULOS.map(([m, t]) => { const v = per[m] && per[m].puede_ver, e = per[m] && per[m].puede_escribir;
         return `<div class="perm"><span style="font-weight:600">${t}</span><button class="${v ? 'on' : ''}" data-m="${m}" data-a="ver" aria-label="Ver ${t}" aria-pressed="${!!v}">${ico('ojo')}</button><button class="${e ? 'on' : ''}" data-m="${m}" data-a="editar" aria-label="Editar ${t}" aria-pressed="${!!e}">${ico('lapiz')}</button></div>`; }).join('')}
@@ -1360,9 +1406,17 @@ async function pantallaPermisos(params) {
     <div class="campo"><label for="nom">Nombre que se muestra</label><input id="nom" value="${esc(p.nombre)}"></div>
     <p style="font-size:13px;color:var(--texto2);margin:0">Ojo = puede ver. Lápiz = puede editar. Quien edita un módulo también lo ve. Borrar definitivamente es solo de la administración.</p>`
     : vacio('Todavía no hay más personas. Cuando quieras dar acceso a alguien, créale un usuario y aparecerá aquí sin ningún permiso.')}
-    <a class="btn sec" href="${enlaceUsuarios}" target="_blank" rel="noopener">${ico('mas')} Añadir persona (en Supabase)</a>
   </main>`, 'mas');
   if (!p) return;
+  $app.querySelectorAll('[data-plantilla]').forEach((b) => b.onclick = async () => {
+    const t = PLANTILLAS[b.dataset.plantilla];
+    if (!confirm(`¿Poner a ${p.nombre} los permisos de "${t.nombre}"? Se cambian los que tiene ahora.`)) return;
+    try {
+      await q(sb.from('permisos').delete().eq('perfil_id', p.id));
+      await q(sb.from('permisos').insert(Object.entries(t.mods).map(([m, n]) => ({ perfil_id: p.id, modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo }))));
+      aviso(`Permisos de ${t.nombre} puestos`); router();
+    } catch (e) { aviso(traducirError(e), true); }
+  });
   const guardar = async (m, ver, editar) => {
     const solo = document.getElementById('solo').checked;
     try {
@@ -1641,6 +1695,7 @@ async function router() {
         if (p[2] === 'editar') return await formFormulario(p[1]);
         return await pantallaFormulario(p[1]);
       case 'respuesta': return await pantallaRespuesta(p[1]);
+      case 'equipo': return await pantallaEquipo();
       case 'permisos': return await pantallaPermisos(params);
       case 'vista': return await pantallaVista(p[1]);
       case 'logros':
