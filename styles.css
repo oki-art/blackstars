@@ -3,7 +3,7 @@
   --texto:#1F1D2B; --texto2:#6B6881;
   --borde:rgba(70,55,140,0.10);
   --morado:#7650E0; --morado2:#5A3BC4; --morado3:#4F34B5;
-  --dorado:#8F6A1C; --oro1:#E8D096; --oro2:#C9A55A;
+  --dorado:#A8743A; --oro1:#F7D7AF; --oro2:#F2C48D; --oro3:#E2AE72; --negro:#3E3763;
   --ingreso:#1F8A5C; --gasto:#D12F3B;
   --sombra:0 6px 20px rgba(60,40,140,0.08);
   --radio:18px;
@@ -31,10 +31,10 @@ h1,h2,h3{font-family:'Sora',sans-serif;font-weight:600;letter-spacing:-0.01em;ma
 .cab .logo{width:48px;height:48px;border-radius:50%;box-shadow:0 0 0 1px rgba(70,55,140,0.14),0 8px 24px rgba(138,104,240,0.30);flex:none}
 .cab .volver{width:44px;height:44px;border-radius:50%;border:1px solid var(--borde);background:#fff;display:grid;place-items:center;flex:none;box-shadow:var(--sombra);cursor:pointer}
 .cab .t{flex:1;min-width:0}
-.cab .sup{font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--dorado)}
+.cab .sup{font-size:11px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#B07A3C}
 .cab h1{font-size:26px;line-height:1.1;margin-top:2px}
 .cab .sub{font-size:13px;color:var(--texto2);margin-top:2px}
-.insignia{padding:5px 11px;border-radius:999px;border:1px solid rgba(176,134,40,0.5);background:rgba(201,165,90,0.14);color:var(--dorado);font-size:12px;font-weight:700;white-space:nowrap}
+.insignia{padding:5px 12px;border-radius:999px;border:0;background:#F2C48D;color:var(--negro);font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 4px 12px rgba(242,196,141,0.35)}
 
 main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 
@@ -57,7 +57,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .chip.ok{background:rgba(31,138,92,0.12);color:var(--ingreso)}
 .chip.no{background:rgba(209,47,59,0.10);color:var(--gasto)}
 .chip.gris{background:rgba(107,104,129,0.12);color:var(--texto2)}
-.chip.oro{background:rgba(201,165,90,0.18);color:var(--dorado)}
+.chip.oro{background:rgba(242,196,141,0.14);color:#9A6326}
 .chip.mor{background:rgba(118,80,224,0.12);color:var(--morado3)}
 .filtros{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .filtros::-webkit-scrollbar{display:none}
@@ -75,7 +75,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .botones{display:flex;gap:10px;flex-wrap:wrap}
 .botones .btn{flex:1}
 .mas-flotante{position:fixed;right:max(20px,calc(50% - 220px));bottom:calc(96px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:50%;border:0;z-index:5;cursor:pointer;
-  background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08;box-shadow:0 12px 26px rgba(160,120,40,0.40);display:grid;place-items:center}
+  background:#F2C48D;color:var(--negro);box-shadow:0 12px 26px rgba(242,196,141,0.40);display:grid;place-items:center}
 
 /* Formularios */
 .campo{display:flex;flex-direction:column;gap:6px}
@@ -124,8 +124,8 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .puntos-slider{display:flex;justify-content:center;gap:7px}
 .puntos-slider i{width:8px;height:8px;border-radius:999px;background:rgba(118,80,224,0.22);transition:all .2s;cursor:pointer}
 .puntos-slider i.on{width:22px;background:var(--morado)}
-.tarjeta-caja{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:20px;color:#3A2A08;
-  background:linear-gradient(135deg,#F3E3B4 0%,var(--oro1) 45%,var(--oro2) 100%);border:1px solid rgba(176,134,40,0.35);box-shadow:0 12px 26px rgba(160,120,40,0.25)}
+.tarjeta-caja{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:20px;color:var(--negro);
+  background:#F2C48D;border:0;box-shadow:0 12px 26px rgba(242,196,141,0.30)}
 .tarjeta-caja .ico-caja{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,0.45);flex:none}
 .tarjeta-caja .txt{flex:1;display:flex;flex-direction:column}
 .tarjeta-caja b{font-family:'Sora',sans-serif;font-size:19px}
@@ -205,17 +205,17 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .nota{font-size:13px;color:var(--texto2);margin:0}
 .fila .tit.envolver{white-space:normal}
 .fila-btn{width:100%;text-align:left;font:inherit}
-.barra{height:10px;border-radius:999px;background:rgba(118,80,224,0.12);overflow:hidden}
-.barra i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--morado),var(--oro2));transition:width .3s}
-.contador.oro{background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08}
+.barra{height:10px;border-radius:999px;background:rgba(242,196,141,0.18);overflow:hidden}
+.barra i{display:block;height:100%;border-radius:999px;background:#F2C48D;transition:width .3s}
+.contador.oro{background:#F2C48D;color:var(--negro)}
 .tarjeta-clase .contador{font-size:15px}
 .quitar-r{border:0;background:none;color:var(--gasto);font-weight:700;font-size:13px;cursor:pointer;padding:8px}
-.input-oro{margin-top:6px;width:100%;min-height:42px;padding:8px 12px;border-radius:12px;border:1px solid rgba(143,106,28,0.35);background:rgba(255,255,255,0.65);font-size:16px;color:#3A2A08;outline:none}
+.input-oro{margin-top:6px;width:100%;min-height:42px;padding:8px 12px;border-radius:12px;border:1px solid rgba(143,106,28,0.35);background:rgba(255,255,255,0.65);font-size:16px;color:var(--negro);outline:none}
 .tarjeta.reto{display:flex;flex-direction:column;gap:10px}
 .semanas{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .semanas button{min-height:56px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;color:var(--texto2);font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer}
 .semanas button.hoy{border-color:var(--morado)}
-.semanas button.on{background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08;border-color:transparent}
+.semanas button.on{background:#F2C48D;color:var(--negro);border-color:transparent}
 .semanas button.on svg{fill:currentColor}
 .semanas button:disabled{cursor:default}
 .puntuar{display:flex;flex-direction:column;gap:8px}
@@ -229,12 +229,23 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .podio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;text-align:center}
 .podio div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:13px}
 .podio div span:last-child{color:var(--texto2)}
-.medalla{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#3A2A08;background:linear-gradient(135deg,var(--oro1),var(--oro2))}
+.medalla{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--negro);background:#F2C48D}
 .medalla.m2{background:linear-gradient(135deg,#E6E6EE,#B9B8C8)}
 .medalla.m3{background:linear-gradient(135deg,#F0CDB0,#C98E5F)}
 
 /* Vista previa de profesora */
 .banda-vista{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:#1F1D2B;color:#fff;font-size:14px}
 .banda-vista span{flex:1}
-.banda-vista button{border:0;border-radius:999px;padding:8px 14px;background:linear-gradient(135deg,var(--oro1),var(--oro2));color:#3A2A08;font-weight:700;cursor:pointer}
+.banda-vista button{border:0;border-radius:999px;padding:8px 14px;background:#F2C48D;color:var(--negro);font-weight:700;cursor:pointer}
 .banda-vista + .cab{padding-top:14px}
+
+/* Tarjeta de clase del Inicio: días, profesora y número de alumnas */
+.clase-hero .ch-pie{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:8px}
+.clase-hero .ch-dias{font-size:15px;font-weight:600;color:#fff}
+.clase-hero .ch-prof{font-size:14px;color:#EDE7FF;margin-top:2px}
+.clase-hero .ch-num{display:flex;flex-direction:column;align-items:flex-end;line-height:1}
+.clase-hero .ch-num span{font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#E6DDFF;margin-bottom:4px}
+.clase-hero .ch-num b{font-family:'Sora',sans-serif;font-size:22px;font-weight:600;color:#fff}
+.logros-inicio{display:flex;flex-direction:column;gap:8px}
+.logros-inicio .li-cab{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.logros-inicio .li-pct{font-family:'Sora',sans-serif;font-weight:700;font-size:18px;color:var(--morado)}
