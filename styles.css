@@ -200,6 +200,8 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .mov.falta .mov-tipo{border:1.5px solid rgba(107,104,129,0.5)}
 .mov.falta>b{font-size:12px;font-weight:600;color:var(--texto2)}
 .mens-eur{font-family:'Sora',sans-serif;font-size:24px;white-space:nowrap}
+.tipos-ini{margin:0;padding:0;flex-wrap:wrap}
+.ini-nueva .ico-caja{color:var(--negro)}
 .caja-todas{padding:4px 0}
 .tipo{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tipo button{min-height:48px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-weight:700;cursor:pointer}

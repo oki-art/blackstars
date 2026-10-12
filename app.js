@@ -13,7 +13,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -48,6 +48,7 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
   const p = {
+    idea: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     volver: '<path d="M15 5l-7 7 7 7"/>', sig: '<path d="M9 5l7 7-7 7"/>', mas: '<path d="M12 5v14M5 12h14"/>',
     casa: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>', clases: '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/>',
     alumnas: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 6 4.8"/>',
@@ -298,7 +299,7 @@ async function pantallaInicio(vista = null) {
   }
   const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
   const accesos = (profesora ? [
-    ['clases', '#/clases', 'clases', 'Mis clases', 'Horarios y alumnas', false],
+    ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
     ['logros', '#/logros', 'trofeo', 'Logros', 'Mis retos y estrellas', false],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
@@ -331,14 +332,14 @@ async function pantallaInicio(vista = null) {
 }
 
 /* Vista previa: la administración ve el Inicio como una profesora */
-const PERMISOS_PROFE = { clases: 1, alumnas: 1, inscripciones: 1, incidencias: 2, normas: 1, eventos: 1, logros: 2 };
+const PERMISOS_PROFE = { clases: 1, alumnas: 1, inscripciones: 1, incidencias: 2, normas: 1, eventos: 1, logros: 2, iniciativas: 2 };
 async function pantallaVista(id) {
   if (!S.admin) return sinPermiso();
   if (!id) {
     const ps = await q(sb.from('profesoras').select('id,nombre,perfil_id').eq('activa', true).order('nombre'));
     return pintar(cabecera('Ver como profesora', { volver: '#/mas', sub: 'Así verá el Inicio cada una' }) + `<main class="cont">
       <div class="lista">${ps.map((p) => fila({ href: `#/vista/${p.id}`, tit: p.nombre, det: p.perfil_id ? 'Con usuario: se ven sus permisos reales' : 'Sin usuario aún: se ven los permisos recomendados', der: ico('sig') })).join('') || vacio('Aún no hay profesoras. Créalas en Más › Profesoras.')}</div>
-      <p class="nota">Los permisos recomendados para una profesora son: ver sus clases, sus alumnas, normas y eventos; apuntar incidencias; y Logros (dar estrellas). Nunca Caja.</p>
+      <p class="nota">Los permisos recomendados para una profesora son: ver sus clases, sus alumnas, normas y eventos; apuntar incidencias; Logros (dar estrellas) e Iniciativas (proponer ideas). Nunca Caja.</p>
     </main>`, 'mas');
   }
   const profesora = await q(sb.from('profesoras').select('id,nombre,perfil_id').eq('id', id).single());
@@ -353,6 +354,7 @@ async function pantallaVista(id) {
 function pantallaMas() {
   const items = [
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos del mes y estrellas de alumnas'],
+    ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propuestas de las profesoras'],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Talleres, shows y fiestas'],
     ['profesoras', '#/profesoras', 'profe', 'Profesoras', 'Equipo y clases asignadas'],
     ['incidencias', '#/incidencias', 'alerta', 'Incidencias', 'Lo que pasa en clase'],
@@ -804,6 +806,79 @@ async function formIncidencia(id) {
       { k: 'alumna_id', label: 'Alumna', tipo: 'select', opciones: puedeVer('alumnas') ? await intentar(opcionesAlumnas) : [] }
     ]
   });
+}
+
+/* ---------- iniciativas ---------- */
+const TIPOS_INI = [['clase', 'Clase nueva'], ['cambio', 'Un cambio'], ['evento', 'Evento'], ['otra', 'Otra idea']];
+const ESTADOS_INI = { nueva: ['Nueva', 'oro'], estudio: ['En estudio', 'mor'], aprobada: ['Aprobada', 'ok'], descartada: ['Descartada', 'gris'] };
+const chipIni = (e) => `<span class="chip ${ESTADOS_INI[e][1]}">${ESTADOS_INI[e][0]}</span>`;
+const gestionaIni = () => puedeEditar('iniciativas') && (S.admin || !(S.permisos.iniciativas && S.permisos.iniciativas.solo_propias));
+async function pantallaIniciativas(params) {
+  if (!puedeVer('iniciativas')) return sinPermiso();
+  const f = params.get('f') === 'cerradas' ? 'cerradas' : 'abiertas';
+  const l = await q(sb.from(S.admin ? 'iniciativas_con_autor' : 'iniciativas').select('*').in('estado', f === 'abiertas' ? ['nueva', 'estudio'] : ['aprobada', 'descartada']).order('creado_en', { ascending: false }).limit(200));
+  const tipos = Object.fromEntries(TIPOS_INI);
+  pintar(cabecera('Iniciativas', { volver: gestionaIni() ? '#/mas' : '#/inicio', sub: gestionaIni() ? 'Propuestas de las profesoras' : 'Tus propuestas para la escuela' }) + `<main class="cont">
+    ${puedeEditar('iniciativas') ? `<a class="tarjeta-caja ini-nueva" href="#/iniciativa/nueva"><span class="ico-caja">${ico('idea', 26)}</span><span class="txt"><b>Proponer una idea</b><span>Una clase, un cambio, un evento…</span></span>${ico('mas', 22)}</a>` : ''}
+    <div class="filtros">${[['abiertas', 'Abiertas'], ['cerradas', 'Respondidas']].map(([k, t]) => `<button data-ir="#/iniciativas?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div class="lista">${l.map((x) => fila({ href: `#/iniciativa/${x.id}`, iconoHtml: `<span class="ini">${ico('idea', 18)}</span>`, tit: x.titulo,
+      det: esc([tipos[x.tipo], fechaCorta(x.creado_en), x.registrado_por ? 'de ' + x.registrado_por : ''].filter(Boolean).join(' · ')), der: chipIni(x.estado) })).join('')
+      || vacio(f === 'abiertas' ? 'No hay propuestas abiertas.' : 'Aún no hay propuestas respondidas.')}</div>
+  </main>`, gestionaIni() ? 'mas' : 'inicio');
+}
+async function formIniciativa(params) {
+  if (!puedeEditar('iniciativas')) return sinPermiso();
+  let tipo = TIPOS_INI.some(([k]) => k === params.get('tipo')) ? params.get('tipo') : 'clase';
+  pintar(cabecera('Nueva iniciativa', { volver: '#/iniciativas', sub: 'Cuéntanos tu idea' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label>¿De qué se trata?</label><div class="filtros tipos-ini">${TIPOS_INI.map(([k, t]) => `<button type="button" data-tipo="${k}">${t}</button>`).join('')}</div></div>
+    ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: 'Ej.: clase de heels los viernes' })}
+    ${campoHtml({ k: 'descripcion', label: 'Explícalo', tipo: 'textarea', ph: 'Qué propones, para quién, cuándo…' })}
+    <button class="btn pri ancho" type="submit">Enviar propuesta</button>
+  </form></main>`, false);
+  const marcar = () => $app.querySelectorAll('[data-tipo]').forEach((b) => b.classList.toggle('on', b.dataset.tipo === tipo));
+  $app.querySelectorAll('[data-tipo]').forEach((b) => b.onclick = () => { tipo = b.dataset.tipo; marcar(); }); marcar();
+  const form = document.getElementById('frm');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      await q(sb.from('iniciativas').insert({ tipo, titulo: form.titulo.value.trim(), descripcion: form.descripcion.value.trim() || null }));
+      aviso('Propuesta enviada'); location.hash = '#/iniciativas';
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
+  };
+}
+async function pantallaIniciativa(id) {
+  if (!puedeVer('iniciativas')) return sinPermiso();
+  const x = await q(sb.from(S.admin ? 'iniciativas_con_autor' : 'iniciativas').select('*').eq('id', id).single());
+  const tipos = Object.fromEntries(TIPOS_INI), ges = gestionaIni();
+  let estado = x.estado;
+  pintar(cabecera('Iniciativa', { volver: '#/iniciativas' }) + `<main class="cont">
+    <div class="tarjeta"><div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><span class="chip mor">${tipos[x.tipo]}</span>${chipIni(x.estado)}</div>
+      <h2 style="margin-top:10px">${esc(x.titulo)}</h2>
+      ${x.descripcion ? `<p style="margin:8px 0 0;white-space:pre-wrap;color:var(--texto2)">${esc(x.descripcion)}</p>` : ''}
+      <div class="nota" style="margin-top:10px">${x.registrado_por ? `Propuesta de ${esc(x.registrado_por)} · ` : ''}${fechaCorta(x.creado_en)}</div></div>
+    ${ges ? `<form class="form tarjeta" id="frm"><h3>Respuesta</h3>
+      <div class="filtros tipos-ini">${Object.entries(ESTADOS_INI).map(([k, [t]]) => `<button type="button" data-est="${k}">${t}</button>`).join('')}</div>
+      ${campoHtml({ k: 'respuesta', label: 'Mensaje para la profesora', tipo: 'textarea', ph: 'Opcional' }, x.respuesta)}
+      <button class="btn pri ancho" type="submit">Guardar</button>
+      ${S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}</form>`
+    : x.respuesta ? `<div class="tarjeta"><h3>Respuesta de la escuela</h3><p style="margin:8px 0 0;white-space:pre-wrap">${esc(x.respuesta)}</p></div>`
+    : `<div class="nota">La escuela aún no ha respondido. Aquí verás la respuesta.</div>`}
+  </main>`, ges ? 'mas' : 'inicio');
+  if (!ges) return;
+  const marcar = () => $app.querySelectorAll('[data-est]').forEach((b) => b.classList.toggle('on', b.dataset.est === estado));
+  $app.querySelectorAll('[data-est]').forEach((b) => b.onclick = () => { estado = b.dataset.est; marcar(); }); marcar();
+  const form = document.getElementById('frm');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    try { await q(sb.from('iniciativas').update({ estado, respuesta: form.respuesta.value.trim() || null }).eq('id', id)); aviso('Guardado'); location.hash = '#/iniciativas'; }
+    catch (e) { aviso(traducirError(e), true); }
+  };
+  const b = document.getElementById('borrar');
+  if (b) b.onclick = async () => {
+    if (!confirm('¿Borrar esta iniciativa? No se puede deshacer.')) return;
+    try { await q(sb.from('iniciativas').delete().eq('id', id)); aviso('Borrado'); location.hash = '#/iniciativas'; } catch (e) { aviso(traducirError(e), true); }
+  };
 }
 
 /* ---------- normas ---------- */
@@ -1373,6 +1448,8 @@ async function router() {
         if (p[1] === 'nuevo') return await formCaja(params);
         if (p[2] === 'editar') return await formCaja(params, p[1]);
         return await pantallaCaja(params);
+      case 'iniciativas': return await pantallaIniciativas(params);
+      case 'iniciativa': return p[1] === 'nueva' ? await formIniciativa(params) : await pantallaIniciativa(p[1]);
       case 'incidencias': return await pantallaIncidencias(params);
       case 'incidencia': return await formIncidencia(p[1] === 'nueva' ? null : p[1]);
       case 'normas': return await pantallaNormas();
