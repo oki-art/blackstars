@@ -663,9 +663,9 @@ function cajaPorClase(movs, { conFecha, volver }) {
   });
   return [...grupos.values()].sort((a, b) => a.otros - b.otros || a.nombre.localeCompare(b.nombre, 'es')).map((g) => {
     const [i, o] = sumaCaja(g.l);
-    return `<section class="caja-clase ${g.amiga ? 'externa' : ''} ${g.otros ? 'otros' : ''}"><div class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${g.l.length} movimiento${g.l.length === 1 ? '' : 's'}${g.amiga ? ' · Escuela amiga' : ''}</small></span>
-      <span class="cc-tot">${i ? `<b class="in">+${eur(i)}</b>` : ''}${o ? `<b class="out">−${eur(o)}</b>` : ''}</span></div>
-      <div class="cc-movs">${g.l.map((x) => movCaja(x, { conFecha, volver })).join('')}</div></section>`;
+    return `<details class="caja-clase ${g.amiga ? 'externa' : ''} ${g.otros ? 'otros' : ''}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${g.l.length} movimiento${g.l.length === 1 ? '' : 's'}${g.amiga ? ' · Escuela amiga' : ''}</small></span>
+      <span class="cc-tot">${i ? `<b class="in">+${eur(i)}</b>` : ''}${o ? `<b class="out">−${eur(o)}</b>` : ''}</span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-movs">${g.l.map((x) => movCaja(x, { conFecha, volver })).join('')}</div></details>`;
   }).join('');
 }
 const filtrosCaja = (base, v) => `<div class="filtros">${[['clase', 'Por clase'], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="${base}v=${k}" class="${v === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;

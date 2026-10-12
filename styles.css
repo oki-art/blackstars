@@ -174,7 +174,11 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .caja-clase{background:#fff;border:1px solid var(--borde);border-radius:20px;box-shadow:var(--sombra);border-left:5px solid var(--morado);overflow:hidden}
 .caja-clase.externa{border-left-color:var(--oro2)}
 .caja-clase.otros{border-left-color:rgba(107,104,129,0.45)}
-.cc-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px 10px}
+.cc-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 12px 14px 16px;min-height:64px;cursor:pointer;list-style:none}
+.cc-cab::-webkit-details-marker{display:none}
+.cc-cab>span:first-child{flex:1;min-width:0}
+.cc-flecha{display:grid;place-items:center;color:var(--texto2);transition:transform .2s}
+.caja-clase[open] .cc-flecha{transform:rotate(90deg)}
 .cc-cab h3{font-size:16px}
 .cc-cab small{display:block;font-size:12px;color:var(--texto2);margin-top:2px}
 .cc-tot{display:flex;flex-direction:column;align-items:flex-end;font-family:'Sora',sans-serif;font-size:15px;white-space:nowrap}
