@@ -313,10 +313,15 @@ async function pantallaInicio(vista = null) {
         <div class="nota">${retos.length ? `${hechos.length} de ${retos.length * SEMANAS} conseguidos` : 'Aún no hay retos este mes'}</div></a>`;
     }
   }
+  // Tarjeta de Documentos: lo pendiente de firmar o leer, y el historial
+  let tarjetaDocs = '';
+  if (!vista) {
+    const pend = await intentar(async () => { const { count } = await sb.from('documentos').select('id', { count: 'exact', head: true }).eq('para_perfil', S.usuario.id).eq('estado', 'pendiente'); return count || 0; });
+    tarjetaDocs = `<a class="tarjeta-docs" href="#/documentos"><span class="ico-caja">${ico('doc', 24)}</span><span class="txt"><b>Documentos</b><span>${pend ? `${pend} pendiente${pend === 1 ? '' : 's'} de firmar o leer` : 'Subir, firmar y ver el historial'}</span></span>${pend ? `<span class="nv-n">${pend}</span>` : ico('sig', 22)}</a>`;
+  } else tarjetaDocs = `<span class="tarjeta-docs"><span class="ico-caja">${ico('doc', 24)}</span><span class="txt"><b>Documentos</b><span>Subir, firmar y ver el historial</span></span>${ico('sig', 22)}</span>`;
   const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
   const accesos = (profesora ? [
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
-    ['*', '#/documentos', 'doc', 'Documentos', 'Para leer y firmar', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
     ['logros', '#/logros', 'trofeo', 'Logros', 'Mis retos y estrellas', false],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
@@ -335,6 +340,7 @@ async function pantallaInicio(vista = null) {
     ${bloqueClases}
     ${barraLogros}
     ${tarjetaCaja}
+    ${tarjetaDocs}
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
@@ -398,15 +404,54 @@ function resumenPersona(p, filas) {
 }
 async function pantallaEquipo() {
   if (!S.admin) return sinPermiso();
-  const [ps, per] = await Promise.all([q(sb.from('perfiles').select('*').order('nombre')), q(sb.from('permisos').select('*'))]);
+  const [ps, per, profs] = await Promise.all([q(sb.from('perfiles').select('*').order('nombre')), q(sb.from('permisos').select('*')),
+    intentar(() => q(sb.from('profesoras').select('id,nombre,perfil_id').eq('activa', true).is('perfil_id', null).order('nombre')))]);
   const de = (id) => per.filter((f) => f.perfil_id === id);
   ps.sort((a, b) => (b.rol === 'admin') - (a.rol === 'admin') || a.nombre.localeCompare(b.nombre, 'es'));
   pintar(cabecera('Equipo', { volver: '#/mas', sub: 'Todas las personas con acceso' }) + `<main class="cont">
     <div class="lista">${ps.map((p) => { const r = resumenPersona(p, de(p.id)), yo = p.id === S.usuario.id;
       return fila({ href: yo ? '#/equipo' : `#/permisos?p=${p.id}`, tit: p.nombre + (yo ? ' (tú)' : ''), det: esc(r.tipo), der: `<span class="chips">${r.chip}</span>` }); }).join('')}</div>
-    <div class="tarjeta"><h3>Añadir una persona</h3><p class="nota" style="margin:6px 0 12px">Se crea su usuario en Supabase (Authentication › Add user, con su email y una contraseña). Al momento aparece aquí sin permisos; tócala y elige una plantilla.</p>
-      <a class="btn sec ancho" href="https://supabase.com/dashboard/project/cwgkmdxdvzrqtgpgqrru/auth/users" target="_blank" rel="noopener">${ico('mas')} Añadir en Supabase</a></div>
+    ${profs.length ? `<div class="seccion">Profesoras sin acceso a la app</div>
+    <div class="lista">${profs.map((x) => fila({ href: `#/acceso?prof=${x.id}`, tit: x.nombre, det: 'Aún no puede entrar', der: '<span class="chip oro">Darle acceso</span>' })).join('')}</div>` : ''}
+    <button class="btn pri ancho" data-ir="#/acceso">${ico('mas')} Añadir persona</button>
   </main>`, 'mas');
+}
+
+// Dar acceso a una persona: se crea su usuario desde la app (servicio crear-acceso)
+async function formAcceso(params) {
+  if (!S.admin) return sinPermiso();
+  const prof = params.get('prof') ? await q(sb.from('profesoras').select('id,nombre,email,telefono').eq('id', params.get('prof')).single()) : null;
+  const clave = 'Blackstars-' + String(Math.floor(1000 + Math.random() * 9000));
+  pintar(cabecera(prof ? 'Darle acceso' : 'Añadir persona', { volver: '#/equipo', sub: prof ? esc(prof.nombre) : 'Entrará con su email y contraseña' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${campoHtml({ k: 'nombre', label: 'Nombre', req: true }, prof ? prof.nombre : '')}
+    ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', req: true, ph: 'nombre@gmail.com' }, prof ? prof.email : '')}
+    ${campoHtml({ k: 'clave', label: 'Contraseña para su primer acceso', req: true, ayuda: 'Luego la puede cambiar en Más › Cambiar mi contraseña.' }, clave)}
+    ${campoHtml({ k: 'plantilla', label: 'Permisos', tipo: 'select', req: true, opciones: Object.entries(PLANTILLAS).map(([k, t]) => [k, t.nombre]) }, prof ? 'profesora' : 'gestion')}
+    <button class="btn pri ancho" type="submit">Dar acceso</button></form></main>`, false);
+  const form = document.getElementById('frm');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const d = leerForm(form, [{ k: 'nombre' }, { k: 'email' }, { k: 'clave' }, { k: 'plantilla' }]), t = PLANTILLAS[d.plantilla];
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      const { data, error } = await sb.functions.invoke('crear-acceso', { body: { nombre: d.nombre, email: d.email, clave: d.clave, profesora_id: prof ? prof.id : null,
+        permisos: Object.entries(t.mods).map(([m, n]) => ({ modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo })) } });
+      if (error || !data || !data.ok) {
+        let msg = 'No se pudo dar acceso'; try { msg = (await error.context.json()).error || msg; } catch (e) { if (data && data.error) msg = data.error; }
+        throw new Error(msg);
+      }
+      const url = location.origin + location.pathname;
+      const texto = `Hola ${d.nombre.split(' ')[0]}, ya tienes acceso a la app de Academia Blackstars.\n\nEntra en: ${url}\nEmail: ${d.email}\nContraseña: ${d.clave}\n\nTe recomiendo añadirla a la pantalla de inicio del móvil y activar los avisos en la campana.`;
+      const tel = prof && prof.telefono ? prof.telefono.replace(/\D/g, '') : '';
+      pintar(cabecera('¡Acceso creado!', { volver: '#/equipo' }) + `<main class="cont"><div class="tarjeta"><h2>${esc(d.nombre)} ya puede entrar</h2>
+        <p class="nota" style="margin:8px 0 0">Mándale estos datos. Tiene los permisos de "${esc(t.nombre)}"; puedes cambiarlos en Equipo.</p>
+        <pre class="msj-acceso">${esc(texto)}</pre></div>
+        <a class="btn verde ancho" href="https://wa.me/${tel ? (tel.length === 9 ? '34' + tel : tel) : ''}?text=${encodeURIComponent(texto)}" target="_blank" rel="noopener">Enviar por WhatsApp</a>
+        <button class="btn sec ancho" id="copiar">Copiar mensaje</button>
+        <button class="btn sec ancho" data-ir="#/permisos?p=${data.id}">Ver sus permisos</button></main>`, 'mas');
+      document.getElementById('copiar').onclick = async () => { try { await navigator.clipboard.writeText(texto); aviso('Copiado'); } catch (e) { aviso('No se pudo copiar', true); } };
+    } catch (e) { aviso(e.message || traducirError(e), true); btn.disabled = false; btn.textContent = 'Dar acceso'; }
+  };
 }
 
 /* ---------- más ---------- */
@@ -1005,27 +1050,33 @@ async function abrirArchivo(ruta) {
   catch (e) { if (v) v.close(); aviso(traducirError(e), true); }
 }
 async function pantallaDocumentos(params) {
-  const ges = gestionaDocs(), f = ['pendiente', 'firmado', 'todos'].includes(params.get('f')) ? params.get('f') : 'pendiente';
+  const ges = gestionaDocs(), yo = S.usuario.id;
+  const tabs = ges ? [['pendiente', 'Pendientes'], ['firmado', 'Devueltos'], ['todos', 'Todos']] : [['pendiente', 'Pendientes'], ['todos', 'Historial']];
+  const f = tabs.some(([k]) => k === params.get('f')) ? params.get('f') : 'pendiente';
   let r = sb.from(S.admin ? 'documentos_con_autor' : 'documentos').select('*').order('creado_en', { ascending: false }).limit(200);
-  if (!ges) r = r.eq('para_perfil', S.usuario.id); else if (f !== 'todos') r = f === 'pendiente' ? r.eq('estado', 'pendiente') : r.neq('estado', 'pendiente');
-  const [l, dest] = await Promise.all([q(r), ges ? intentar(async () => q(sb.rpc('destinatarias'))) : []]);
+  if (!ges) r = f === 'pendiente' ? r.eq('para_perfil', yo).eq('estado', 'pendiente') : r.or(`para_perfil.eq.${yo},creado_por.eq.${yo}`);
+  else if (f !== 'todos') r = f === 'pendiente' ? r.eq('estado', 'pendiente') : r.neq('estado', 'pendiente');
+  const [l, dest] = await Promise.all([q(r), intentar(async () => q(sb.rpc('destinatarias')))]);
   const nombre = Object.fromEntries((dest || []).map((d) => [d.id, d.nombre]));
-  pintar(cabecera('Documentos', { volver: ges ? '#/mas' : '#/inicio', sub: ges ? 'Enviados al equipo' : 'Para leer y firmar' }) + `<main class="cont">
-    ${ges ? `<div class="filtros">${[['pendiente', 'Pendientes'], ['firmado', 'Devueltos'], ['todos', 'Todos']].map(([k, t]) => `<button data-ir="#/documentos?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+  const quien = (d) => d.para_perfil === yo ? 'De ' + (d.registrado_por || nombre[d.creado_por] || 'administración') : (d.creado_por === yo ? 'Enviado a ' : 'Para ') + (nombre[d.para_perfil] || '¿?');
+  const estado = (d) => d.estado === 'pendiente' && !d.pide_firma ? (d.para_perfil === yo ? 'Nuevo' : 'Sin abrir') : EST_DOC[d.estado][0];
+  pintar(cabecera('Documentos', { volver: ges ? '#/mas' : '#/inicio', sub: ges ? 'Enviados y recibidos' : 'Recibidos y enviados' }) + `<main class="cont">
+    <div class="filtros">${tabs.map(([k, t]) => `<button data-ir="#/documentos?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="lista">${l.map((d) => fila({ href: `#/documento/${d.id}`, iconoHtml: `<span class="ini">${ico('doc', 18)}</span>`, tit: d.titulo,
-      det: esc([ges ? 'Para ' + (nombre[d.para_perfil] || '¿?') : d.pide_firma ? 'Hay que firmarlo' : 'Para leer', fechaCorta(d.creado_en)].join(' · ')),
-      der: `<span class="chip ${EST_DOC[d.estado][1]}">${d.estado === 'pendiente' && !d.pide_firma ? 'Nuevo' : EST_DOC[d.estado][0]}</span>` })).join('') || vacio(ges ? 'No hay documentos aquí.' : 'No tienes documentos.')}</div>
-  </main>`, ges ? 'mas' : 'inicio', ges ? '#/documento/nuevo' : null);
+      det: esc([quien(d), fechaCorta(d.creado_en)].join(' · ')),
+      der: `<span class="chip ${EST_DOC[d.estado][1]}">${estado(d)}</span>` })).join('') || vacio(f === 'pendiente' ? 'No tienes nada pendiente.' : 'Aún no hay documentos.')}</div>
+  </main>`, ges ? 'mas' : 'inicio', '#/documento/nuevo');
 }
 async function formDocumento() {
-  if (!gestionaDocs()) return sinPermiso();
+  const ges = gestionaDocs();
   const dest = (await q(sb.rpc('destinatarias'))).filter((d) => d.id !== S.usuario.id);
-  pintar(cabecera('Enviar documento', { volver: '#/documentos', sub: 'PDF o foto, máx. 10 MB' }) + `<main class="cont"><form class="form tarjeta" id="frm">
-    ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: 'Ej.: Acuerdo de colaboración 2026' })}
-    ${campoHtml({ k: 'para', label: 'Para', tipo: 'select', req: true, opciones: dest.map((d) => [d.id, d.nombre]) })}
-    ${campoHtml({ k: 'nota', label: 'Nota', tipo: 'textarea', ph: 'Opcional: qué tiene que hacer con él' })}
+  if (!dest.length) { aviso('Ahora mismo no hay nadie a quien enviarlo', true); location.hash = '#/documentos'; return; }
+  pintar(cabecera(ges ? 'Enviar documento' : 'Subir documento', { volver: '#/documentos', sub: 'PDF o foto, máx. 10 MB' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: ges ? 'Ej.: Acuerdo de colaboración 2026' : 'Ej.: Justificante médico' })}
+    ${campoHtml({ k: 'para', label: ges ? 'Para' : 'Para (administración)', tipo: 'select', req: true, opciones: dest.map((d) => [d.id, d.nombre]) }, ges ? '' : dest[0].id)}
+    ${campoHtml({ k: 'nota', label: 'Nota', tipo: 'textarea', ph: ges ? 'Opcional: qué tiene que hacer con él' : 'Opcional: de qué se trata' })}
     <div class="campo"><label for="f_archivo">Archivo *</label><label class="subir-archivo">${ico('subir', 20)}<span id="nom-archivo">Elegir PDF o foto</span><input id="f_archivo" type="file" accept="application/pdf,image/*" required hidden></label></div>
-    <label class="check"><input type="checkbox" name="pide_firma" checked><span>Tiene que devolverlo firmado</span></label>
+    ${ges ? '<label class="check"><input type="checkbox" name="pide_firma" checked><span>Tiene que devolverlo firmado</span></label>' : ''}
     <button class="btn pri ancho" type="submit">Enviar</button></form></main>`, false);
   const form = document.getElementById('frm'), inp = document.getElementById('f_archivo');
   inp.onchange = () => { document.getElementById('nom-archivo').textContent = inp.files[0] ? inp.files[0].name : 'Elegir PDF o foto'; };
@@ -1038,16 +1089,17 @@ async function formDocumento() {
       const id = crypto.randomUUID(), ruta = `${id}/original.${extDe(file)}`;
       const { error } = await sb.storage.from('documentos').upload(ruta, file, { contentType: file.type });
       if (error) throw error;
-      await q(sb.from('documentos').insert({ id, titulo: form.titulo.value.trim(), para_perfil: form.para.value, nota: form.nota.value.trim() || null, archivo: ruta, pide_firma: form.pide_firma.checked }));
-      aviso('Documento enviado'); location.hash = '#/documentos';
+      await q(sb.from('documentos').insert({ id, titulo: form.titulo.value.trim(), para_perfil: form.para.value, nota: form.nota.value.trim() || null, archivo: ruta, pide_firma: ges ? form.pide_firma.checked : false }));
+      aviso('Documento enviado'); location.hash = '#/documentos?f=todos';
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; btn.textContent = 'Enviar'; }
   };
 }
 async function pantallaDocumento(id) {
   const d = await q(sb.from(S.admin ? 'documentos_con_autor' : 'documentos').select('*').eq('id', id).single());
   const ges = gestionaDocs(), mio = d.para_perfil === S.usuario.id;
-  const dest = ges ? await intentar(async () => q(sb.rpc('destinatarias'))) : [];
-  const para = (dest.find((x) => x.id === d.para_perfil) || {}).nombre;
+  const dest = await intentar(async () => q(sb.rpc('destinatarias'))) || [];
+  const para = d.para_perfil === S.usuario.id ? 'ti' : (dest.find((x) => x.id === d.para_perfil) || {}).nombre;
+  if (!d.registrado_por) d.registrado_por = d.creado_por === S.usuario.id ? 'ti' : (dest.find((x) => x.id === d.creado_por) || {}).nombre;
   pintar(cabecera('Documento', { volver: '#/documentos' }) + `<main class="cont">
     <div class="tarjeta"><div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><span class="chip mor">${d.pide_firma ? 'Para firmar' : 'Para leer'}</span><span class="chip ${EST_DOC[d.estado][1]}">${EST_DOC[d.estado][0]}</span></div>
       <h2 style="margin-top:10px">${esc(d.titulo)}</h2>
@@ -1696,6 +1748,7 @@ async function router() {
         return await pantallaFormulario(p[1]);
       case 'respuesta': return await pantallaRespuesta(p[1]);
       case 'equipo': return await pantallaEquipo();
+      case 'acceso': return await formAcceso(params);
       case 'permisos': return await pantallaPermisos(params);
       case 'vista': return await pantallaVista(p[1]);
       case 'logros':
