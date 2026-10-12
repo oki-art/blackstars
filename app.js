@@ -48,6 +48,7 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
   const p = {
+    arriba: '<path d="M6 15l6-6 6 6"/>', abajo: '<path d="M6 9l6 6 6-6"/>',
     doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
     subir: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
     bajar: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v4h16v-4"/>',
@@ -1143,12 +1144,35 @@ async function pantallaDocumento(id) {
 }
 
 /* ---------- normas ---------- */
-async function pantallaNormas() {
+async function pantallaNormas(params) {
   if (!puedeVer('normas')) return sinPermiso();
-  const l = await q(sb.from('normas').select('*').order('activa', { ascending: false }).order('titulo'));
-  pintar(cabecera('Normas', { volver: '#/mas', sub: 'Reglas de la escuela' }) + `<main class="cont">${l.map((n) => `<div class="tarjeta" ${n.activa ? '' : 'style="opacity:.55"'}>
-    <div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><h2>${esc(n.titulo)}</h2>${puedeEditar('normas') ? `<a href="#/norma/${n.id}" aria-label="Editar" style="color:var(--morado3)">${ico('lapiz')}</a>` : ''}</div>
-    <p style="margin:8px 0 0;white-space:pre-wrap;color:var(--texto2)">${esc(n.contenido)}</p></div>`).join('') || vacio('Aún no hay normas.')}</main>`, 'mas', puedeEditar('normas') ? '#/norma/nueva' : null);
+  const l = await q(sb.from('normas').select('*').order('activa', { ascending: false }).order('orden').order('creado_en'));
+  const ed = puedeEditar('normas'), ordenar = ed && params.get('ordenar') === '1';
+  if (ordenar) {
+    const act = l.filter((n) => n.activa);
+    pintar(cabecera('Ordenar normas', { volver: '#/normas', sub: 'Sube o baja cada norma' }) + `<main class="cont">
+      <div class="lista" id="orden">${act.map((n, i) => `<div class="fila orden-fila"><span class="ini">${i + 1}</span><span class="txt"><b>${esc(n.titulo)}</b></span>
+        <span class="flechas"><button data-sube="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Subir">${ico('arriba', 22)}</button><button data-baja="${i}" ${i === act.length - 1 ? 'disabled' : ''} aria-label="Bajar">${ico('abajo', 22)}</button></span></div>`).join('')}</div>
+      <button class="btn pri ancho" data-ir="#/normas">Listo</button></main>`, 'mas');
+    const mover = async (i, j) => {
+      const a = act[i], b = act[j];
+      // Se intercambian sus posiciones; si coinciden, se separan
+      const oa = a.orden, ob = b.orden === a.orden ? a.orden + (j > i ? 1 : -1) : b.orden;
+      try {
+        await q(sb.from('normas').update({ orden: ob }).eq('id', a.id));
+        await q(sb.from('normas').update({ orden: oa }).eq('id', b.id));
+        router();
+      } catch (e) { aviso(traducirError(e), true); }
+    };
+    $app.querySelectorAll('[data-sube]').forEach((x) => x.onclick = () => { x.disabled = true; mover(+x.dataset.sube, +x.dataset.sube - 1); });
+    $app.querySelectorAll('[data-baja]').forEach((x) => x.onclick = () => { x.disabled = true; mover(+x.dataset.baja, +x.dataset.baja + 1); });
+    return;
+  }
+  pintar(cabecera('Normas', { volver: '#/mas', sub: 'Reglas de la escuela' }) + `<main class="cont">
+    ${ed && l.filter((n) => n.activa).length > 1 ? `<button class="btn sec ancho" data-ir="#/normas?ordenar=1">${ico('arriba', 18)}${ico('abajo', 18)} Cambiar el orden</button>` : ''}
+    ${l.map((n) => `<div class="tarjeta" ${n.activa ? '' : 'style="opacity:.55"'}>
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><h2>${esc(n.titulo)}</h2>${ed ? `<a href="#/norma/${n.id}" aria-label="Editar" style="color:var(--morado3)">${ico('lapiz')}</a>` : ''}</div>
+    <p style="margin:8px 0 0;white-space:pre-wrap;color:var(--texto2)">${esc(n.contenido)}</p></div>`).join('') || vacio('Aún no hay normas.')}</main>`, 'mas', ed ? '#/norma/nueva' : null);
 }
 const formNorma = (id) => pantallaForm({
   titulo: id ? 'Editar norma' : 'Nueva norma', tabla: 'normas', modulo: 'normas', id, volver: '#/normas',
@@ -1736,7 +1760,7 @@ async function router() {
       case 'iniciativa': return p[1] === 'nueva' ? await formIniciativa(params) : await pantallaIniciativa(p[1]);
       case 'incidencias': return await pantallaIncidencias(params);
       case 'incidencia': return await formIncidencia(p[1] === 'nueva' ? null : p[1]);
-      case 'normas': return await pantallaNormas();
+      case 'normas': return await pantallaNormas(params);
       case 'norma': return await formNorma(p[1] === 'nueva' ? null : p[1]);
       case 'profesoras': return await pantallaProfesoras();
       case 'profesora': return await formProfesora(p[1] === 'nueva' ? null : p[1]);

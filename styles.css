@@ -310,3 +310,8 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .logros-inicio{display:flex;flex-direction:column;gap:8px}
 .logros-inicio .li-cab{display:flex;justify-content:space-between;align-items:center;font-size:15px}
 .logros-inicio .li-pct{font-family:'Sora',sans-serif;font-weight:700;font-size:18px;color:var(--morado)}
+.orden-fila{display:flex;align-items:center;gap:12px}
+.orden-fila .txt{flex:1;min-width:0}
+.orden-fila .flechas{display:flex;gap:6px;flex:none}
+.orden-fila .flechas button{width:44px;height:44px;border-radius:12px;border:1px solid rgba(118,80,224,0.25);background:#fff;color:var(--morado3);display:grid;place-items:center;cursor:pointer}
+.orden-fila .flechas button:disabled{opacity:.3;cursor:default}
