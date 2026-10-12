@@ -5,10 +5,19 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
 
 const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-webpush.setVapidDetails('mailto:kieroserai@gmail.com', Deno.env.get('VAPID_PUBLIC')!, Deno.env.get('VAPID_PRIVATE')!);
+// Las claves de avisos están en la tabla ajustes_privados (la app no puede leerla)
+let listo = false;
+async function prepararClaves() {
+  if (listo) return;
+  const { data } = await sb.from('ajustes_privados').select('clave,valor').in('clave', ['vapid_publica', 'vapid_privada']);
+  const k = Object.fromEntries((data || []).map((r) => [r.clave, r.valor]));
+  webpush.setVapidDetails('mailto:kieroserai@gmail.com', k.vapid_publica, k.vapid_privada);
+  listo = true;
+}
 
 Deno.serve(async (req) => {
   try {
+    await prepararClaves();
     const { id } = await req.json();
     if (typeof id !== 'string') return new Response('falta id', { status: 400 });
     const hace2min = new Date(Date.now() - 120000).toISOString();

@@ -30,6 +30,11 @@ create table public.push_suscripciones (
   creado_en  timestamptz not null default now()
 );
 
+-- Claves del servicio de avisos (solo las lee el servidor: sin reglas de acceso para la app)
+create table public.ajustes_privados (clave text primary key, valor text not null);
+alter table public.ajustes_privados enable row level security;
+revoke all on public.ajustes_privados from anon, authenticated;
+
 -- ¿Puede esta persona ver este módulo? (para decidir a quién avisar)
 create or replace function public.perfil_puede_ver(p_perfil uuid, p_modulo text)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -92,7 +97,7 @@ create policy notificaciones_delete on public.notificaciones for delete using (p
 -- Quien la recibe solo puede marcarla como leída
 create or replace function public.solo_marcar_leida() returns trigger language plpgsql set search_path = public as $$
 begin
-  if not public.es_admin() then
+  if not public.es_admin() and coalesce(auth.role(), '') <> 'service_role' then
     new.perfil_id := old.perfil_id; new.tipo := old.tipo; new.titulo := old.titulo; new.texto := old.texto;
     new.enlace := old.enlace; new.push_enviada := old.push_enviada; new.creado_por := old.creado_por; new.creado_en := old.creado_en;
   end if;
