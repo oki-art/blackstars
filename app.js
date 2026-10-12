@@ -1618,23 +1618,30 @@ async function formReto(params) {
 async function pantallaLogrosProfesora(id, params) {
   if (!puedeVer('logros')) return sinPermiso();
   const mes = mesParam(params), gestiona = gestionaLogros();
-  const [prof, retos] = await Promise.all([
-    q(sb.from('profesoras').select('id,nombre').eq('id', id).single()),
-    q(sb.from('logros_retos').select('id,titulo').eq('mes', mes).order('creado_en'))
+  const [prof, retos, yo] = await Promise.all([
+    q(sb.from('profesoras').select('id,nombre,perfil_id').eq('id', id).single()),
+    q(sb.from('logros_retos').select('id,titulo').eq('mes', mes).order('creado_en')),
+    gestiona ? null : miProfesora()
   ]);
-  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,semana').eq('profesora_id', id).in('reto_id', retos.map((r) => r.id))) : [];
+  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,semana,marcado_por').eq('profesora_id', id).in('reto_id', retos.map((r) => r.id))) : [];
   const hecho = new Set(cumplidos.map((c) => c.reto_id + '|' + c.semana));
-  const posibles = retos.length * SEMANAS, sHoy = semanaHoy(mes);
+  // Lo que marcó ella misma (la administración lo ve con un punto para comprobarlo)
+  const suyo = new Set(cumplidos.filter((c) => c.marcado_por && c.marcado_por === prof.perfil_id).map((c) => c.reto_id + '|' + c.semana));
+  const propia = !gestiona && yo && yo.id === id && puedeEditar('logros');
+  const posibles = retos.length * SEMANAS, sHoy = semanaHoy(mes), enCurso = mes === mesDe();
+  // La profesora marca el mes en curso hasta la semana de hoy, y solo deshace lo que marcó ella
+  const tocable = (r, s) => gestiona || (propia && enCurso && s <= sHoy && (!hecho.has(r + '|' + s) || suyo.has(r + '|' + s)));
   const pintarPct = () => { const v = pct(hecho.size, posibles); document.getElementById('pct').textContent = v + '%'; document.querySelector('.tarjeta .barra i').style.width = Math.min(100, v) + '%'; document.getElementById('cuenta').textContent = `${hecho.size} de ${posibles} conseguidos`; };
-  pintar(cabecera(prof.nombre, { volver: `#/logros?mes=${mesCorto(mes)}`, sub: 'Logros · ' + nombreMes(mes) }) + `<main class="cont">
+  pintar(cabecera(propia ? 'Mis logros' : prof.nombre, { volver: propia ? '#/inicio' : `#/logros?mes=${mesCorto(mes)}`, sub: 'Logros · ' + nombreMes(mes) }) + `<main class="cont">
     ${selectorMes(mes, `#/logros/profesora/${id}?`)}
     <div class="tarjeta"><div class="tc-cab" style="display:flex;justify-content:space-between;align-items:center"><h2>Progreso del mes</h2><span class="contador" id="pct">0%</span></div>
       ${barra(0)}<div class="nota" id="cuenta"></div></div>
     ${retos.length ? retos.map((r) => `<div class="tarjeta reto"><h3>${esc(r.titulo)}</h3>
-      <div class="semanas">${[1, 2, 3, 4].map((s) => `<button class="${hecho.has(r.id + '|' + s) ? 'on' : ''} ${s === sHoy ? 'hoy' : ''}" data-reto="${r.id}" data-s="${s}" ${gestiona ? '' : 'disabled'} aria-pressed="${hecho.has(r.id + '|' + s)}" title="Semana ${s}: ${textoSemana(mes, s)}">${ico('evento', 16)}<span>Sem. ${s}</span></button>`).join('')}</div></div>`).join('')
+      <div class="semanas">${[1, 2, 3, 4].map((s) => { const k = r.id + '|' + s; return `<button class="${hecho.has(k) ? 'on' : ''} ${s === sHoy ? 'hoy' : ''} ${gestiona && suyo.has(k) ? 'suyo' : ''}" data-reto="${r.id}" data-s="${s}" ${tocable(r.id, s) ? '' : 'disabled'} aria-pressed="${hecho.has(k)}" title="Semana ${s}: ${textoSemana(mes, s)}">${ico('evento', 16)}<span>Sem. ${s}</span></button>`; }).join('')}</div></div>`).join('')
       : vacio('Aún no hay retos este mes.')}
-    ${gestiona && retos.length ? '<p class="nota">Toca una semana para marcarla como conseguida. Vuelve a tocar para quitarla.</p>' : ''}
-  </main>`, 'mas');
+    ${gestiona && retos.length ? `<p class="nota">Toca una semana para marcarla como conseguida. Vuelve a tocar para quitarla.${suyo.size ? ' <span class="punto-suyo"></span> = lo marcó ella; compruébalo y quítalo si no es cierto.' : ''}</p>` : ''}
+    ${propia && retos.length && enCurso ? '<p class="nota">¿Lo has hecho? Toca la semana y se suma al momento. La administración lo revisa. Si te equivocas, vuelve a tocar para quitarlo.</p>' : ''}
+  </main>`, propia ? 'inicio' : 'mas');
   pintarPct();
   $app.querySelectorAll('[data-reto]').forEach((b) => b.onclick = async () => {
     const k = b.dataset.reto + '|' + b.dataset.s, on = hecho.has(k);
@@ -1642,10 +1649,11 @@ async function pantallaLogrosProfesora(id, params) {
     try {
       if (on) await q(sb.from('logros_cumplidos').delete().eq('reto_id', b.dataset.reto).eq('profesora_id', id).eq('semana', b.dataset.s));
       else await q(sb.from('logros_cumplidos').insert({ reto_id: b.dataset.reto, profesora_id: id, semana: +b.dataset.s }));
-      on ? hecho.delete(k) : hecho.add(k);
-      b.classList.toggle('on', !on); b.setAttribute('aria-pressed', !on); pintarPct();
+      on ? (hecho.delete(k), suyo.delete(k)) : (hecho.add(k), !gestiona && suyo.add(k));
+      b.classList.toggle('on', !on); b.classList.remove('suyo'); b.setAttribute('aria-pressed', !on); pintarPct();
+      if (!on && !gestiona) aviso('¡Sumado! 🎉');
     } catch (e) { aviso(traducirError(e), true); }
-    b.disabled = false;
+    b.disabled = !tocable(b.dataset.reto, +b.dataset.s);
   });
 }
 
