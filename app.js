@@ -48,6 +48,7 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
   const p = {
+    campana: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
     idea: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     volver: '<path d="M15 5l-7 7 7 7"/>', sig: '<path d="M9 5l7 7-7 7"/>', mas: '<path d="M12 5v14M5 12h14"/>',
     casa: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>', clases: '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/>',
@@ -297,6 +298,27 @@ async function pantallaInicio(vista = null) {
         <div class="nota">${retos.length ? `${hechos.length} de ${retos.length * SEMANAS} conseguidos` : 'Aún no hay retos este mes'}</div></a>`;
     }
   }
+  // Novedades desde la última vez que la persona las marcó como vistas (se guarda en este móvil)
+  let novedades = '';
+  if (!vista) {
+    const clave = 'bs-visto-' + S.usuario.id;
+    let desde = null; try { desde = localStorage.getItem(clave); } catch (e) {}
+    if (!desde) { const d = new Date(); d.setDate(d.getDate() - 14); desde = d.toISOString(); }
+    const [ns, evs, ins] = await Promise.all([
+      ver('normas') ? intentar(() => q(sb.from('normas').select('id,titulo,creado_en,modificado_en,creado_por,modificado_por').eq('activa', true).or(`creado_en.gt.${desde},modificado_en.gt.${desde}`))) : [],
+      ver('eventos') ? intentar(() => q(sb.from('eventos').select('id,titulo,fecha,creado_en,modificado_en,creado_por,modificado_por').or(`creado_en.gt.${desde},modificado_en.gt.${desde}`))) : [],
+      ver('iniciativas') && !S.admin ? intentar(() => q(sb.from('iniciativas').select('id,titulo,estado,modificado_en').eq('creado_por', S.usuario.id).gt('modificado_en', desde))) : []
+    ]);
+    // Lo que cambió una misma no es novedad para ella
+    const deOtra = (x) => (x.modificado_en && x.modificado_en > desde ? x.modificado_por : x.creado_por) !== S.usuario.id;
+    const items = [
+      ...ns.filter(deOtra).map((x) => ({ t: x.modificado_en || x.creado_en, ic: 'normas', k: x.modificado_en && x.modificado_en > desde && x.creado_en <= desde ? 'Norma cambiada' : 'Norma nueva', tit: x.titulo, href: '#/normas' })),
+      ...evs.filter(deOtra).map((x) => ({ t: x.modificado_en || x.creado_en, ic: 'evento', k: x.creado_en > desde ? 'Evento nuevo' : 'Evento cambiado', tit: `${x.titulo} · ${fechaCorta(x.fecha)}`, href: `#/evento/${x.id}` })),
+      ...ins.map((x) => ({ t: x.modificado_en, ic: 'idea', k: 'Respuesta a tu iniciativa', tit: `${x.titulo} · ${ESTADOS_INI[x.estado][0]}`, href: `#/iniciativa/${x.id}` }))
+    ].sort((a, b) => String(b.t).localeCompare(String(a.t))).slice(0, 6);
+    if (items.length) novedades = `<section class="novedades"><div class="nv-cab"><b>${ico('campana', 20)} Novedades <span class="nv-n">${items.length}</span></b><button id="nv-visto">Marcar como visto</button></div>
+      ${items.map((x) => `<a class="nv-item" href="${x.href}"><span class="ico">${ico(x.ic, 18)}</span><span class="txt"><small>${x.k}</small><b>${esc(x.tit)}</b></span>${ico('sig', 18)}</a>`).join('')}</section>`;
+  }
   const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
   const accesos = (profesora ? [
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
@@ -315,12 +337,15 @@ async function pantallaInicio(vista = null) {
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
   ]).filter((x) => x[5] ? editar(x[0]) : ver(x[0]));
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="#/vista">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? 'Profesora' : null }) + `<main class="cont">
+    ${novedades}
     ${bloqueClases}
     ${barraLogros}
     ${tarjetaCaja}
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
+  const nv = document.getElementById('nv-visto');
+  if (nv) nv.onclick = () => { try { localStorage.setItem('bs-visto-' + S.usuario.id, new Date().toISOString()); } catch (e) {} nv.closest('.novedades').remove(); };
   const car = document.getElementById('carrusel'), puntos = document.getElementById('puntos');
   if (car && puntos) {
     const paso = () => car.clientWidth + 14;   // ancho de tarjeta + separación
