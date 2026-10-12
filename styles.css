@@ -187,7 +187,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .cc-cab::-webkit-details-marker{display:none}
 .cc-cab>span:first-child{flex:1;min-width:0}
 .cc-flecha{display:grid;place-items:center;color:var(--texto2);transition:transform .2s}
-.caja-clase[open] .cc-flecha{transform:rotate(90deg)}
+.caja-clase[open]>summary .cc-flecha{transform:rotate(90deg)}
 .cc-cab h3{font-size:16px}
 .cc-cab small{display:block;font-size:12px;color:var(--texto2);margin-top:2px}
 .cc-tot{display:flex;flex-direction:column;align-items:flex-end;font-family:'Sora',sans-serif;font-size:15px;white-space:nowrap}
@@ -328,3 +328,10 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .nota-cab small{flex:1;min-width:0;font-size:12px;color:var(--texto2)}
 .nota-borrar{border:0;background:none;color:var(--gasto);font-weight:600;font-size:13px;min-height:32px;padding:0 4px;cursor:pointer}
 .nota p{margin:6px 0 0;font-size:15px;line-height:1.45;white-space:pre-wrap}
+.nota-mes{border:1px solid var(--borde);border-radius:16px;padding:0 14px}
+.nota-mes>summary{display:flex;align-items:center;gap:10px;min-height:52px;cursor:pointer;list-style:none;font-weight:700;font-size:15px}
+.nota-mes>summary::-webkit-details-marker{display:none}
+.nota-mes>summary>span:first-child{flex:1}
+.nota-mes[open] .cc-flecha{transform:rotate(90deg)}
+.nota-mes[open]{padding-bottom:12px}
+.nota-mes .nota:first-of-type{margin-top:0}

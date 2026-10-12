@@ -746,8 +746,15 @@ function bloqueNotas(notas) {
       <div class="nota-tipos" role="radiogroup" aria-label="Tipo de nota">${TIPOS_NOTA.map(([k, t]) => `<button type="button" data-tipo="${k}" class="${k === 'otra' ? 'on' : ''}">${t}</button>`).join('')}</div>
       <textarea id="nota-texto" rows="3" maxlength="2000" placeholder="Escribe aquí… (por ejemplo: ha avanzado mucho en los giros)"></textarea>
       <button class="btn pri" id="nota-guardar">Guardar nota</button>
-      ${notas.map(nota).join('')}
+      ${porMes(notas).map(([m, l]) => `<details class="nota-mes"><summary><span>${capital(nombreMes(m + '-01'))}</span><span class="chip mor">${l.length} nota${l.length === 1 ? '' : 's'}</span><span class="cc-flecha">${ico('sig', 16)}</span></summary>
+        ${l.map(nota).join('')}</details>`).join('')}
     </div></details>`;
+}
+// [['2026-10', [notas...]], ...] de la más reciente a la más antigua
+function porMes(notas) {
+  const g = new Map();
+  notas.forEach((n) => { const m = n.creado_en.slice(0, 7); if (!g.has(m)) g.set(m, []); g.get(m).push(n); });
+  return [...g];
 }
 function activarNotas(alumnaId) {
   const caja = $app.querySelector('.notas-alumna'); if (!caja) return;
