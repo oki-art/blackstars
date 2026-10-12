@@ -692,6 +692,7 @@ async function pantallaAlumna(id) {
   if (!puedeVer('alumnas')) return sinPermiso();
   const a = await q(sb.from('alumnas').select('*').eq('id', id).single());
   const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,clases(id,nombre,' + SEL_HOR + ')').eq('alumna_id', id).order('fecha_alta', { ascending: false }))) : [];
+  const notas = await intentar(() => q(sb.from('alumnas_notas').select('*').eq('alumna_id', id).order('creado_en', { ascending: false })));
   const e = edad(a.fecha_nacimiento);
   const tel = (t) => t ? `<a href="tel:${esc(t)}" style="color:var(--morado3)">${esc(t)}</a> · <a href="https://wa.me/${esc(t.replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1'))}" target="_blank" rel="noopener" style="color:#1FA855">WhatsApp</a>` : '—';
   pintar(cabecera(`${a.nombre} ${a.apellidos || ''}`, { volver: '#/alumnas', sub: (a.estado === 'activa' ? 'Activa desde ' + fechaCorta(a.fecha_alta) : 'De baja') + (a.cuota === 'media' ? ' · Medio mes' : '') }) + `<main class="cont">
@@ -702,6 +703,7 @@ async function pantallaAlumna(id) {
       ${a.tutor_nombre || (e != null && e < 18) ? `<dt>Tutor</dt><dd>${esc(a.tutor_nombre || '—')}</dd><dt>Tel. tutor</dt><dd>${tel(a.tutor_telefono)}</dd>` : ''}
       ${a.notas ? `<dt>Notas</dt><dd>${esc(a.notas)}</dd>` : ''}
     </dl></div>
+    ${bloqueNotas(notas)}
     ${puedeVer('inscripciones') ? `<div class="seccion">Clases</div><div class="lista">${ins.filter((i) => !i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${esc(textoHorario(i.clases))} · desde ${fechaCorta(i.fecha_alta)}`, der: puedeEditar('inscripciones') ? `<button class="chip no" data-baja-ins="${i.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('No está en ninguna clase.')}</div>
       ${ins.some((i) => i.fecha_baja) ? `<div class="seccion">Clases anteriores</div><div class="lista">${ins.filter((i) => i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${fechaCorta(i.fecha_alta)} – ${fechaCorta(i.fecha_baja)}` })).join('')}</div>` : ''}
       ${puedeEditar('inscripciones') && a.estado === 'activa' ? `<a class="btn sec" href="#/inscripcion/nueva?alumna=${id}">${ico('mas')} Añadir a una clase</a>` : ''}` : ''}
@@ -709,6 +711,7 @@ async function pantallaAlumna(id) {
       ${a.estado === 'activa' ? `<button class="btn peligro" id="baja">Dar de baja</button>` : `<button class="btn sec" id="alta">Volver a dar de alta</button>`}</div>` : ''}
     ${autorDe(a)}
   </main>`, 'alumnas');
+  activarNotas(id);
   $app.querySelectorAll('[data-baja-ins]').forEach((b) => b.onclick = async (ev) => {
     ev.preventDefault(); ev.stopPropagation();
     if (!confirm('¿Quitar de esta clase? Se guarda en el historial.')) return;
@@ -725,6 +728,44 @@ async function pantallaAlumna(id) {
   };
   const ba = document.getElementById('alta');
   if (ba) ba.onclick = async () => { try { await q(sb.from('alumnas').update({ estado: 'activa' }).eq('id', id)); aviso('Alumna activa de nuevo'); router(); } catch (e) { aviso(traducirError(e), true); } };
+}
+
+/* Notas de la profesora (desplegable en la ficha de la alumna) */
+const TIPOS_NOTA = [['avance', 'Avance', 'ok'], ['esfuerzo', 'Esfuerzo', 'mor'], ['incidencia', 'Incidencia', 'no'], ['familia', 'Familia', 'oro'], ['otra', 'Otra', 'gris']];
+function bloqueNotas(notas) {
+  const tipo = (k) => TIPOS_NOTA.find((t) => t[0] === k) || TIPOS_NOTA[4];
+  const mia = (n) => S.admin || n.creado_por === S.usuario.id;
+  const nota = (n) => `<div class="nota"><div class="nota-cab"><span class="chip ${tipo(n.tipo)[2]}">${tipo(n.tipo)[1]}</span>
+      <small>${esc(n.autor_nombre || 'Administración')} · ${fechaCorta(n.creado_en)}</small>
+      ${mia(n) ? `<button class="nota-borrar" data-borrar-nota="${n.id}" aria-label="Borrar nota">Borrar</button>` : ''}</div>
+    <p>${esc(n.texto)}</p></div>`;
+  return `<details class="caja-clase notas-alumna"><summary class="cc-cab"><span><h3>Notas de la profesora</h3>
+      <small>${notas.length ? `${notas.length} nota${notas.length === 1 ? '' : 's'} · última el ${fechaCorta(notas[0].creado_en)}` : 'Avances, esfuerzo, algo a tener en cuenta…'}</small></span>
+      <span class="cc-flecha">${ico('sig', 18)}</span></summary>
+    <div class="notas-cuerpo">
+      <div class="nota-tipos" role="radiogroup" aria-label="Tipo de nota">${TIPOS_NOTA.map(([k, t]) => `<button type="button" data-tipo="${k}" class="${k === 'otra' ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <textarea id="nota-texto" rows="3" maxlength="2000" placeholder="Escribe aquí… (por ejemplo: ha avanzado mucho en los giros)"></textarea>
+      <button class="btn pri" id="nota-guardar">Guardar nota</button>
+      ${notas.map(nota).join('')}
+    </div></details>`;
+}
+function activarNotas(alumnaId) {
+  const caja = $app.querySelector('.notas-alumna'); if (!caja) return;
+  let tipo = 'otra';
+  caja.querySelectorAll('[data-tipo]').forEach((b) => b.onclick = () => {
+    tipo = b.dataset.tipo; caja.querySelectorAll('[data-tipo]').forEach((x) => x.classList.toggle('on', x === b));
+  });
+  document.getElementById('nota-guardar').onclick = async (ev) => {
+    const txt = document.getElementById('nota-texto').value.trim();
+    if (!txt) return aviso('Escribe algo antes de guardar', true);
+    ev.target.disabled = true;
+    try { await q(sb.from('alumnas_notas').insert({ alumna_id: alumnaId, tipo, texto: txt })); aviso('Nota guardada'); router(); }
+    catch (e) { ev.target.disabled = false; aviso(traducirError(e), true); }
+  };
+  caja.querySelectorAll('[data-borrar-nota]').forEach((b) => b.onclick = async () => {
+    if (!confirm('¿Borrar esta nota?')) return;
+    try { await q(sb.from('alumnas_notas').delete().eq('id', b.dataset.borrarNota)); aviso('Nota borrada'); router(); } catch (e) { aviso(traducirError(e), true); }
+  });
 }
 
 /* ---------- inscripciones ---------- */

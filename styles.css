@@ -315,3 +315,16 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .orden-fila .flechas{display:flex;gap:6px;flex:none}
 .orden-fila .flechas button{width:44px;height:44px;border-radius:12px;border:1px solid rgba(118,80,224,0.25);background:#fff;color:var(--morado3);display:grid;place-items:center;cursor:pointer}
 .orden-fila .flechas button:disabled{opacity:.3;cursor:default}
+/* Notas de la profesora en la ficha de alumna */
+.notas-alumna{border-left-color:var(--oro2)}
+.notas-cuerpo{border-top:1px solid var(--borde);padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px}
+.nota-tipos{display:flex;flex-wrap:wrap;gap:6px}
+.nota-tipos button{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--borde);background:#fff;font-weight:600;font-size:13px;color:var(--texto2);cursor:pointer}
+.nota-tipos button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;border-color:transparent}
+.notas-cuerpo textarea{width:100%;min-height:88px;padding:12px 14px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-size:16px;outline:none;resize:vertical}
+.notas-cuerpo textarea:focus{border-color:var(--morado);box-shadow:0 0 0 3px rgba(118,80,224,0.15)}
+.nota{border-top:1px solid var(--borde);padding-top:12px}
+.nota-cab{display:flex;align-items:center;gap:8px}
+.nota-cab small{flex:1;min-width:0;font-size:12px;color:var(--texto2)}
+.nota-borrar{border:0;background:none;color:var(--gasto);font-weight:600;font-size:13px;min-height:32px;padding:0 4px;cursor:pointer}
+.nota p{margin:6px 0 0;font-size:15px;line-height:1.45;white-space:pre-wrap}
