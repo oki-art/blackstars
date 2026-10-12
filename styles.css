@@ -170,6 +170,25 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .calendario .puntos i{width:5px;height:5px;border-radius:50%}
 .in{color:var(--ingreso)} .out{color:var(--gasto)}
 .bg-in{background:var(--ingreso)} .bg-out{background:var(--gasto)}
+/* Caja: tarjetas por clase */
+.caja-clase{background:#fff;border:1px solid var(--borde);border-radius:20px;box-shadow:var(--sombra);border-left:5px solid var(--morado);overflow:hidden}
+.caja-clase.externa{border-left-color:var(--oro2)}
+.caja-clase.otros{border-left-color:rgba(107,104,129,0.45)}
+.cc-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px 10px}
+.cc-cab h3{font-size:16px}
+.cc-cab small{display:block;font-size:12px;color:var(--texto2);margin-top:2px}
+.cc-tot{display:flex;flex-direction:column;align-items:flex-end;font-family:'Sora',sans-serif;font-size:15px;white-space:nowrap}
+.cc-movs{border-top:1px solid var(--borde)}
+.mov{display:flex;align-items:center;gap:12px;padding:10px 16px;min-height:56px;cursor:pointer}
+.mov+.mov{border-top:1px solid var(--borde)}
+.mov .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.mov .tit{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mov .det{font-size:12px;color:var(--texto2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mov>b{font-size:14px;white-space:nowrap}
+.mov-tipo{width:8px;height:8px;border-radius:50%;flex:none}
+.mov-dia{width:40px;height:40px;border-radius:12px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(118,80,224,0.08);color:var(--morado3);font-size:10px;font-weight:700;line-height:1.1;text-transform:uppercase}
+.mov-dia b{font-family:'Sora',sans-serif;font-size:15px}
+.caja-todas{padding:4px 0}
 .tipo{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tipo button{min-height:48px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-weight:700;cursor:pointer}
 .tipo button.on.in{background:rgba(31,138,92,0.12);border-color:var(--ingreso);color:var(--ingreso)}
