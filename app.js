@@ -81,6 +81,7 @@ function aviso(msg, error = false) {
 }
 function traducirError(e) {
   const m = (e && (e.message || e.error_description)) || String(e);
+  if (/coerce the result to a single JSON object|PGRST116/i.test(m)) return 'Esto ya no existe o no tienes acceso a ello.';
   if (/exclusion|conflicting key value violates exclusion/i.test(m)) return 'La sala ya está ocupada ese día a esa hora por otra clase.';
   if (/row-level security|permission denied/i.test(m)) return 'No tienes permiso para hacer esto.';
   if (/inscripcion_activa_unica|duplicate key/i.test(m)) return 'Ese registro ya existe.';
@@ -121,11 +122,14 @@ function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
   const izq = volver
     ? `<button class="volver" data-volver="${esc(volver)}" aria-label="Volver">${ico('volver')}</button>`
     : `<img class="logo" src="icons/logo.png" alt="Blackstars">`;
-  const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin' : (S.perfil ? esc(S.perfil.nombre) : '');
+  // Insignia: "Admin", o el papel arriba y el nombre de pila debajo (dos líneas cortas)
+  const nombrePila = S.perfil ? esc(String(S.perfil.nombre).trim().split(/\s+/)[0]) : '';
+  const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin'
+    : nombrePila ? `<small>${esProfesora(S.permisos) ? 'Profesora' : 'Equipo'}</small>${nombrePila}` : '';
   // En "Ver como…" la campana solo se enseña (no abre tus avisos)
   const campana = !S.usuario ? '' : insignia == null ? `<a class="campana ${S.noLeidas ? 'con' : ''}" id="campana" href="#/avisos" aria-label="Avisos">${ico('campana', 22)}<i></i></a>`
     : `<span class="campana" aria-hidden="true">${ico('campana', 22)}<i></i></span>`;
-  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana && insignia == null) ? `<span class="insignia">${rol}</span>` : ''}</div></header>`;
+  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana && insignia == null) ? `<span class="insignia${insignia == null && !S.admin ? ' dos' : ''}">${rol}</span>` : ''}</div></header>`;
 }
 function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
@@ -644,7 +648,8 @@ const CAMPOS_ALUMNA = [
 ];
 async function pantallaAlumnas(params) {
   if (!puedeVer('alumnas')) return sinPermiso();
-  const f = params.get('f') || 'activa', claseSel = params.get('clase');
+  const f = params.get('f') || 'activa';
+  let claseSel = params.get('clase');
   const [todas, clases] = await Promise.all([
     q(sb.from('alumnas').select('id,nombre,apellidos,estado,telefono,cuota,inscripciones(clase_id,fecha_baja,clases(nombre))').order('nombre')),
     puedeVer('clases') ? intentar(() => q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,' + SEL_HOR).is('escuela_amiga_id', null))) : []
@@ -657,19 +662,34 @@ async function pantallaAlumnas(params) {
     ? (f === 'activa' ? a.estado === 'activa' && sinClase(a) : a.estado === 'baja' && !(a.inscripciones || []).length)
     : (f === 'activa' ? a.estado === 'activa' && enClase(a, cid) : bajaDeClase(a, cid) || (a.estado === 'baja' && enClase(a, cid))));
   const nActivas = todas.filter((a) => a.estado === 'activa').length;
+  // Con una sola clase (lo normal en una profesora) se va directo a la lista de sus alumnas
+  const unica = !claseSel && f !== 'todas' && clases.filter((c) => c.activa).length === 1 && !deClase('sin').length ? clases.find((c) => c.activa) : null;
+  if (unica) claseSel = unica.id;
   const claseObj = clases.find((c) => c.id === claseSel);
-  const titulo = claseSel ? (claseSel === 'sin' ? 'Sin clase' : claseObj ? claseObj.nombre : 'Clase') : 'Alumnas';
-  const sub = claseSel ? `${deClase(claseSel).length} ${f === 'activa' ? 'activas' : 'de baja'}` : `${nActivas} activas · ${todas.length - nActivas} de baja`;
-  pintar(cabecera(titulo, { sub, volver: claseSel ? `#/alumnas?f=${f}` : null }) + `<main class="cont">
-    <div class="buscar">${ico('buscar')}<input id="buscar" type="search" placeholder="${claseSel ? 'Buscar en esta clase' : 'Buscar alumna'}" autocomplete="off"></div>
-    ${claseSel ? '' : `<div class="filtros">${[['activa', 'Activas'], ['baja', 'Bajas'], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/alumnas?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>`}
+  // Estrellas del mes de cada alumna de la clase (barra de progreso) y orden de la lista
+  const enUnaClase = claseSel && claseSel !== 'sin';
+  const est = enUnaClase && puedeVer('logros') ? await intentar(() => q(sb.from('logros_estrellas').select('alumna_id,esfuerzo,tareas,actitud').eq('clase_id', claseSel).eq('mes', mesDe()))) : null;
+  const pctAlumna = (a) => est ? pct(est.filter((e) => e.alumna_id === a.id).reduce((t, e) => t + totalEstrellas(e), 0), MAX_ALUMNA) : 0;
+  let orden = 'az';
+  try { orden = localStorage.getItem('bs-orden-alumnas') === 'nota' ? 'nota' : 'az'; } catch (e) { /* sin almacenamiento */ }
+  const titulo = unica ? 'Alumnas' : claseSel ? (claseSel === 'sin' ? 'Sin clase' : claseObj ? claseObj.nombre : 'Clase') : 'Alumnas';
+  const sub = claseSel ? `${unica ? esc(unica.nombre) + ' · ' : ''}${deClase(claseSel).length} ${f === 'activa' ? 'activas' : 'de baja'}` : `${nActivas} activas · ${todas.length - nActivas} de baja`;
+  pintar(cabecera(titulo, { sub, volver: claseSel && !unica ? `#/alumnas?f=${f}` : null }) + `<main class="cont">
+    <div class="buscar">${ico('buscar')}<input id="buscar" type="search" placeholder="${claseSel && !unica ? 'Buscar en esta clase' : 'Buscar alumna'}" autocomplete="off"></div>
+    ${est ? `<div class="filtros" id="orden">${[['az', 'A–Z'], ['nota', 'Más estrellas']].map(([k, t]) => `<button type="button" data-orden="${k}" class="${orden === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+    ${claseSel && !unica ? '' : `<div class="filtros">${[['activa', 'Activas'], ['baja', 'Bajas'], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/alumnas?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>`}
     <div class="lista" id="lista"></div></main>`, 'alumnas', puedeEditar('alumnas') ? '#/alumna/nueva' : null);
   const quitarTildes = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const filaAlumna = (a) => {
     const cls = (a.inscripciones || []).filter((i) => !i.fecha_baja && i.clases).map((i) => i.clases.nombre).join(' · ');
     const chips = (a.estado === 'activa' ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Baja</span>') + (a.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '');
+    if (est) {
+      const v = pctAlumna(a);
+      return fila({ href: `#/alumna/${a.id}`, tit: `${a.nombre} ${a.apellidos || ''}`, det: `<span class="estr-alumna">${barra(v)}<b>${v}%</b></span>`, der: `<span class="chips">${chips}</span>` });
+    }
     return fila({ href: `#/alumna/${a.id}`, tit: `${a.nombre} ${a.apellidos || ''}`, det: esc(cls || 'Sin clase'), der: `<span class="chips">${chips}</span>` });
   };
+  const ordenar = (l) => l.slice().sort((x, y) => (orden === 'nota' ? pctAlumna(y) - pctAlumna(x) : 0) || `${x.nombre} ${x.apellidos || ''}`.localeCompare(`${y.nombre} ${y.apellidos || ''}`, 'es'));
   const tarjetaClase = (id, nombre, horario, n) => `<a class="tarjeta-clase" href="#/alumnas?f=${f}&clase=${id}">
     <div class="tc-cab"><h2>${esc(nombre)}</h2><span class="contador ${f === 'baja' ? 'gris' : ''}">${n}</span></div>
     ${horario ? `<div class="tc-hor">${ico('clases', 16)} ${esc(horario)}</div>` : ''}
@@ -678,7 +698,7 @@ async function pantallaAlumnas(params) {
     const t = quitarTildes(document.getElementById('buscar').value.trim());
     const coincide = (a) => quitarTildes(`${a.nombre} ${a.apellidos || ''} ${a.telefono || ''}`).includes(t);
     let html;
-    if (claseSel) html = deClase(claseSel).filter((a) => !t || coincide(a)).map(filaAlumna).join('') || vacio(t ? 'No hay coincidencias.' : 'No hay alumnas aquí.');
+    if (claseSel) html = ordenar(deClase(claseSel).filter((a) => !t || coincide(a))).map(filaAlumna).join('') || vacio(t ? 'No hay coincidencias.' : 'No hay alumnas aquí.');
     else if (t || f === 'todas') html = todas.filter((a) => (f === 'todas' || a.estado === f) && (!t || coincide(a))).map(filaAlumna).join('') || vacio(todas.length ? 'No hay coincidencias.' : 'Aún no hay alumnas. Pulsa + para dar de alta la primera.');
     else {
       const visibles = clases.filter((c) => f === 'activa' ? c.activa : true).sort((a, b) => ordenClase(a) - ordenClase(b));
@@ -690,7 +710,12 @@ async function pantallaAlumnas(params) {
     }
     document.getElementById('lista').innerHTML = html;
   };
-  document.getElementById('buscar').oninput = dibujar; dibujar();
+  document.getElementById('buscar').oninput = dibujar;
+  $app.querySelectorAll('[data-orden]').forEach((b) => b.onclick = () => {
+    orden = b.dataset.orden; try { localStorage.setItem('bs-orden-alumnas', orden); } catch (e) { /* nada */ }
+    $app.querySelectorAll('[data-orden]').forEach((x) => x.classList.toggle('on', x === b)); dibujar();
+  });
+  dibujar();
 }
 async function pantallaAlumna(id) {
   if (!puedeVer('alumnas')) return sinPermiso();
@@ -1840,9 +1865,10 @@ const MAX_ALUMNA = CATEG.length * 3 * SEMANAS;
 function selectorMes(mes, base) {
   return `<div class="mes"><button data-ir="${base}mes=${mesCorto(otroMes(mes, -1))}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes)}</h2><button data-ir="${base}mes=${mesCorto(otroMes(mes, 1))}" aria-label="Mes siguiente">${ico('sig')}</button></div>`;
 }
+// Su ficha de profesora: id por la función del servidor (no necesita permiso de Profesoras)
 async function miProfesora() {
-  const r = await intentar(() => q(sb.from('profesoras').select('id,nombre').eq('perfil_id', S.usuario.id)));
-  return r[0] || null;
+  const id = await intentar(() => q(sb.rpc('mi_profesora')));
+  return id && typeof id === 'string' ? { id, nombre: S.perfil ? S.perfil.nombre : '', perfil_id: S.usuario.id } : null;
 }
 
 async function pantallaLogros(params) {
@@ -1854,7 +1880,12 @@ async function pantallaLogros(params) {
     gestiona ? null : miProfesora()
   ]);
   const recompensa = meses[0] ? meses[0].recompensa || '' : '';
-  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,profesora_id,semana').in('reto_id', retos.map((r) => r.id))) : [];
+  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,profesora_id,semana,marcado_por').in('reto_id', retos.map((r) => r.id))) : [];
+  // La profesora marca "Hecho" el reto de esta semana desde aquí (a la administración le llega el aviso)
+  const marca = !gestiona && yo && puedeEditar('logros') && mes === mesDe(), sHoy = semanaHoy(mes);
+  const hechoYo = (rid) => cumplidos.find((c) => c.reto_id === rid && c.profesora_id === (yo && yo.id) && c.semana === sHoy);
+  const botonHecho = (r) => { const h = hechoYo(r.id), mio = h && h.marcado_por === S.usuario.id;
+    return `<button class="btn-hecho ${h ? 'on' : ''}" data-hecho="${r.id}" ${h && !mio ? 'disabled' : ''} aria-pressed="${!!h}">${h ? '✓ Hecho' : 'Hecho'}</button>`; };
   const profesoras = gestiona ? await q(sb.from('profesoras').select('id,nombre').eq('activa', true).order('nombre')) : (yo ? [yo] : []);
   const posibles = retos.length * SEMANAS;
   const tarjetaProfe = (p) => {
@@ -1881,9 +1912,9 @@ async function pantallaLogros(params) {
       ${gestiona ? `<input id="recompensa" class="input-oro" placeholder="Ej.: entrada a un taller" value="${esc(recompensa)}">` : `<span>${esc(recompensa || 'Aún sin decidir')}</span>`}</span></div>
     <div class="seccion">Retos del mes (${retos.length}/${MAX_RETOS})</div>
     <div class="lista">${retos.map((r, i) => `<div class="fila"><span class="ini">${i + 1}</span><span class="txt"><div class="tit envolver">${esc(r.titulo)}</div></span>
-      ${gestiona ? `<button class="quitar-r" data-quitar="${r.id}" aria-label="Quitar reto">Quitar</button>` : ''}</div>`).join('') || vacio(gestiona ? 'Aún no hay retos este mes. Añade de 1 a 5.' : 'Aún no hay retos este mes.')}</div>
+      ${gestiona ? `<button class="quitar-r" data-quitar="${r.id}" aria-label="Quitar reto">Quitar</button>` : marca ? botonHecho(r) : ''}</div>`).join('') || vacio(gestiona ? 'Aún no hay retos este mes. Añade de 1 a 5.' : 'Aún no hay retos este mes.')}</div>
     ${gestiona && retos.length < MAX_RETOS ? `<a class="btn sec" href="#/logros/reto?mes=${mesCorto(mes)}">${ico('mas')} Añadir reto</a>` : ''}
-    ${retos.length ? `<p class="nota">Cada reto se marca por semana (4 semanas). Todos valen lo mismo.</p>` : ''}
+    ${retos.length ? `<p class="nota">${marca ? `Toca <b>Hecho</b> cuando cumplas un reto esta semana (semana ${sHoy}, ${textoSemana(mes, sHoy)}). Se suma al momento y la administración lo revisa.` : 'Cada reto se marca por semana (4 semanas). Todos valen lo mismo.'}</p>` : ''}
     <div class="seccion">${gestiona ? 'Profesoras' : 'Mi progreso'}</div>
     <div class="lista">${profesoras.map(tarjetaProfe).join('') || vacio(gestiona ? 'No hay profesoras activas.' : 'Tu usuario aún no está enlazado con tu ficha de profesora. Pídeselo a la administración.')}</div>
     <div class="seccion">Estrellas de alumnas</div>
@@ -1893,6 +1924,14 @@ async function pantallaLogros(params) {
   if (rec) rec.onchange = async () => {
     try { await q(sb.from('logros_meses').upsert({ mes, recompensa: rec.value.trim() || null })); aviso('Recompensa guardada'); } catch (e) { aviso(traducirError(e), true); }
   };
+  $app.querySelectorAll('[data-hecho]').forEach((b) => b.onclick = async () => {
+    const on = b.classList.contains('on'); b.disabled = true;
+    try {
+      if (on) await q(sb.from('logros_cumplidos').delete().eq('reto_id', b.dataset.hecho).eq('profesora_id', yo.id).eq('semana', sHoy));
+      else await q(sb.from('logros_cumplidos').insert({ reto_id: b.dataset.hecho, profesora_id: yo.id, semana: sHoy }));
+      aviso(on ? 'Quitado' : '¡Hecho! 🎉'); router();
+    } catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
   $app.querySelectorAll('[data-quitar]').forEach((b) => b.onclick = async () => {
     if (!confirm('¿Quitar este reto del mes? Se perderá lo marcado en él.')) return;
     try { await q(sb.from('logros_retos').delete().eq('id', b.dataset.quitar)); aviso('Reto quitado'); router(); } catch (e) { aviso(traducirError(e), true); }
@@ -1935,11 +1974,13 @@ async function formReto(params) {
 async function pantallaLogrosProfesora(id, params) {
   if (!puedeVer('logros')) return sinPermiso();
   const mes = mesParam(params), gestiona = gestionaLogros();
-  const [prof, retos, yo] = await Promise.all([
-    q(sb.from('profesoras').select('id,nombre,perfil_id').eq('id', id).single()),
+  const [p0, retos, yo] = await Promise.all([
+    gestiona ? q(sb.from('profesoras').select('id,nombre,perfil_id').eq('id', id).single()) : null,
     q(sb.from('logros_retos').select('id,titulo').eq('mes', mes).order('creado_en')),
     gestiona ? null : miProfesora()
   ]);
+  const prof = p0 || (yo && yo.id === id ? yo : null);
+  if (!prof) return sinPermiso();
   const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,semana,marcado_por').eq('profesora_id', id).in('reto_id', retos.map((r) => r.id))) : [];
   const hecho = new Set(cumplidos.map((c) => c.reto_id + '|' + c.semana));
   // Lo que marcó ella misma (la administración lo ve con un punto para comprobarlo)
