@@ -1267,7 +1267,11 @@ async function pantallaDocumentos(params) {
   const nombre = Object.fromEntries((dest || []).map((d) => [d.id, d.nombre]));
   const quien = (d) => d.para_perfil === yo ? 'De ' + (d.registrado_por || nombre[d.creado_por] || 'administración') : (d.creado_por === yo ? 'Enviado a ' : 'Para ') + (nombre[d.para_perfil] || '¿?');
   const estado = (d) => d.estado === 'pendiente' && !d.pide_firma ? (d.para_perfil === yo ? 'Nuevo' : 'Sin abrir') : EST_DOC[d.estado][0];
+  const miFicha = S.admin ? null : await intentar(async () => q(sb.rpc('mi_profesora')));
+  const datos = S.admin ? fila({ href: '#/datos', tit: 'Datos del equipo', det: 'DNI, cuenta y tallas', iconoHtml: `<span class="ini">${ico('llave', 18)}</span>`, der: '<span class="chip oro">Solo admin</span>' })
+    : miFicha && typeof miFicha === 'string' ? fila({ href: `#/datos/${miFicha}`, tit: 'Mis datos', det: 'DNI, cuenta y talla · privados', iconoHtml: `<span class="ini">${ico('llave', 18)}</span>`, der: ico('sig') }) : '';
   pintar(cabecera('Documentos', { volver: ges ? '#/mas' : '#/inicio', sub: ges ? 'Enviados y recibidos' : 'Recibidos y enviados' }) + `<main class="cont">
+    ${datos ? `<div class="lista">${datos}</div>` : ''}
     <div class="filtros">${tabs.map(([k, t]) => `<button data-ir="#/documentos?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="lista">${l.map((d) => fila({ href: `#/documento/${d.id}`, iconoHtml: `<span class="ini">${ico('doc', 18)}</span>`, tit: d.titulo,
       det: esc([quien(d), fechaCorta(d.creado_en)].join(' · ')),
@@ -1345,6 +1349,83 @@ async function pantallaDocumento(id) {
   };
 }
 
+/* ---------- datos personales (solo admin y la propia profesora) ---------- */
+const TALLAS = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+const CAMPOS_DATOS = [
+  { k: 'dni', label: 'DNI / NIE', ph: '12345678A' },
+  { k: 'fecha_nacimiento', label: 'Fecha de nacimiento', tipo: 'fecha' },
+  { k: 'direccion', label: 'Dirección', ph: 'Calle, número, CP y ciudad' },
+  { k: 'seguridad_social', label: 'Nº de la Seguridad Social' },
+  { k: 'iban', label: 'Cuenta bancaria (IBAN)', ph: 'ES00 0000 0000 0000 0000 0000' },
+  { k: 'talla_camiseta', label: 'Talla de camiseta', tipo: 'select', opciones: TALLAS.map((t) => [t, t]), vacio: 'Sin indicar' },
+  { k: 'talla_pantalon', label: 'Talla de pantalón', ph: 'Ej.: 38 o M' },
+  { k: 'emergencia_nombre', label: 'Contacto de emergencia', ph: 'Nombre y parentesco' },
+  { k: 'emergencia_telefono', label: 'Teléfono de emergencia', tipo: 'tel' },
+  { k: 'notas', label: 'Otros datos', tipo: 'textarea', ph: 'Lo que quieras tener a mano' }
+];
+const ibanBonito = (v) => String(v || '').replace(/\s+/g, '').toUpperCase().replace(/(.{4})/g, '$1 ').trim();
+const CAMPOS_CUENTAN = CAMPOS_DATOS.filter((c) => c.k !== 'notas');
+const datosRellenos = (d) => d ? CAMPOS_CUENTAN.filter((c) => d[c.k]).length : 0;
+async function pantallaDatosEquipo() {
+  if (!S.admin) return sinPermiso();
+  const [profes, datos] = await Promise.all([
+    q(sb.from('profesoras').select('id,nombre,activa').order('activa', { ascending: false }).order('nombre')),
+    q(sb.from('profesoras_datos').select('*'))
+  ]);
+  const por = Object.fromEntries(datos.map((d) => [d.profesora_id, d]));
+  const tallas = {}; profes.filter((p) => p.activa).forEach((p) => { const t = (por[p.id] || {}).talla_camiseta || 'Sin talla'; tallas[t] = (tallas[t] || 0) + 1; });
+  const orden = [...TALLAS, 'Sin talla'].filter((t) => tallas[t]);
+  pintar(cabecera('Datos del equipo', { volver: '#/documentos', sub: 'Solo los ves tú y cada profesora los suyos' }) + `<main class="cont">
+    <div class="tarjeta"><h3>${ico('profe', 18)} Camisetas</h3><p class="nota" style="margin:4px 0 10px">Para hacer el pedido (profesoras en activo)</p>
+      <div class="tallas">${orden.map((t) => `<span class="chip ${t === 'Sin talla' ? 'gris' : 'mor'}">${t} × ${tallas[t]}</span>`).join('') || '<span class="nota">Aún no hay profesoras.</span>'}</div></div>
+    <div class="lista">${profes.map((p) => { const n = datosRellenos(por[p.id]); return fila({ href: `#/datos/${p.id}`, tit: p.nombre, det: n ? `${n} de ${CAMPOS_CUENTAN.length} datos${por[p.id].talla_camiseta ? ' · Talla ' + por[p.id].talla_camiseta : ''}` : 'Sin datos todavía',
+      der: !p.activa ? '<span class="chip gris">Inactiva</span>' : n === CAMPOS_CUENTAN.length ? '<span class="chip ok">Completo</span>' : n ? '<span class="chip oro">A medias</span>' : '<span class="chip gris">Vacío</span>' }); }).join('') || vacio('Aún no hay profesoras.')}</div>
+  </main>`, 'mas');
+}
+async function pantallaDatos(id) {
+  const [p, d, mia] = await Promise.all([
+    S.admin ? q(sb.from('profesoras').select('id,nombre').eq('id', id).maybeSingle()) : Promise.resolve(null),
+    q(sb.from('profesoras_datos').select('*').eq('profesora_id', id).maybeSingle()),
+    S.admin ? Promise.resolve(null) : intentar(async () => q(sb.rpc('mi_profesora')))
+  ]);
+  if (!S.admin && mia !== id) return sinPermiso();
+  const nombre = p ? p.nombre : (S.perfil ? S.perfil.nombre : '');
+  const filas = CAMPOS_DATOS.filter((c) => d && d[c.k]).map((c) => {
+    const v = c.k === 'iban' ? ibanBonito(d[c.k]) : c.tipo === 'fecha' ? fechaCorta(d[c.k]) + (edad(d[c.k]) != null ? ` (${edad(d[c.k])} años)` : '') : d[c.k];
+    const copia = ['dni', 'iban', 'seguridad_social', 'emergencia_telefono'].includes(c.k);
+    return `<div class="dato-p"><span class="txt"><small>${esc(c.label)}</small><b>${esc(v)}</b></span>${copia ? `<button class="copiar-dato" data-copiar="${esc(c.k === 'iban' ? String(d[c.k]).replace(/\s+/g, '').toUpperCase() : d[c.k])}" aria-label="Copiar ${esc(c.label)}">${ico('copiar', 18)}</button>` : ''}</div>`;
+  }).join('');
+  pintar(cabecera(S.admin ? nombre : 'Mis datos', { volver: S.admin ? '#/datos' : '#/documentos', sub: 'Datos personales · privados' }) + `<main class="cont">
+    <div class="tarjeta">${filas ? `<div class="datos-p">${filas}</div>` : vacio(S.admin ? 'Aún no hay datos de ' + esc(nombre.split(' ')[0]) + '. Rellénalos tú o pídele que lo haga desde su app (Documentos › Mis datos).' : 'Aún no has rellenado tus datos.')}</div>
+    <div class="nota" style="display:flex;gap:8px;align-items:center">${ico('ojo', 16)} Solo los ve la administración${S.admin ? ' y ' + esc(nombre.split(' ')[0]) : ' y tú'}.</div>
+    <button class="btn pri ancho" data-ir="#/datos/${id}/editar">${ico('lapiz')} ${filas ? 'Editar datos' : 'Rellenar datos'}</button>
+    ${d ? autorDe(d) : ''}
+  </main>`, S.admin ? 'mas' : 'inicio');
+  document.querySelectorAll('[data-copiar]').forEach((b) => { b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copiar); aviso('Copiado'); } catch (e) { aviso('No se pudo copiar', true); } }; });
+}
+async function formDatos(id) {
+  const [d, mia] = await Promise.all([
+    q(sb.from('profesoras_datos').select('*').eq('profesora_id', id).maybeSingle()),
+    S.admin ? Promise.resolve(null) : intentar(async () => q(sb.rpc('mi_profesora')))
+  ]);
+  if (!S.admin && mia !== id) return sinPermiso();
+  pintar(cabecera(d ? 'Editar datos' : 'Rellenar datos', { volver: `#/datos/${id}`, sub: S.admin ? 'Privados: solo tú y ella' : 'Solo los ves tú y la administración' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${CAMPOS_DATOS.map((c) => campoHtml(c, d && d[c.k])).join('')}
+    <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
+  const form = document.getElementById('frm');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      const datos = leerForm(form, CAMPOS_DATOS);
+      if (datos.iban) datos.iban = ibanBonito(datos.iban);
+      if (datos.dni) datos.dni = datos.dni.replace(/[\s-]+/g, '').toUpperCase();
+      await q(sb.from('profesoras_datos').upsert({ profesora_id: id, ...datos }));
+      aviso('Guardado'); location.hash = `#/datos/${id}`;
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
+  };
+}
+
 /* ---------- normas ---------- */
 async function pantallaNormas(params) {
   if (!puedeVer('normas')) return sinPermiso();
@@ -1399,6 +1480,9 @@ async function formProfesora(id) {
       ...(S.admin ? [{ k: 'perfil_id', label: 'Su usuario en la app (si tiene)', tipo: 'select', opciones: perfiles, vacio: 'Sin acceso', ayuda: 'Enlázalo para que, con "solo lo suyo", vea únicamente sus clases.' }] : [])
     ]
   });
+  // Acceso a sus datos personales (DNI, cuenta, tallas…), solo para la administración
+  const frm = document.getElementById('frm');
+  if (S.admin && id && frm) frm.insertAdjacentHTML('beforebegin', `<div class="lista">${fila({ href: `#/datos/${id}`, tit: 'Datos personales', det: 'DNI, cuenta, tallas, emergencia', iconoHtml: `<span class="ini">${ico('llave', 18)}</span>`, der: '<span class="chip oro">Solo admin</span>' })}</div>`);
 }
 
 /* ---------- eventos ---------- */
@@ -1940,6 +2024,9 @@ async function router() {
       case 'aviso': return await formAviso();
       case 'documentos': return await pantallaDocumentos(params);
       case 'documento': return p[1] === 'nuevo' ? await formDocumento() : await pantallaDocumento(p[1]);
+      case 'datos':
+        if (!p[1]) return await pantallaDatosEquipo();
+        return p[2] === 'editar' ? await formDatos(p[1]) : await pantallaDatos(p[1]);
       case 'nueva-clave': return pantallaNuevaClave();
       case 'clases': return await pantallaClases(params);
       case 'clase':

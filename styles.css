@@ -342,3 +342,13 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .ht-det{font-size:14px}
 .resumen-cambio{background:rgba(118,80,224,0.08);border-radius:16px;padding:12px 14px;font-size:14px;color:var(--morado3)}
 .resumen-cambio:empty{display:none}
+
+/* Datos personales */
+.tallas{display:flex;flex-wrap:wrap;gap:8px}
+.datos-p{display:flex;flex-direction:column}
+.dato-p{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(70,55,140,0.08)}
+.dato-p:last-child{border-bottom:0}
+.dato-p .txt{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.dato-p small{font-size:12px;color:var(--texto2)}
+.dato-p b{font-size:15px;font-weight:600;white-space:pre-wrap;word-break:break-word}
+.copiar-dato{flex:none;border:0;background:rgba(118,80,224,0.10);color:var(--morado3);border-radius:12px;width:44px;height:44px;display:grid;place-items:center;cursor:pointer}
