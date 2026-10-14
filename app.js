@@ -271,7 +271,7 @@ async function pantallaInicio(vista = null) {
   // vista = { profesora, permisos }: la administración ve el Inicio tal como lo vería esa profesora
   const ver = vista ? (m) => !!(vista.permisos[m] && vista.permisos[m].puede_ver) : puedeVer;
   const editar = vista ? (m) => !!(vista.permisos[m] && vista.permisos[m].puede_escribir) : puedeEditar;
-  const profesora = vista ? Object.values(vista.permisos).some((p) => p.solo_propias) : !S.admin && Object.values(S.permisos).some((p) => p.solo_propias);
+  const profesora = vista ? esProfesora(vista.permisos) : !S.admin && esProfesora(S.permisos);
   // Todas las clases activas propias (a una profesora con "solo lo suyo" la base de datos solo le da las suyas).
   let consulta = sb.from('clases')
     .select('id,nombre,profesoras(nombre),inscripciones(count),' + SEL_HOR)
@@ -393,18 +393,22 @@ async function vistaPersona(perfilId) {
 
 /* ---------- equipo ---------- */
 // Plantillas de permisos de un toque: [ver=1 / editar=2, solo lo suyo]
+// "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
+const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
-  caja: { nombre: 'Caja y recepción', solo: false, mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 1 } },
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.map(([m]) => [m, 2])) }
+  caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
+  // Documentos no va en ninguna plantilla: solo lo da la administración a mano
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => m !== 'documentos').map(([m]) => [m, 2])) }
 };
+const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
   if (p.rol === 'admin') return { tipo: 'Administración total', chip: '<span class="chip oro">Todo</span>' };
   if (!p.activo) return { tipo: 'Acceso quitado', chip: '<span class="chip no">Sin acceso</span>' };
   if (!filas.length) return { tipo: 'Sin permisos todavía', chip: '<span class="chip gris">Nada</span>' };
   const ver = filas.filter((f) => f.puede_ver).length, ed = filas.filter((f) => f.puede_escribir).length;
   const caja = filas.find((f) => f.modulo === 'caja');
-  const tipo = filas.some((f) => f.solo_propias) ? 'Profesora · solo lo suyo' : `Gestión · ${ver} de ${MODULOS.length} secciones`;
+  const tipo = esProfesora(Object.fromEntries(filas.map((f) => [f.modulo, f]))) ? 'Profesora · solo lo suyo' : `Gestión · ${ver} de ${MODULOS.length} secciones`;
   return { tipo, chip: caja ? `<span class="chip ${caja.puede_escribir ? 'ok' : 'mor'}">Caja ${caja.puede_escribir ? 'abierta' : 'solo ver'}</span>` : ed ? '' : '<span class="chip gris">Solo ver</span>' };
 }
 async function pantallaEquipo() {
@@ -440,7 +444,7 @@ async function formAcceso(params) {
     const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Creando…';
     try {
       const { data, error } = await sb.functions.invoke('crear-acceso', { body: { nombre: d.nombre, email: d.email, clave: d.clave, profesora_id: prof ? prof.id : null,
-        permisos: Object.entries(t.mods).map(([m, n]) => ({ modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo })) } });
+        permisos: filasPlantilla(t) } });
       if (error || !data || !data.ok) {
         let msg = 'No se pudo dar acceso'; try { msg = (await error.context.json()).error || msg; } catch (e) { if (data && data.error) msg = data.error; }
         throw new Error(msg);
@@ -1757,7 +1761,7 @@ async function pantallaPermisos(params) {
   const p = perfiles.find((x) => x.id === sel);
   const filas = p ? await q(sb.from('permisos').select('*').eq('perfil_id', p.id)) : [];
   const per = {}; filas.forEach((f) => { per[f.modulo] = f; });
-  const soloSuyo = filas.some((f) => f.solo_propias);
+  const soloSuyo = esProfesora(per);
   pintar(cabecera(p ? p.nombre : 'Permisos', { volver: '#/equipo', sub: p ? esc(resumenPersona(p, filas).tipo) : '' }) + `<main class="cont">
     ${p ? `<button class="btn sec ancho" data-ir="#/vista/p/${p.id}">${ico('ojo')} Ver su Inicio</button>
     <div class="tarjeta"><h3>Plantillas</h3><p class="nota" style="margin:4px 0 10px">Un toque pone los permisos típicos. Luego puedes cambiar los que quieras abajo.</p>
@@ -1765,7 +1769,7 @@ async function pantallaPermisos(params) {
     <div class="tarjeta">
       <div class="perm"><span class="cab-p" style="text-align:left">Módulo</span><span class="cab-p">Ver</span><span class="cab-p">Editar</span></div>
       ${MODULOS.map(([m, t]) => { const v = per[m] && per[m].puede_ver, e = per[m] && per[m].puede_escribir;
-        return `<div class="perm"><span style="font-weight:600">${t}</span><button class="${v ? 'on' : ''}" data-m="${m}" data-a="ver" aria-label="Ver ${t}" aria-pressed="${!!v}">${ico('ojo')}</button><button class="${e ? 'on' : ''}" data-m="${m}" data-a="editar" aria-label="Editar ${t}" aria-pressed="${!!e}">${ico('lapiz')}</button></div>`; }).join('')}
+        return `<div class="perm"><span style="font-weight:600">${t}${m === 'iniciativas' && per[m] && per[m].solo_propias && !soloSuyo ? '<br><small style="font-weight:400;color:var(--texto2)">Propone y ve las suyas</small>' : ''}</span><button class="${v ? 'on' : ''}" data-m="${m}" data-a="ver" aria-label="Ver ${t}" aria-pressed="${!!v}">${ico('ojo')}</button><button class="${e ? 'on' : ''}" data-m="${m}" data-a="editar" aria-label="Editar ${t}" aria-pressed="${!!e}">${ico('lapiz')}</button></div>`; }).join('')}
     </div>
     <label class="check"><input type="checkbox" id="solo" ${soloSuyo ? 'checked' : ''}><span><b>Solo ve lo suyo</b><br><span style="font-size:13px;color:var(--texto2)">Para profesoras: solo sus clases, sus alumnas, sus incidencias y sus eventos. Enlaza antes su ficha en Profesoras.</span></span></label>
     <label class="check"><input type="checkbox" id="activo" ${p.activo ? 'checked' : ''}><span><b>Acceso activo</b><br><span style="font-size:13px;color:var(--texto2)">Si lo quitas, no verá nada aunque tenga permisos.</span></span></label>
@@ -1779,16 +1783,17 @@ async function pantallaPermisos(params) {
     if (!confirm(`¿Poner a ${p.nombre} los permisos de "${t.nombre}"? Se cambian los que tiene ahora.`)) return;
     try {
       await q(sb.from('permisos').delete().eq('perfil_id', p.id));
-      await q(sb.from('permisos').insert(Object.entries(t.mods).map(([m, n]) => ({ perfil_id: p.id, modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo }))));
+      await q(sb.from('permisos').insert(filasPlantilla(t, p.id)));
       aviso(`Permisos de ${t.nombre} puestos`); router();
     } catch (e) { aviso(traducirError(e), true); }
   });
   const guardar = async (m, ver, editar) => {
-    const solo = document.getElementById('solo').checked;
+    // Iniciativas guarda su propio "solo las suyas" (recepción propone y ve las suyas)
+    const solo = m === 'iniciativas' && per[m] ? !!per[m].solo_propias : document.getElementById('solo').checked;
     try {
       if (!ver && !editar) await q(sb.from('permisos').delete().eq('perfil_id', p.id).eq('modulo', m));
       else await q(sb.from('permisos').upsert({ perfil_id: p.id, modulo: m, puede_ver: ver, puede_escribir: editar, solo_propias: solo }));
-      per[m] = ver || editar ? { puede_ver: ver, puede_escribir: editar } : undefined;
+      per[m] = ver || editar ? { puede_ver: ver, puede_escribir: editar, solo_propias: solo } : undefined;
       aviso('Permiso guardado');
     } catch (e) { aviso(traducirError(e), true); }
   };
@@ -1802,7 +1807,9 @@ async function pantallaPermisos(params) {
     fila[0].setAttribute('aria-pressed', ver); fila[1].setAttribute('aria-pressed', ed);
   });
   document.getElementById('solo').onchange = async (ev) => {
-    try { await q(sb.from('permisos').update({ solo_propias: ev.target.checked }).eq('perfil_id', p.id)); aviso(ev.target.checked ? 'Ahora solo ve lo suyo' : 'Ahora ve todo lo de sus módulos'); } catch (e) { aviso(traducirError(e), true); }
+    let u = sb.from('permisos').update({ solo_propias: ev.target.checked }).eq('perfil_id', p.id);
+    if (!ev.target.checked) u = u.neq('modulo', 'iniciativas');
+    try { await q(u); aviso(ev.target.checked ? 'Ahora solo ve lo suyo' : 'Ahora ve todo lo de sus módulos'); } catch (e) { aviso(traducirError(e), true); }
   };
   document.getElementById('activo').onchange = async (ev) => {
     try { await q(sb.from('perfiles').update({ activo: ev.target.checked }).eq('id', p.id)); aviso(ev.target.checked ? 'Acceso activado' : 'Acceso desactivado'); } catch (e) { aviso(traducirError(e), true); }
