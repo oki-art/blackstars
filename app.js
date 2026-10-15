@@ -69,7 +69,7 @@ function ico(nombre, t = 20) {
     profe: '<circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', salir: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
     wa: '<path d="M3 21l1.7-5A8.5 8.5 0 1 1 8 19.4z"/>', copiar: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
     trofeo: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>',
-    euro: '<path d="M17 6.5A7 7 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>'
+    euro: '<path d="M17 6.5A7 7 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
   }[nombre] || '';
   return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 }
@@ -939,12 +939,32 @@ function cajaMensualidad(movs, ins) {
 }
 const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small><b>${linea}</b>${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
 // Movimientos del mes según la tarjeta pulsada arriba (Ingresos, Gastos o Balance), agrupados por clase
-function cajaMes(movs, t, ins, { conFecha = true, volver }) {
+// Cajón de eventos y ventas: lo cobrado este mes en cada evento y lo que falta por cobrar de sus reservas
+const esDeEvento = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'evento' && x.evento_id;
+function cajaVentas(movs, pendientes) {
+  const grupos = new Map(), grupo = (id, titulo) => { if (!grupos.has(id)) grupos.set(id, { titulo, cob: [], pen: [] }); return grupos.get(id); };
+  movs.filter(esDeEvento).forEach((x) => grupo(x.evento_id, x.eventos ? x.eventos.titulo : 'Evento').cob.push(x));
+  (pendientes || []).forEach((r) => grupo(r.evento_id, r.eventos ? r.eventos.titulo : 'Evento').pen.push(r));
+  if (!grupos.size) return '';
+  const lista = [...grupos.entries()].sort((a, b) => a[1].titulo.localeCompare(b[1].titulo, 'es'));
+  const total = lista.reduce((t, [, g]) => t + g.cob.reduce((u, x) => u + +x.importe, 0), 0);
+  const nCob = lista.reduce((t, [, g]) => t + g.cob.length, 0), nPen = lista.reduce((t, [, g]) => t + g.pen.length, 0);
+  const tarjetas = lista.map(([id, g]) => {
+    const cob = g.cob.reduce((t, x) => t + +x.importe, 0), falta = g.pen.reduce((t, r) => t + +r.importe, 0);
+    const filas = g.cob.map((x) => `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(x.alumnas ? nomAlumna(x.alumnas) : x.concepto)}</span><span class="det">${esc(x.concepto)}</span></span><b class="in">${eur(x.importe)}</b></div>`)
+      .concat(g.pen.map((r) => `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(r.alumnas ? nomAlumna(r.alumnas) : r.comprador || '—')}</span><span class="det">${r.cantidad} × ${esc(r.evento_articulos ? r.evento_articulos.nombre : '')}</span></span><b>Pendiente ${eur(r.importe)}</b></div>`)).join('');
+    return `<details class="caja-clase externa"><summary class="cc-cab"><span><h3>${esc(g.titulo)}</h3><small>${g.cob.length} cobro${g.cob.length === 1 ? '' : 's'}${g.pen.length ? ` · faltan ${g.pen.length} (${eur(falta)})` : ''}</small></span>
+      <span class="cc-tot"><b class="in">${eur(cob)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-movs">${filas}<a class="mov" href="#/evento/${id}"><span class="txt"><span class="tit" style="color:var(--morado3)">Abrir el evento</span></span>${ico('sig', 18)}</a></div></details>`;
+  }).join('');
+  return totalCaja('ventas', 'Total eventos y ventas', `${nCob} cobro${nCob === 1 ? '' : 's'}`, nPen ? `Faltan ${nPen} por cobrar` : '', total) + tarjetas;
+}
+function cajaMes(movs, t, ins, { conFecha = true, volver, pendientes = [] }) {
   const l = filtrarTipo(movs, t), [i, o] = sumaCaja(movs), n = l.length;
   if (t === 'ingreso') {
-    // Cuotas de alumnas (con su clase) arriba; eventos, ventas y demás ingresos en sus tarjetas
-    const otros = l.filter((x) => !esCuota(x)), [oi] = sumaCaja(otros);
-    return `<div class="lista">${cajaMensualidad(l, ins)}${otros.length ? `<div class="seccion">Eventos, ventas y otros · ${eur(oi)}</div>${cajaPorClase(otros, { conFecha, volver })}` : ''}</div>`;
+    // Cuotas de alumnas arriba; luego el cajón de eventos y ventas; el resto de ingresos en sus tarjetas
+    const otros = l.filter((x) => !esCuota(x) && !esDeEvento(x)), [oi] = sumaCaja(otros), ventas = cajaVentas(l, pendientes);
+    return `<div class="lista">${cajaMensualidad(l, ins)}${ventas ? `<div class="seccion">Eventos y ventas</div>${ventas}` : ''}${otros.length ? `<div class="seccion">Otros ingresos · ${eur(oi)}</div>${cajaPorClase(otros, { conFecha, volver })}` : ''}</div>`;
   }
   if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${n} gasto${n === 1 ? '' : 's'}`, '', o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin gastos.')}</div>`;
   return `<div class="lista">${totalCaja('balance', 'Balance', `Ingresos ${eur(i)} · Gastos ${eur(o)}`, '', i - o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin movimientos.')}</div>`;
@@ -962,6 +982,8 @@ async function pantallaCaja(params) {
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
+  // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
+  const pendientes = t === 'ingreso' ? await intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [];
   const ins = t === 'ingreso' && puedeVer('inscripciones')
     ? await intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
@@ -983,7 +1005,7 @@ async function pantallaCaja(params) {
       <button class="cal-mas" id="cal-mas" type="button" aria-expanded="false"><span>Ver el mes entero</span>${ico('abajo', 18)}</button></div>
     <div class="seccion">Movimientos del mes</div>
     ${filtrosCaja(mes, 'mensualidad', t)}
-    ${!movs.length && t !== 'ingreso' ? vacio('Sin movimientos este mes.') : cajaMes(movs, t, ins, { volver: `#/caja?mes=${mes}&t=${t}` })}
+    ${!movs.length && t !== 'ingreso' ? vacio('Sin movimientos este mes.') : cajaMes(movs, t, ins, { volver: `#/caja?mes=${mes}&t=${t}`, pendientes })}
   </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}` : null);
   document.getElementById('cal-mas').onclick = (ev) => {
     const b = ev.currentTarget, abierto = document.getElementById('cal').classList.toggle('plegado') === false;
@@ -1661,6 +1683,7 @@ async function pantallaEvento(id) {
       ${e.descripcion ? `<dt>Descripción</dt><dd>${esc(e.descripcion)}</dd>` : ''}${e.normas ? `<dt>Normas</dt><dd>${esc(e.normas)}</dd>` : ''}${e.condiciones ? `<dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
+    ${await bloqueVentas(id)}
     ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
@@ -1670,6 +1693,7 @@ async function pantallaEvento(id) {
     ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${(await intentar(opcionesAlumnas)).filter(([aid]) => !ins.some((i) => i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
+  activarCobros();
   const sp = document.getElementById('addProf');
   if (sp) sp.onchange = async () => { if (!sp.value) return; try { await q(sb.from('evento_profesoras').insert({ evento_id: id, profesora_id: sp.value })); router(); } catch (er) { aviso(traducirError(er), true); } };
   const sa = document.getElementById('addAlu');
@@ -1679,6 +1703,119 @@ async function pantallaEvento(id) {
   $app.querySelectorAll('[data-cancelar]').forEach((b) => b.onclick = async (ev) => { ev.preventDefault(); ev.stopPropagation();
     if (!confirm('¿Cancelar la inscripción de esta alumna?')) return;
     try { await q(sb.from('inscripciones_evento').update({ estado: 'cancelada' }).eq('id', b.dataset.cancelar)); router(); } catch (er) { aviso(traducirError(er), true); } });
+}
+/* ---------- ventas y reservas de un evento (camisetas, entradas...) ----------
+   Artículos con precio; cada reserva: quién, cuántas, talla y si está pagada. Al cobrar entra en la caja. */
+const gestionaVentas = () => puedeEditar('eventos') || puedeEditar('caja');
+const nomAlumna = (a) => a ? `${a.nombre} ${a.apellidos || ''}`.trim() : '';
+const claseDe = (a) => { const i = ((a && a.inscripciones) || []).find((x) => !x.fecha_baja && x.clases); return i ? i.clases.nombre : ''; };
+const SEL_RESERVA = '*,evento_articulos(nombre,precio,con_talla),alumnas(nombre,apellidos,inscripciones(fecha_baja,clases(nombre)))';
+async function bloqueVentas(id) {
+  const ges = gestionaVentas(), cobra = puedeEditar('caja');
+  const [arts, res] = await Promise.all([
+    intentar(() => q(sb.from('evento_articulos').select('*').eq('evento_id', id).order('creado_en'))),
+    intentar(() => q(sb.from('evento_reservas').select(SEL_RESERVA).eq('evento_id', id).neq('estado', 'cancelada').order('creado_en')))
+  ]);
+  if (!arts.length && !ges) return '';
+  const f = new URLSearchParams(location.hash.split('?')[1] || '').get('r') || 'pendientes';
+  const pend = res.filter((r) => r.estado === 'reservada'), pag = res.filter((r) => r.estado === 'pagada');
+  const suma = (l) => l.reduce((t, r) => t + +r.importe, 0), uds = (l) => l.reduce((t, r) => t + r.cantidad, 0);
+  // Resumen por artículo, con las tallas para hacer el pedido
+  const resumen = arts.map((a) => {
+    const l = res.filter((r) => r.articulo_id === a.id), tallas = {};
+    if (a.con_talla) l.forEach((r) => { const t = r.talla || 'Sin talla'; tallas[t] = (tallas[t] || 0) + r.cantidad; });
+    const orden = [...TALLAS, 'Sin talla'].filter((t) => tallas[t]);
+    return `<div class="vt-art"><div class="vt-art-cab"><b>${esc(a.nombre)}</b><span>${eur(a.precio)} / ud.</span></div>
+      <div class="nota" style="margin:2px 0 0">${uds(l)} reservad${uds(l) === 1 ? 'a' : 'as'} · ${uds(l.filter((r) => r.estado === 'pagada'))} pagad${uds(l.filter((r) => r.estado === 'pagada')) === 1 ? 'a' : 'as'}</div>
+      ${orden.length ? `<div class="tallas">${orden.map((t) => `<span class="chip mor">${t} × ${tallas[t]}</span>`).join('')}</div>` : ''}</div>`;
+  }).join('');
+  const lista = (f === 'pagadas' ? pag : f === 'todas' ? res : pend);
+  const fila = (r) => {
+    const a = r.evento_articulos || {}, quien = r.alumnas ? nomAlumna(r.alumnas) : r.comprador, cl = claseDe(r.alumnas);
+    const det = [cl, `${r.cantidad} × ${a.nombre || ''}`, r.talla ? 'talla ' + r.talla : ''].filter(Boolean).join(' · ');
+    const der = r.estado === 'pagada' ? `<span class="vt-ok">${ico('check', 16)} Pagado</span>`
+      : cobra ? `<button class="vt-cobrar" data-cobrar="${r.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>';
+    return `<div class="reserva ${r.estado}"><span class="txt"><span class="tit">${esc(quien || '—')}</span><span class="det">${esc(det)}</span></span>
+      <b class="${r.estado === 'pagada' ? 'in' : ''}">${eur(r.importe)}</b>${der}
+      ${r.estado === 'reservada' && cobra ? `<div class="vt-metodos" id="m-${r.id}" hidden>${METODOS.map(([k, t]) => `<button data-pagar="${r.id}" data-metodo="${k}">${t}</button>`).join('')}</div>` : ''}</div>`;
+  };
+  return `<div class="seccion">Ventas y reservas</div>
+    ${arts.length ? `<div class="tarjeta vt-resumen">${resumen}
+      <div class="vt-totales"><div><small>Cobrado</small><b class="in">${eur(suma(pag))}</b></div><div><small>Falta cobrar</small><b>${eur(suma(pend))}</b></div></div></div>
+    <div class="filtros">${[['pendientes', `Pendientes (${pend.length})`], ['pagadas', `Pagadas (${pag.length})`], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/evento/${id}?r=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div class="tarjeta reservas">${lista.map(fila).join('') || `<div class="vacio" style="border:0">${f === 'pendientes' ? 'No hay nada pendiente de cobrar.' : 'Todavía no hay nada aquí.'}</div>`}</div>` : vacio('Añade lo que vendes en este evento (camisetas, entradas…) con su precio.')}
+    ${ges ? `<div class="dos-btn">${arts.length ? `<a class="btn pri" href="#/reserva/nueva?evento=${id}">${ico('mas')} Reserva</a>` : ''}<a class="btn sec" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Artículo</a></div>` : ''}`;
+}
+// Botones "Cobrar" de la ficha del evento: se elige la forma de pago y entra en caja
+function activarCobros() {
+  $app.querySelectorAll('[data-cobrar]').forEach((b) => b.onclick = () => { const m = document.getElementById('m-' + b.dataset.cobrar); m.hidden = !m.hidden; });
+  $app.querySelectorAll('[data-pagar]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { await q(sb.rpc('pagar_reserva', { p_id: b.dataset.pagar, p_metodo: b.dataset.metodo })); aviso('Cobrado: ya está en la caja'); router(); }
+    catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
+}
+async function formArticulo(params) {
+  const ev = params.get('evento');
+  await pantallaForm({ titulo: 'Nuevo artículo', tabla: 'evento_articulos', modulo: puedeEditar('eventos') ? 'eventos' : 'caja', volver: `#/evento/${ev}`, valoresIniciales: { evento_id: ev },
+    campos: [
+      { k: 'nombre', label: 'Qué se vende', req: true, ph: 'Camiseta, Entrada, Sudadera…' },
+      { k: 'precio', label: 'Precio por unidad (€)', tipo: 'dinero', req: true },
+      { k: 'con_talla', label: 'Lleva talla (XS a XXL)', tipo: 'bool' }
+    ], transformar: (d) => ({ ...d, evento_id: ev, con_talla: !!d.con_talla }) });
+}
+async function formReserva(params) {
+  if (!gestionaVentas()) return sinPermiso();
+  const ev = params.get('evento');
+  const [e, arts, alumnas, clases, ins] = await Promise.all([
+    q(sb.from('eventos').select('id,titulo').eq('id', ev).single()),
+    q(sb.from('evento_articulos').select('*').eq('evento_id', ev).order('creado_en')),
+    puedeVer('alumnas') ? intentar(opcionesAlumnas) : [],
+    puedeVer('clases') ? intentar(() => opcionesClases(true)) : [],
+    puedeVer('inscripciones') ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id').is('fecha_baja', null))) : []
+  ]);
+  if (!arts.length) { location.hash = `#/articulo/nuevo?evento=${ev}`; return; }
+  let art = arts[0], cant = 1, talla = null;
+  pintar(cabecera('Nueva reserva', { volver: `#/evento/${ev}`, sub: esc(e.titulo) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label>Qué se lleva</label><div class="filtros tipos-ini" id="arts">${arts.map((a, i) => `<button type="button" data-art="${i}">${esc(a.nombre)} · ${eur(a.precio)}</button>`).join('')}</div></div>
+    ${clases.length ? `<div class="campo"><label for="f_clase">Clase (para buscar más rápido)</label><select id="f_clase"><option value="">Todas las clases</option>${clases.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
+    <div class="campo"><label for="f_alumna">Alumna</label><select id="f_alumna" name="alumna_id"></select></div>
+    <div class="campo"><label for="f_comprador">O si no es alumna, nombre</label><input id="f_comprador" name="comprador" placeholder="Madre de…, público…"></div>
+    <div class="campo"><label>Cantidad</label><div class="contador-ud"><button type="button" id="menos" aria-label="Una menos">−</button><b id="cant">1</b><button type="button" id="mas" aria-label="Una más">+</button></div></div>
+    <div class="campo" id="campo-talla"><label>Talla</label><div class="filtros tipos-ini" id="tallas">${TALLAS.map((t) => `<button type="button" data-talla="${t}">${t}</button>`).join('')}</div></div>
+    <div class="vt-total"><span>Total</span><b id="total"></b></div>
+    ${puedeEditar('caja') ? `<label class="check"><input type="checkbox" id="pagado"><span>Ya ha pagado (entra ahora en la caja)</span></label>
+    <div class="campo" id="campo-metodo" hidden><label for="f_metodo">Forma de pago</label><select id="f_metodo">${METODOS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>` : ''}
+    <button class="btn pri ancho" type="submit">Guardar reserva</button></form></main>`, false);
+  const $ = (x) => document.getElementById(x);
+  const pintarAlumnas = () => {
+    const c = $('f_clase') ? $('f_clase').value : '', dentro = new Set(ins.filter((i) => i.clase_id === c).map((i) => i.alumna_id));
+    $('f_alumna').innerHTML = '<option value="">—</option>' + alumnas.filter(([v]) => !c || dentro.has(v)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('');
+  };
+  const pintar2 = () => {
+    $app.querySelectorAll('[data-art]').forEach((b) => b.classList.toggle('on', arts[+b.dataset.art] === art));
+    $app.querySelectorAll('[data-talla]').forEach((b) => b.classList.toggle('on', b.dataset.talla === talla));
+    $('campo-talla').hidden = !art.con_talla; $('cant').textContent = cant; $('total').textContent = eur(cant * art.precio);
+  };
+  if ($('f_clase')) $('f_clase').onchange = pintarAlumnas;
+  $('arts').onclick = (ev2) => { const b = ev2.target.closest('[data-art]'); if (b) { art = arts[+b.dataset.art]; pintar2(); } };
+  $('tallas').onclick = (ev2) => { const b = ev2.target.closest('[data-talla]'); if (b) { talla = b.dataset.talla; pintar2(); } };
+  $('menos').onclick = () => { if (cant > 1) cant--; pintar2(); };
+  $('mas').onclick = () => { cant++; pintar2(); };
+  if ($('pagado')) $('pagado').onchange = () => { $('campo-metodo').hidden = !$('pagado').checked; };
+  pintarAlumnas(); pintar2();
+  $('frm').onsubmit = async (ev2) => {
+    ev2.preventDefault();
+    const alumna_id = $('f_alumna').value || null, comprador = $('f_comprador').value.trim() || null;
+    if (!alumna_id && !comprador) { aviso('Elige la alumna o escribe un nombre', true); return; }
+    if (art.con_talla && !talla) { aviso('Elige la talla', true); return; }
+    const btn = $('frm').querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      const r = await q(sb.from('evento_reservas').insert({ evento_id: ev, articulo_id: art.id, alumna_id, comprador, cantidad: cant, talla: art.con_talla ? talla : null, importe: cant * art.precio }).select().single());
+      if ($('pagado') && $('pagado').checked) await q(sb.rpc('pagar_reserva', { p_id: r.id, p_metodo: $('f_metodo').value }));
+      aviso('Guardado'); location.hash = `#/evento/${ev}`;
+    } catch (e2) { aviso(traducirError(e2), true); btn.disabled = false; }
+  };
 }
 async function formEvento(id) {
   await pantallaForm({
@@ -2225,6 +2362,8 @@ async function router() {
       case 'profesoras': return await pantallaProfesoras();
       case 'profesora': return await formProfesora(p[1] === 'nueva' ? null : p[1]);
       case 'eventos': return await pantallaEventos(params);
+      case 'reserva': return await formReserva(params);
+      case 'articulo': return await formArticulo(params);
       case 'evento':
         if (p[1] === 'nuevo') return await formEvento(null);
         if (p[2] === 'editar') return await formEvento(p[1]);

@@ -391,3 +391,32 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .caja-clase.apart{border-left-color:#B7A6EE}
 .dos-btn{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .dos-btn .btn{justify-content:center}
+/* Ventas y reservas de un evento */
+.vt-resumen{display:flex;flex-direction:column;gap:12px}
+.vt-art+.vt-art{border-top:1px solid var(--borde);padding-top:12px}
+.vt-art-cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.vt-art-cab b{font-family:'Sora',sans-serif;font-size:16px}
+.vt-art-cab span{color:var(--texto2);font-size:14px;font-weight:600}
+.vt-art .tallas{margin-top:8px}
+.vt-totales{display:grid;grid-template-columns:1fr 1fr;gap:8px;border-top:1px solid var(--borde);padding-top:12px}
+.vt-totales div{text-align:center}
+.vt-totales small{display:block;font-size:11px;color:var(--texto2);font-weight:700;text-transform:uppercase;letter-spacing:0.08em}
+.vt-totales b{font-family:'Sora',sans-serif;font-size:20px}
+.reservas{padding:0;overflow:hidden}
+.reserva{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;min-height:64px}
+.reserva+.reserva{border-top:1px solid var(--borde)}
+.reserva .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.reserva .tit{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reserva .det{font-size:12px;color:var(--texto2);margin-top:2px}
+.reserva>b{font-family:'Sora',sans-serif;font-size:15px;white-space:nowrap}
+.vt-cobrar{min-height:40px;padding:0 16px;border-radius:999px;border:0;background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;font-weight:700;cursor:pointer}
+.vt-ok{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:999px;background:rgba(31,138,92,0.12);color:var(--ingreso);font-weight:700;font-size:13px}
+.vt-metodos{flex-basis:100%;display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.vt-metodos[hidden]{display:none}
+.vt-metodos button{min-height:44px;border-radius:12px;border:1px solid rgba(118,80,224,0.30);background:#fff;color:var(--morado3);font-weight:700;cursor:pointer}
+.contador-ud{display:flex;align-items:center;gap:16px}
+.contador-ud button{width:48px;height:48px;border-radius:50%;border:1px solid rgba(118,80,224,0.30);background:#fff;color:var(--morado3);font-size:24px;font-weight:700;cursor:pointer}
+.contador-ud b{font-family:'Sora',sans-serif;font-size:24px;min-width:40px;text-align:center}
+.vt-total{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:16px;background:#F4F0FD}
+.vt-total b{font-family:'Sora',sans-serif;font-size:24px;color:var(--morado3)}
+.mens-total.ventas{background:#F7D7AF;box-shadow:0 10px 24px rgba(242,196,141,0.30)}
