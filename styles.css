@@ -420,3 +420,18 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .vt-total{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:16px;background:#F4F0FD}
 .vt-total b{font-family:'Sora',sans-serif;font-size:24px;color:var(--morado3)}
 .mens-total.ventas{background:#F7D7AF;box-shadow:0 10px 24px rgba(242,196,141,0.30)}
+/* tallas editables y reserva con varias tallas */
+.vt-editar{display:inline-flex;vertical-align:middle;margin-left:6px;color:var(--morado3)}
+.talla-ed{display:inline-flex;align-items:center;gap:6px;padding-right:4px}
+.talla-ed button{width:24px;height:24px;border-radius:50%;border:0;background:rgba(118,80,224,0.14);color:var(--morado3);font-weight:700;cursor:pointer;line-height:1}
+.vt-add-talla{display:flex;gap:8px;margin-top:10px}
+.vt-add-talla input{flex:1;min-width:0}
+.vt-add-talla .btn{flex:none}
+#defecto{margin-top:8px;background:none;border:0;padding:4px 0;color:var(--morado3);font-weight:600;text-decoration:underline;cursor:pointer;align-self:flex-start}
+.por-talla{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pt{display:grid;grid-template-columns:30px 1fr 30px;align-items:center;gap:2px;padding:8px 6px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff}
+.pt span{grid-column:1/-1;text-align:center;font-size:13px;font-weight:600;white-space:nowrap;margin-bottom:4px}
+.pt button{width:30px;height:30px;border-radius:50%;border:1px solid rgba(118,80,224,0.30);background:#fff;color:var(--morado3);font-size:18px;font-weight:700;cursor:pointer;padding:0}
+.pt b{text-align:center}
+.pt.on{border-color:var(--morado);background:rgba(118,80,224,0.08)}
+[hidden]{display:none!important}

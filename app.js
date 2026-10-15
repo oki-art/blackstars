@@ -1709,7 +1709,17 @@ async function pantallaEvento(id) {
 const gestionaVentas = () => puedeEditar('eventos') || puedeEditar('caja');
 const nomAlumna = (a) => a ? `${a.nombre} ${a.apellidos || ''}`.trim() : '';
 const claseDe = (a) => { const i = ((a && a.inscripciones) || []).find((x) => !x.fecha_baja && x.clases); return i ? i.clases.nombre : ''; };
-const SEL_RESERVA = '*,evento_articulos(nombre,precio,con_talla),alumnas(nombre,apellidos,inscripciones(fecha_baja,clases(nombre)))';
+// Tallas de venta: de niña a adulta. Cada artículo puede tener su propia lista (editable)
+const TALLAS_VENTA = ['3-4 años', '5-6 años', '7-8 años', '9-10 años', '11-12 años', '13-14 años', 'XS', 'S', 'M', 'L', 'XL', 'XXL'];
+const tallasDe = (a) => (a && a.tallas && a.tallas.length) ? a.tallas : TALLAS_VENTA;
+// Una reserva puede llevar varias tallas: se guarda "3-4 años ×1 · S ×1" (o solo "M" si es una)
+const tallasReserva = (r) => {
+  if (!r.talla) return {};
+  if (!/ ×\d+$/.test(r.talla)) return { [r.talla]: r.cantidad };
+  const m = {}; r.talla.split(' · ').forEach((x) => { const k = x.match(/^(.*) ×(\d+)$/); if (k) m[k[1]] = (m[k[1]] || 0) + +k[2]; }); return m;
+};
+const textoTallas = (m) => { const l = Object.entries(m).filter(([, n]) => n > 0); return l.length === 1 ? l[0][0] : l.map(([t, n]) => `${t} ×${n}`).join(' · '); };
+const SEL_RESERVA = '*,evento_articulos(nombre,precio,con_talla,tallas),alumnas(nombre,apellidos,inscripciones(fecha_baja,clases(nombre)))';
 async function bloqueVentas(id) {
   const ges = gestionaVentas(), cobra = puedeEditar('caja');
   const [arts, res] = await Promise.all([
@@ -1723,16 +1733,16 @@ async function bloqueVentas(id) {
   // Resumen por artículo, con las tallas para hacer el pedido
   const resumen = arts.map((a) => {
     const l = res.filter((r) => r.articulo_id === a.id), tallas = {};
-    if (a.con_talla) l.forEach((r) => { const t = r.talla || 'Sin talla'; tallas[t] = (tallas[t] || 0) + r.cantidad; });
-    const orden = [...TALLAS, 'Sin talla'].filter((t) => tallas[t]);
-    return `<div class="vt-art"><div class="vt-art-cab"><b>${esc(a.nombre)}</b><span>${eur(a.precio)} / ud.</span></div>
+    if (a.con_talla) l.forEach((r) => { const m = tallasReserva(r); if (!Object.keys(m).length) m['Sin talla'] = r.cantidad; Object.entries(m).forEach(([t, n]) => { tallas[t] = (tallas[t] || 0) + n; }); });
+    const orden = [...new Set([...tallasDe(a), ...Object.keys(tallas).filter((t) => t !== 'Sin talla'), 'Sin talla'])].filter((t) => tallas[t]);
+    return `<div class="vt-art"><div class="vt-art-cab"><b>${esc(a.nombre)}</b><span>${eur(a.precio)} / ud.${ges ? ` <a class="vt-editar" href="#/articulo/${a.id}?evento=${id}" aria-label="Editar ${esc(a.nombre)}">${ico('lapiz', 16)}</a>` : ''}</span></div>
       <div class="nota" style="margin:2px 0 0">${uds(l)} reservad${uds(l) === 1 ? 'a' : 'as'} · ${uds(l.filter((r) => r.estado === 'pagada'))} pagad${uds(l.filter((r) => r.estado === 'pagada')) === 1 ? 'a' : 'as'}</div>
       ${orden.length ? `<div class="tallas">${orden.map((t) => `<span class="chip mor">${t} × ${tallas[t]}</span>`).join('')}</div>` : ''}</div>`;
   }).join('');
   const lista = (f === 'pagadas' ? pag : f === 'todas' ? res : pend);
   const fila = (r) => {
     const a = r.evento_articulos || {}, quien = r.alumnas ? nomAlumna(r.alumnas) : r.comprador, cl = claseDe(r.alumnas);
-    const det = [cl, `${r.cantidad} × ${a.nombre || ''}`, r.talla ? 'talla ' + r.talla : ''].filter(Boolean).join(' · ');
+    const det = [cl, `${r.cantidad} × ${a.nombre || ''}`, r.talla ? (Object.keys(tallasReserva(r)).length > 1 ? 'tallas ' : 'talla ') + textoTallas(tallasReserva(r)) : ''].filter(Boolean).join(' · ');
     const der = r.estado === 'pagada' ? `<span class="vt-ok">${ico('check', 16)} Pagado</span>`
       : cobra ? `<button class="vt-cobrar" data-cobrar="${r.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>';
     return `<div class="reserva ${r.estado}"><span class="txt"><span class="tit">${esc(quien || '—')}</span><span class="det">${esc(det)}</span></span>
@@ -1755,14 +1765,57 @@ function activarCobros() {
     catch (e) { aviso(traducirError(e), true); b.disabled = false; }
   });
 }
-async function formArticulo(params) {
+async function formArticulo(params, id) {
+  if (!gestionaVentas()) return sinPermiso();
   const ev = params.get('evento');
-  await pantallaForm({ titulo: 'Nuevo artículo', tabla: 'evento_articulos', modulo: puedeEditar('eventos') ? 'eventos' : 'caja', volver: `#/evento/${ev}`, valoresIniciales: { evento_id: ev },
-    campos: [
-      { k: 'nombre', label: 'Qué se vende', req: true, ph: 'Camiseta, Entrada, Sudadera…' },
-      { k: 'precio', label: 'Precio por unidad (€)', tipo: 'dinero', req: true },
-      { k: 'con_talla', label: 'Lleva talla (XS a XXL)', tipo: 'bool' }
-    ], transformar: (d) => ({ ...d, evento_id: ev, con_talla: !!d.con_talla }) });
+  const [reg, ultimo, usado] = await Promise.all([
+    id ? q(sb.from('evento_articulos').select('*').eq('id', id).single()) : null,
+    // Un artículo nuevo copia las tallas del último que se hizo (así, si cambian, se cambian una vez)
+    id ? [] : intentar(() => q(sb.from('evento_articulos').select('tallas').not('tallas', 'is', null).order('creado_en', { ascending: false }).limit(1))),
+    id ? intentar(() => q(sb.from('evento_reservas').select('id').eq('articulo_id', id).limit(1))) : []
+  ]);
+  const a = reg || { nombre: '', precio: '', con_talla: false };
+  let tallas = [...(reg ? tallasDe(reg) : (ultimo[0] && ultimo[0].tallas) || TALLAS_VENTA)];
+  pintar(cabecera(id ? 'Editar artículo' : 'Nuevo artículo', { volver: `#/evento/${ev}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_nombre">Qué se vende</label><input id="f_nombre" required value="${esc(a.nombre)}" placeholder="Camiseta, Entrada, Sudadera…"></div>
+    <div class="campo"><label for="f_precio">Precio por unidad (€)</label><input id="f_precio" type="number" inputmode="decimal" step="0.01" min="0" required value="${a.precio}"></div>
+    <label class="check"><input type="checkbox" id="f_talla" ${a.con_talla ? 'checked' : ''}><span>Lleva talla</span></label>
+    <div class="campo" id="campo-tallas"><label>Tallas (toca la × para quitar una)</label><div class="tallas" id="lista-tallas"></div>
+      <div class="vt-add-talla"><input id="f_nueva" placeholder="Añadir talla: 2 años, XXXL…"><button type="button" class="btn sec" id="add">Añadir</button></div>
+      <button type="button" class="enlace" id="defecto">Volver a las tallas de siempre</button></div>
+    <button class="btn pri ancho" type="submit">Guardar</button>
+    ${id && !usado.length ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar artículo</button>' : ''}
+  </form>${id && usado.length ? '<p class="nota">Tiene reservas, por eso no se puede borrar.</p>' : ''}</main>`, false);
+  const $ = (x) => document.getElementById(x);
+  const pintarTallas = () => {
+    $('campo-tallas').hidden = !$('f_talla').checked;
+    $('lista-tallas').innerHTML = tallas.map((t, i) => `<span class="chip mor talla-ed">${esc(t)}<button type="button" data-quitar="${i}" aria-label="Quitar ${esc(t)}">×</button></span>`).join('') || '<span class="nota">Sin tallas</span>';
+  };
+  $('f_talla').onchange = pintarTallas;
+  $('lista-tallas').onclick = (e) => { const b = e.target.closest('[data-quitar]'); if (b) { tallas.splice(+b.dataset.quitar, 1); pintarTallas(); } };
+  const anadir = () => { const t = $('f_nueva').value.trim(); if (t && !tallas.includes(t)) tallas.push(t); $('f_nueva').value = ''; pintarTallas(); };
+  $('add').onclick = anadir;
+  $('f_nueva').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); anadir(); } };
+  $('defecto').onclick = () => { tallas = [...TALLAS_VENTA]; pintarTallas(); };
+  pintarTallas();
+  $('frm').onsubmit = async (e) => {
+    e.preventDefault();
+    const con = $('f_talla').checked;
+    if (con && !tallas.length) { aviso('Añade al menos una talla', true); return; }
+    const btn = $('frm').querySelector('[type=submit]'); btn.disabled = true;
+    const datos = { evento_id: ev, nombre: $('f_nombre').value.trim(), precio: +$('f_precio').value, con_talla: con, tallas: con ? tallas : null };
+    const guardar = (d) => id ? q(sb.from('evento_articulos').update(d).eq('id', id)) : q(sb.from('evento_articulos').insert(d));
+    try {
+      try { await guardar(datos); }
+      catch (er) { if (!/tallas/.test(er.message || '')) throw er; const { tallas: _, ...sin } = datos; await guardar(sin); } // falta la 016: se guarda sin lista propia
+      aviso('Guardado'); location.hash = `#/evento/${ev}`;
+    } catch (er) { aviso(traducirError(er), true); btn.disabled = false; }
+  };
+  if ($('borrar')) $('borrar').onclick = async () => {
+    if (!confirm('¿Borrar este artículo?')) return;
+    try { await q(sb.from('evento_articulos').delete().eq('id', id)); aviso('Borrado'); location.hash = `#/evento/${ev}`; }
+    catch (er) { aviso(traducirError(er), true); }
+  };
 }
 async function formReserva(params) {
   if (!gestionaVentas()) return sinPermiso();
@@ -1775,14 +1828,15 @@ async function formReserva(params) {
     puedeVer('inscripciones') ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id').is('fecha_baja', null))) : []
   ]);
   if (!arts.length) { location.hash = `#/articulo/nuevo?evento=${ev}`; return; }
-  let art = arts[0], cant = 1, talla = null;
+  let art = arts[0], cant = 1, porTalla = {};
+  const total = () => art.con_talla ? Object.values(porTalla).reduce((t, n) => t + n, 0) : cant;
   pintar(cabecera('Nueva reserva', { volver: `#/evento/${ev}`, sub: esc(e.titulo) }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="campo"><label>Qué se lleva</label><div class="filtros tipos-ini" id="arts">${arts.map((a, i) => `<button type="button" data-art="${i}">${esc(a.nombre)} · ${eur(a.precio)}</button>`).join('')}</div></div>
     ${clases.length ? `<div class="campo"><label for="f_clase">Clase (para buscar más rápido)</label><select id="f_clase"><option value="">Todas las clases</option>${clases.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     <div class="campo"><label for="f_alumna">Alumna</label><select id="f_alumna" name="alumna_id"></select></div>
     <div class="campo"><label for="f_comprador">O si no es alumna, nombre</label><input id="f_comprador" name="comprador" placeholder="Madre de…, público…"></div>
-    <div class="campo"><label>Cantidad</label><div class="contador-ud"><button type="button" id="menos" aria-label="Una menos">−</button><b id="cant">1</b><button type="button" id="mas" aria-label="Una más">+</button></div></div>
-    <div class="campo" id="campo-talla"><label>Talla</label><div class="filtros tipos-ini" id="tallas">${TALLAS.map((t) => `<button type="button" data-talla="${t}">${t}</button>`).join('')}</div></div>
+    <div class="campo" id="campo-cant"><label>Cantidad</label><div class="contador-ud"><button type="button" id="menos" aria-label="Una menos">−</button><b id="cant">1</b><button type="button" id="mas" aria-label="Una más">+</button></div></div>
+    <div class="campo" id="campo-talla"><label>Tallas (puedes poner varias: una de niña y otra de adulta)</label><div class="por-talla" id="tallas"></div></div>
     <div class="vt-total"><span>Total</span><b id="total"></b></div>
     ${puedeEditar('caja') ? `<label class="check"><input type="checkbox" id="pagado"><span>Ya ha pagado (entra ahora en la caja)</span></label>
     <div class="campo" id="campo-metodo" hidden><label for="f_metodo">Forma de pago</label><select id="f_metodo">${METODOS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>` : ''}
@@ -1794,12 +1848,13 @@ async function formReserva(params) {
   };
   const pintar2 = () => {
     $app.querySelectorAll('[data-art]').forEach((b) => b.classList.toggle('on', arts[+b.dataset.art] === art));
-    $app.querySelectorAll('[data-talla]').forEach((b) => b.classList.toggle('on', b.dataset.talla === talla));
-    $('campo-talla').hidden = !art.con_talla; $('cant').textContent = cant; $('total').textContent = eur(cant * art.precio);
+    $('campo-talla').hidden = !art.con_talla; $('campo-cant').hidden = !!art.con_talla; $('cant').textContent = cant;
+    if (art.con_talla) $('tallas').innerHTML = tallasDe(art).map((t) => `<div class="pt ${porTalla[t] ? 'on' : ''}"><span>${esc(t)}</span><button type="button" data-t="${esc(t)}" data-d="-1" aria-label="Una menos de ${esc(t)}">−</button><b>${porTalla[t] || 0}</b><button type="button" data-t="${esc(t)}" data-d="1" aria-label="Una más de ${esc(t)}">+</button></div>`).join('');
+    $('total').textContent = `${total()} × ${eur(art.precio)} = ${eur(total() * art.precio)}`;
   };
   if ($('f_clase')) $('f_clase').onchange = pintarAlumnas;
-  $('arts').onclick = (ev2) => { const b = ev2.target.closest('[data-art]'); if (b) { art = arts[+b.dataset.art]; pintar2(); } };
-  $('tallas').onclick = (ev2) => { const b = ev2.target.closest('[data-talla]'); if (b) { talla = b.dataset.talla; pintar2(); } };
+  $('arts').onclick = (ev2) => { const b = ev2.target.closest('[data-art]'); if (b) { art = arts[+b.dataset.art]; porTalla = {}; pintar2(); } };
+  $('tallas').onclick = (ev2) => { const b = ev2.target.closest('[data-t]'); if (b) { const t = b.dataset.t; porTalla[t] = Math.max(0, (porTalla[t] || 0) + +b.dataset.d); pintar2(); } };
   $('menos').onclick = () => { if (cant > 1) cant--; pintar2(); };
   $('mas').onclick = () => { cant++; pintar2(); };
   if ($('pagado')) $('pagado').onchange = () => { $('campo-metodo').hidden = !$('pagado').checked; };
@@ -1808,10 +1863,10 @@ async function formReserva(params) {
     ev2.preventDefault();
     const alumna_id = $('f_alumna').value || null, comprador = $('f_comprador').value.trim() || null;
     if (!alumna_id && !comprador) { aviso('Elige la alumna o escribe un nombre', true); return; }
-    if (art.con_talla && !talla) { aviso('Elige la talla', true); return; }
+    if (!total()) { aviso(art.con_talla ? 'Pon cuántas de cada talla' : 'Pon la cantidad', true); return; }
     const btn = $('frm').querySelector('[type=submit]'); btn.disabled = true;
     try {
-      const r = await q(sb.from('evento_reservas').insert({ evento_id: ev, articulo_id: art.id, alumna_id, comprador, cantidad: cant, talla: art.con_talla ? talla : null, importe: cant * art.precio }).select().single());
+      const r = await q(sb.from('evento_reservas').insert({ evento_id: ev, articulo_id: art.id, alumna_id, comprador, cantidad: total(), talla: art.con_talla ? textoTallas(porTalla) : null, importe: total() * art.precio }).select().single());
       if ($('pagado') && $('pagado').checked) await q(sb.rpc('pagar_reserva', { p_id: r.id, p_metodo: $('f_metodo').value }));
       aviso('Guardado'); location.hash = `#/evento/${ev}`;
     } catch (e2) { aviso(traducirError(e2), true); btn.disabled = false; }
@@ -2363,7 +2418,7 @@ async function router() {
       case 'profesora': return await formProfesora(p[1] === 'nueva' ? null : p[1]);
       case 'eventos': return await pantallaEventos(params);
       case 'reserva': return await formReserva(params);
-      case 'articulo': return await formArticulo(params);
+      case 'articulo': return await formArticulo(params, p[1] === 'nuevo' ? null : p[1]);
       case 'evento':
         if (p[1] === 'nuevo') return await formEvento(null);
         if (p[2] === 'editar') return await formEvento(p[1]);
