@@ -421,10 +421,10 @@ async function vistaPersona(perfilId) {
 /* ---------- equipo ---------- */
 // Plantillas de permisos de un toque: [ver=1 / editar=2, solo lo suyo]
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
-// Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable), Recepción (caja editable) o Equipo
+// Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable, o recepción con la caja abierta) o Equipo
 const papel = (per) => esProfesora(per) ? 'Profesora'
   : MODULOS.filter(([m]) => m !== 'documentos').every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
-  : per.caja && per.caja.puede_escribir ? 'Recepción' : 'Equipo';
+  : per.caja && per.caja.puede_escribir ? 'Gestión' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
@@ -858,7 +858,15 @@ async function formInscripcion(params) {
 }
 
 /* ---------- caja ---------- */
-const SEL_CAJA = '*,clases(nombre),alumnas(nombre,apellidos),escuelas_amigas(nombre)';
+const SEL_CAJA = '*,clases(nombre),alumnas(nombre,apellidos),escuelas_amigas(nombre),eventos(titulo)';
+// Apartados de la caja: de dónde viene cada ingreso y en qué se va cada gasto
+const APARTADOS = {
+  ingreso: [['mensualidad', 'Mensualidad'], ['evento', 'Evento'], ['ventas', 'Ventas (camisetas…)'], ['escuela_amiga', 'Escuela amiga'], ['otro', 'Otro ingreso']],
+  gasto: [['limpieza', 'Limpieza'], ['papeleria', 'Papelería'], ['material', 'Material y vestuario'], ['local', 'Local (alquiler, luz, agua)'], ['evento', 'Evento'], ['otro', 'Otro gasto']]
+};
+// Los movimientos antiguos no tienen apartado: se deduce (con clase = mensualidad; con escuela = escuela amiga)
+const apartadoDe = (x) => x.apartado || (x.escuela_amiga_id ? 'escuela_amiga' : x.tipo === 'ingreso' && x.clase_id ? 'mensualidad' : 'otro');
+const nombreApartado = (tipo, a) => ((APARTADOS[tipo] || []).find(([k]) => k === a) || [0, 'Otros'])[1];
 const sumaCaja = (l) => { let i = 0, o = 0; l.forEach((x) => { if (x.tipo === 'ingreso') i += +x.importe; else o += +x.importe; }); return [i, o]; };
 // Las tres tarjetas de arriba son también el filtro: Ingresos (solo ingresos), Gastos (solo gastos), Balance (todo)
 const TIPOS_CAJA = ['ingreso', 'gasto', 'todo'];
@@ -877,27 +885,31 @@ function movCaja(x, { conFecha = false, conClase = false, volver }) {
     <span class="txt"><span class="tit">${esc(x.concepto)}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
     <b class="${x.tipo === 'ingreso' ? 'in' : 'out'}">${x.tipo === 'ingreso' ? '+' : '−'}${eur(x.importe)}</b></a>`;
 }
-// Tarjetas por clase: cada una con sus ingresos y gastos; lo que no tiene clase va en "Otros"
+// Tarjetas por apartado: cada clase (mensualidades), cada evento, ventas, limpieza…; lo que no encaja va en "Otros"
 function cajaPorClase(movs, { conFecha, volver }) {
   const grupos = new Map();
   movs.slice().sort(ordenRegistro).forEach((x) => {
-    const nombre = x.clases ? x.clases.nombre : x.escuelas_amigas ? x.escuelas_amigas.nombre : 'Otros';
-    const k = x.clase_id ? 'c' + x.clase_id : x.escuela_amiga_id ? 'e' + x.escuela_amiga_id : 'otros';
-    if (!grupos.has(k)) grupos.set(k, { nombre, amiga: !x.clase_id && !!x.escuela_amiga_id, otros: k === 'otros', l: [] });
+    const a = apartadoDe(x);
+    const [k, nombre, orden, estilo] = a === 'mensualidad' && x.clase_id ? ['c' + x.clase_id, x.clases ? x.clases.nombre : 'Clase', 0, '']
+      : a === 'evento' && x.evento_id ? ['v' + x.evento_id, 'Evento · ' + (x.eventos ? x.eventos.titulo : ''), 1, 'externa']
+      : a === 'escuela_amiga' && x.escuela_amiga_id ? ['e' + x.escuela_amiga_id, x.escuelas_amigas ? x.escuelas_amigas.nombre : 'Escuela amiga', 2, 'externa']
+      : a === 'otro' || a === 'mensualidad' || a === 'evento' ? ['otros', 'Otros', 9, 'otros'] : ['a' + a, nombreApartado(x.tipo, a), 3, 'apart'];
+    if (!grupos.has(k)) grupos.set(k, { nombre, orden, estilo, amiga: a === 'escuela_amiga', l: [] });
     grupos.get(k).l.push(x);
   });
-  return [...grupos.values()].sort((a, b) => a.otros - b.otros || a.nombre.localeCompare(b.nombre, 'es')).map((g) => {
+  return [...grupos.values()].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')).map((g) => {
     const [i, o] = sumaCaja(g.l);
-    return `<details class="caja-clase ${g.amiga ? 'externa' : ''} ${g.otros ? 'otros' : ''}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${g.l.length} movimiento${g.l.length === 1 ? '' : 's'}${g.amiga ? ' · Escuela amiga' : ''}</small></span>
+    return `<details class="caja-clase ${g.estilo}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${g.l.length} movimiento${g.l.length === 1 ? '' : 's'}${g.amiga ? ' · Escuela amiga' : ''}</small></span>
       <span class="cc-tot">${i ? `<b class="in">+${eur(i)}</b>` : ''}${o ? `<b class="out">−${eur(o)}</b>` : ''}</span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${g.l.map((x) => movCaja(x, { conFecha, volver })).join('')}</div></details>`;
   }).join('');
 }
 // Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
+const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
 function cajaMensualidad(movs, ins) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
   const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
-  movs.filter((x) => x.tipo === 'ingreso' && x.alumna_id && x.clase_id).forEach((x) => {
+  movs.filter(esCuota).forEach((x) => {
     const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0 };
     a.importe += +x.importe; a.n++; g.al.set(x.alumna_id, a); g.total += +x.importe;
   });
@@ -920,9 +932,9 @@ const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-to
 function cajaMes(movs, t, ins, { conFecha = true, volver }) {
   const l = filtrarTipo(movs, t), [i, o] = sumaCaja(movs), n = l.length;
   if (t === 'ingreso') {
-    // Cuotas de alumnas (con su clase) arriba; el resto de ingresos en sus tarjetas
-    const otros = l.filter((x) => !(x.alumna_id && x.clase_id));
-    return `<div class="lista">${cajaMensualidad(l, ins)}${otros.length ? `<div class="seccion">Otros ingresos</div>${cajaPorClase(otros, { conFecha, volver })}` : ''}</div>`;
+    // Cuotas de alumnas (con su clase) arriba; eventos, ventas y demás ingresos en sus tarjetas
+    const otros = l.filter((x) => !esCuota(x)), [oi] = sumaCaja(otros);
+    return `<div class="lista">${cajaMensualidad(l, ins)}${otros.length ? `<div class="seccion">Eventos, ventas y otros · ${eur(oi)}</div>${cajaPorClase(otros, { conFecha, volver })}` : ''}</div>`;
   }
   if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${n} gasto${n === 1 ? '' : 's'}`, '', o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin gastos.')}</div>`;
   return `<div class="lista">${totalCaja('balance', 'Balance', `Ingresos ${eur(i)} · Gastos ${eur(o)}`, '', i - o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin movimientos.')}</div>`;
@@ -954,7 +966,7 @@ async function pantallaCaja(params) {
     cal += `<button data-ir="#/caja/dia/${f}?t=${t}" class="${f === hoy ? 'hoy' : ''} ${pi || po ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
   }
   const titulo = capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }));
-  pintar(cabecera('Caja', { sub: 'Ingresos y gastos por clase' }) + `<main class="cont">
+  pintar(cabecera('Caja', { sub: 'Ingresos y gastos del mes' }) + `<main class="cont">
     <div class="mes"><button data-ir="#/caja?mes=${prev}&t=${t}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="#/caja?mes=${next}&t=${t}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     ${totalesCaja(tIn, tOut, `#/caja?mes=${mes}&`, t)}
     <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
@@ -1134,37 +1146,54 @@ async function pantallaCajaDia(fecha, params) {
 async function formCaja(params, id = null) {
   if (!puedeEditar('caja')) return sinPermiso();
   const reg = id ? await q(sb.from('caja').select('*').eq('id', id).single()) : null;
-  const ini = reg || { fecha: params.get('fecha') || hoyISO(), tipo: params.get('tipo') || 'ingreso', importe: params.get('importe'), concepto: params.get('concepto'), escuela_amiga_id: params.get('escuela') };
-  let tipo = ini.tipo;
-  const [clases, alumnas, escuelas] = await Promise.all([
-    puedeVer('clases') ? intentar(() => opcionesClases(true)) : [], puedeVer('alumnas') ? intentar(opcionesAlumnas) : [], puedeVer('escuelas_amigas') ? intentar(opcionesEscuelas) : []
+  const ini = reg || { fecha: params.get('fecha') || hoyISO(), tipo: params.get('tipo') || 'ingreso', importe: params.get('importe'), concepto: params.get('concepto'),
+    escuela_amiga_id: params.get('escuela'), evento_id: params.get('evento'), apartado: params.get('apartado') || (params.get('escuela') ? 'escuela_amiga' : null) };
+  let tipo = ini.tipo, apartado = reg ? apartadoDe(reg) : ini.apartado || (tipo === 'ingreso' ? 'mensualidad' : 'limpieza');
+  const [clases, alumnas, escuelas, eventos] = await Promise.all([
+    puedeVer('clases') ? intentar(() => opcionesClases(true)) : [], puedeVer('alumnas') ? intentar(opcionesAlumnas) : [], puedeVer('escuelas_amigas') ? intentar(opcionesEscuelas) : [],
+    puedeVer('eventos') ? intentar(async () => (await q(sb.from('eventos').select('id,titulo,fecha').order('fecha', { ascending: false }).limit(50))).map((e) => [e.id, `${e.titulo} · ${fechaCorta(e.fecha)}`])) : []
   ]);
+  // Cada campo extra solo se enseña en su apartado
   const campos = [
     { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true },
-    { k: 'concepto', label: 'Concepto', req: true, ph: 'Mensualidad Salsa, alquiler…' },
+    ...(clases.length ? [{ k: 'clase_id', label: 'Clase', tipo: 'select', opciones: clases, solo: ['mensualidad'] }] : []),
+    ...(alumnas.length ? [{ k: 'alumna_id', label: 'Alumna', tipo: 'select', opciones: alumnas, solo: ['mensualidad'] }] : []),
+    ...(eventos.length ? [{ k: 'evento_id', label: 'Evento', tipo: 'select', opciones: eventos, solo: ['evento'] }] : []),
+    ...(escuelas.length ? [{ k: 'escuela_amiga_id', label: 'Escuela amiga', tipo: 'select', opciones: escuelas, solo: ['escuela_amiga'] }] : []),
+    { k: 'concepto', label: 'Concepto', ph: 'Lo que quieras apuntar' },
     { k: 'importe', label: 'Importe (€)', tipo: 'dinero', req: true },
-    { k: 'metodo', label: 'Forma de pago', tipo: 'select', opciones: METODOS },
-    ...(clases.length ? [{ k: 'clase_id', label: 'Clase (opcional)', tipo: 'select', opciones: clases }] : []),
-    ...(alumnas.length ? [{ k: 'alumna_id', label: 'Alumna (opcional)', tipo: 'select', opciones: alumnas }] : []),
-    ...(escuelas.length ? [{ k: 'escuela_amiga_id', label: 'Escuela amiga (opcional)', tipo: 'select', opciones: escuelas }] : [])
+    { k: 'metodo', label: 'Forma de pago', tipo: 'select', opciones: METODOS }
   ];
-  const volver = `#/caja/dia/${ini.fecha}`;
+  const PH = { mensualidad: 'Mensualidad de octubre', evento: 'Entradas, inscripción…', ventas: 'Camiseta talla M, sudadera…', escuela_amiga: 'Cuota de octubre', limpieza: 'Lejía, bayetas…', papeleria: 'Folios, tinta…', material: 'Altavoz, vestuario…', local: 'Alquiler, luz, agua…', otro: '' };
+  const desdeEvento = params.get('evento');
+  const volver = desdeEvento ? `#/evento/${desdeEvento}` : `#/caja/dia/${ini.fecha}`;
   pintar(cabecera(id ? 'Editar movimiento' : 'Nuevo movimiento', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="tipo"><button type="button" data-t="ingreso" class="in">Ingreso</button><button type="button" data-t="gasto" class="out">Gasto</button></div>
-    ${campos.map((c) => campoHtml(c, ini[c.k])).join('')}
+    <div class="campo"><label>¿De qué es?</label><div class="filtros tipos-ini" id="apartados"></div></div>
+    ${campos.map((c) => c.solo ? `<div data-solo="${c.solo.join(' ')}">${campoHtml(c, ini[c.k])}</div>` : campoHtml(c, ini[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button>
     ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
   </form>${autorDe(reg)}</main>`, false);
-  const marcar = () => $app.querySelectorAll('[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === tipo));
+  const pintarApartados = () => {
+    if (!APARTADOS[tipo].some(([k]) => k === apartado)) apartado = APARTADOS[tipo][0][0];
+    document.getElementById('apartados').innerHTML = APARTADOS[tipo].map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
+    $app.querySelectorAll('[data-solo]').forEach((d) => { d.hidden = !d.dataset.solo.split(' ').includes(apartado); });
+    document.getElementById('f_concepto').placeholder = PH[apartado] || '';
+  };
+  const marcar = () => { $app.querySelectorAll('[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === tipo)); pintarApartados(); };
   $app.querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { tipo = b.dataset.t; marcar(); }); marcar();
+  document.getElementById('apartados').onclick = (ev) => { const b = ev.target.closest('[data-ap]'); if (b) { apartado = b.dataset.ap; pintarApartados(); } };
   const form = document.getElementById('frm');
   form.onsubmit = async (ev) => {
     ev.preventDefault();
-    const datos = Object.assign(leerForm(form, campos), { tipo });
+    const datos = Object.assign(leerForm(form, campos), { tipo, apartado });
+    campos.filter((c) => c.solo && !c.solo.includes(apartado)).forEach((c) => { datos[c.k] = null; });
     if (!(datos.importe > 0)) { aviso('El importe tiene que ser mayor que 0', true); return; }
+    if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
+    if (!datos.concepto) datos.concepto = apartado === 'evento' ? 'Evento · ' + ((eventos.find(([v]) => v === datos.evento_id) || [0, ''])[1].split(' · ')[0]) : nombreApartado(tipo, apartado);
     try {
       if (id) await q(sb.from('caja').update(datos).eq('id', id)); else await q(sb.from('caja').insert(datos));
-      aviso('Guardado'); location.hash = `#/caja/dia/${datos.fecha}`;
+      aviso('Guardado'); location.hash = desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
     } catch (e) { aviso(traducirError(e), true); }
   };
   const b = document.getElementById('borrar');
@@ -1601,6 +1630,16 @@ async function pantallaEvento(id) {
   ]);
   const coord = e.coordinadora_id && puedeVer('profesoras') ? await intentar(() => q(sb.from('profesoras').select('nombre').eq('id', e.coordinadora_id).single())) : null;
   const ed = puedeEditar('eventos');
+  // Caja del evento: lo que se ha cobrado y gastado en él (quien ve la Caja)
+  let cajaEv = '';
+  if (puedeVer('caja')) {
+    const movs = await intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).eq('evento_id', id).order('fecha').order('creado_en')));
+    const [i, o] = sumaCaja(movs);
+    cajaEv = `<div class="seccion">Caja del evento</div>
+      <div class="totales"><div><small>Ingresos</small><b class="in">${eur(i)}</b></div><div><small>Gastos</small><b class="out">${eur(o)}</b></div><div><small>Balance</small><b>${eur(i - o)}</b></div></div>
+      ${movs.length ? `<div class="tarjeta caja-todas">${movs.map((x) => movCaja(x, { conFecha: true, volver: `#/evento/${id}` })).join('')}</div>` : vacio('Aún no hay cobros ni gastos de este evento.')}
+      ${puedeEditar('caja') ? `<div class="dos-btn"><a class="btn sec" href="#/caja/nuevo?tipo=ingreso&apartado=evento&evento=${id}">${ico('mas')} Ingreso</a><a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=evento&evento=${id}">${ico('mas')} Gasto</a></div>` : ''}`;
+  }
   pintar(cabecera(e.titulo, { volver: '#/eventos', sub: capital(fechaLarga(e.fecha)) + (e.hora ? ' · ' + hora(e.hora) : '') }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
       <dt>Lugar</dt><dd>${esc(e.lugar || '—')}</dd><dt>Coordina</dt><dd>${esc(coord && coord.nombre ? coord.nombre : '—')}</dd>
@@ -1608,6 +1647,7 @@ async function pantallaEvento(id) {
       ${e.descripcion ? `<dt>Descripción</dt><dd>${esc(e.descripcion)}</dd>` : ''}${e.normas ? `<dt>Normas</dt><dd>${esc(e.normas)}</dd>` : ''}${e.condiciones ? `<dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
+    ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
     ${ed && puedeVer('profesoras') ? `<div class="campo"><select id="addProf"><option value="">+ Añadir profesora…</option>${(await intentar(opcionesProfesoras)).filter(([pid]) => !profs.some((p) => p.profesora_id === pid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}

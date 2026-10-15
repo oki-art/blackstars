@@ -387,3 +387,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .mi-ficha .txt>span{font-size:13px;color:var(--texto2);overflow:hidden;text-overflow:ellipsis}
 .mi-ficha .mf-pie{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--morado3)!important;font-weight:600}
 .mi-ficha>svg{color:var(--texto2);flex:none}
+/* Caja: tarjetas de apartados (ventas, limpieza…) y botones dobles */
+.caja-clase.apart{border-left-color:#B7A6EE}
+.dos-btn{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dos-btn .btn{justify-content:center}
