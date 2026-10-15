@@ -125,7 +125,7 @@ function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
   // Insignia: "Admin", o el papel arriba y el nombre de pila debajo (dos líneas cortas)
   const nombrePila = S.perfil ? esc(String(S.perfil.nombre).trim().split(/\s+/)[0]) : '';
   const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin'
-    : nombrePila ? `<small>${esProfesora(S.permisos) ? 'Profesora' : 'Equipo'}</small>${nombrePila}` : '';
+    : nombrePila ? `<small>${papel(S.permisos)}</small>${nombrePila}` : '';
   // En "Ver como…" la campana solo se enseña (no abre tus avisos)
   const campana = !S.usuario ? '' : insignia == null ? `<a class="campana ${S.noLeidas ? 'con' : ''}" id="campana" href="#/avisos" aria-label="Avisos">${ico('campana', 22)}<i></i></a>`
     : `<span class="campana" aria-hidden="true">${ico('campana', 22)}<i></i></span>`;
@@ -361,6 +361,8 @@ async function pantallaInicio(vista = null) {
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Próximos', false],
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos y estrellas', false],
+    ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Ideas y propuestas', false],
+    ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
   ]).filter((x) => x[0] === '*' || (x[5] ? editar(x[0]) : ver(x[0])));
@@ -417,6 +419,10 @@ async function vistaPersona(perfilId) {
 /* ---------- equipo ---------- */
 // Plantillas de permisos de un toque: [ver=1 / editar=2, solo lo suyo]
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
+// Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable), Recepción (caja editable) o Equipo
+const papel = (per) => esProfesora(per) ? 'Profesora'
+  : MODULOS.filter(([m]) => m !== 'documentos').every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
+  : per.caja && per.caja.puede_escribir ? 'Recepción' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
@@ -490,12 +496,11 @@ async function formAcceso(params) {
 function pantallaMas() {
   const items = [
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos del mes y estrellas de alumnas'],
-    ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propuestas de las profesoras'],
+    // Iniciativas y Normas están en los accesos rápidos del Inicio
     ['*', '#/documentos', 'doc', 'Documentos', 'Enviar, firmar y devolver'],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Talleres, shows y fiestas'],
     ['profesoras', '#/profesoras', 'profe', 'Profesoras', 'Equipo y clases asignadas'],
     ['incidencias', '#/incidencias', 'alerta', 'Incidencias', 'Lo que pasa en clase'],
-    ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela'],
     ['inscripciones', '#/inscripciones', 'insc', 'Inscripciones', 'Altas y bajas en clases'],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces para alumnas y respuestas'],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuelas amigas', 'Clases externas, cuota y coincidencias']
