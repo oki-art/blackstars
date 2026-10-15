@@ -435,3 +435,15 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .pt b{text-align:center}
 .pt.on{border-color:var(--morado);background:rgba(118,80,224,0.08)}
 [hidden]{display:none!important}
+/* horas en las tarjetas de clase */
+.tc-horas{margin-left:auto;margin-right:6px;font-weight:700;color:var(--morado3);font-size:13px;white-space:nowrap}
+.tc-cubre{font-size:12px;color:var(--texto2);margin-top:6px}
+.horas-enlace{display:flex;justify-content:space-between;align-items:center;gap:10px;text-decoration:none;color:inherit}
+.horas-enlace small{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--texto2);font-weight:700}
+.horas-enlace b{font-family:'Sora',sans-serif;font-size:24px;color:var(--morado3)}
+.he-mas{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--morado3);text-align:right}
+/* caja: cambio */
+.mens-total.cambio{background:#ECE7F6;box-shadow:none;border:1px dashed rgba(118,80,224,0.35)}
+.mens-total.cambio .mens-eur{color:var(--morado3)}
+.mov.cambio.devuelto{opacity:.7}
+.reservas>a.mov{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit}

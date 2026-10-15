@@ -632,17 +632,21 @@ async function pantallaClases(params) {
   const clases = await q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR));
   const lista = clases.filter((c) => f === 'propias' ? !c.escuela_amiga_id && c.activa : f === 'amigas' ? c.escuela_amiga_id && c.activa : !c.activa)
     .sort((a, b) => ordenClase(a) - ordenClase(b));
+  // Horas de este mes de cada clase (quien lleva la caja): las da su profesora, salvo faltas y cambios
+  const mesH = hoyISO().slice(0, 7), horas = f === 'propias' && puedeVer('caja') ? await intentar(async () => horasPorClase(calcularHoras(mesH, await datosHoras(mesH)))) : {};
   const tarjetas = lista.map((c) => {
     const n = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
     const quien = c.escuela_amiga_id ? `${esc(c.escuelas_amigas ? c.escuelas_amigas.nombre : '')}${c.profesora_externa ? ' · ' + esc(c.profesora_externa) : ''}` : (c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : 'Sin profesora');
     return `<a class="tarjeta-clase ${c.escuela_amiga_id ? 'externa' : ''}" href="#/clase/${c.id}">
       <div class="tc-cab"><h2>${esc(c.nombre)}</h2>${c.escuela_amiga_id ? '<span class="chip oro">Externa</span>' : `<span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span>`}</div>
       <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
-      <div class="tc-pie"><span>${quien}</span>${ico('sig', 18)}</div></a>`;
+      <div class="tc-pie"><span>${quien}</span>${horas[c.id] ? `<span class="tc-horas">${horasTxt(horas[c.id].min)} este mes</span>` : ''}${ico('sig', 18)}</div>
+      ${horas[c.id] && horas[c.id].otras.length ? `<div class="tc-cubre">${horas[c.id].otras.map((o) => esc(o)).join(' · ')}</div>` : ''}</a>`;
   }).join('');
   const titulo = S.admin || !(S.permisos.clases && S.permisos.clases.solo_propias) ? 'Clases' : 'Mis clases';
   pintar(cabecera(titulo, { sub: `${lista.length} ${f === 'inactivas' ? 'inactivas' : (lista.length === 1 ? 'activa' : 'activas')}` }) + `<main class="cont">
     ${titulo === 'Clases' ? `<div class="filtros">${[['propias', 'Nuestras'], ['amigas', 'Escuela amiga'], ['inactivas', 'Inactivas']].map(([k, t]) => `<button data-ir="#/clases?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+    ${f === 'propias' && puedeVer('caja') ? `<a class="tarjeta horas-enlace" href="#/horas?mes=${mesH}"><span><small>Horas de las profesoras · ${nombreMes(mesH + '-01')}</small><b>${horasTxt(Object.values(horas).reduce((t, h) => t + h.min, 0))}</b></span><span class="he-mas">Faltas, cambios y festivos ${ico('sig', 16)}</span></a>` : ''}
     <div class="lista">${tarjetas || vacio(titulo === 'Mis clases' ? 'Todavía no tienes clases asignadas.' : 'No hay clases todavía.' + (puedeEditar('clases') ? ' Pulsa + para crear la primera.' : ''))}</div></main>`,
     'clases', puedeEditar('clases') && f === 'propias' ? '#/clase/nueva' : null);
 }
@@ -872,12 +876,16 @@ async function leerCaja(filtrar) {
 // Apartados de la caja: de dónde viene cada ingreso y en qué se va cada gasto
 const APARTADOS = {
   ingreso: [['mensualidad', 'Mensualidad'], ['evento', 'Evento'], ['ventas', 'Ventas (camisetas…)'], ['escuela_amiga', 'Escuela amiga'], ['otro', 'Otro ingreso']],
-  gasto: [['limpieza', 'Limpieza'], ['papeleria', 'Papelería'], ['material', 'Material y vestuario'], ['local', 'Local (alquiler, luz, agua)'], ['evento', 'Evento'], ['otro', 'Otro gasto']]
+  gasto: [['limpieza', 'Limpieza'], ['papeleria', 'Papelería'], ['decoracion', 'Decoración'], ['material', 'Material y vestuario'], ['local', 'Local (alquiler, luz, agua)'], ['evento', 'Evento'], ['cambio', 'Cambio (se devuelve)'], ['otro', 'Otro gasto']]
 };
 // Los movimientos antiguos no tienen apartado: se deduce (con clase = mensualidad; con escuela = escuela amiga)
 const apartadoDe = (x) => x.apartado || (x.escuela_amiga_id ? 'escuela_amiga' : x.tipo === 'ingreso' && x.clase_id ? 'mensualidad' : 'otro');
 const nombreApartado = (tipo, a) => ((APARTADOS[tipo] || []).find(([k]) => k === a) || [0, 'Otros'])[1];
-const sumaCaja = (l) => { let i = 0, o = 0; l.forEach((x) => { if (x.tipo === 'ingreso') i += +x.importe; else o += +x.importe; }); return [i, o]; };
+// El cambio (dinero que se saca para tener cambio y se repone) no es un gasto: no cuenta en los totales
+const esCambio = (x) => x.tipo === 'gasto' && x.apartado === 'cambio';
+const sumaCaja = (l) => { let i = 0, o = 0; l.forEach((x) => { if (esCambio(x)) return; if (x.tipo === 'ingreso') i += +x.importe; else o += +x.importe; }); return [i, o]; };
+// Ingresos en tres montones: mensualidades (cuotas de clase), eventos (actuaciones, festivales, camisetas…) y extras (escuela amiga, otros)
+const grupoIngreso = (x) => { const a = apartadoDe(x); return a === 'mensualidad' ? 'mensualidad' : a === 'evento' || a === 'ventas' ? 'eventos' : 'extras'; };
 // Las tres tarjetas de arriba son también el filtro: Ingresos (solo ingresos), Gastos (solo gastos), Balance (todo)
 const TIPOS_CAJA = ['ingreso', 'gasto', 'todo'];
 const tipoCaja = (params) => TIPOS_CAJA.includes(params.get('t')) ? params.get('t') : 'todo';
@@ -941,11 +949,12 @@ const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-to
 // Movimientos del mes según la tarjeta pulsada arriba (Ingresos, Gastos o Balance), agrupados por clase
 // Cajón de eventos y ventas: lo cobrado este mes en cada evento y lo que falta por cobrar de sus reservas
 const esDeEvento = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'evento' && x.evento_id;
-function cajaVentas(movs, pendientes) {
+function cajaVentas(movs, pendientes, { conFecha, volver } = {}) {
+  const sueltos = movs.filter((x) => x.tipo === 'ingreso' && grupoIngreso(x) === 'eventos' && !esDeEvento(x)), [ts] = sumaCaja(sueltos);
   const grupos = new Map(), grupo = (id, titulo) => { if (!grupos.has(id)) grupos.set(id, { titulo, cob: [], pen: [] }); return grupos.get(id); };
   movs.filter(esDeEvento).forEach((x) => grupo(x.evento_id, x.eventos ? x.eventos.titulo : 'Evento').cob.push(x));
   (pendientes || []).forEach((r) => grupo(r.evento_id, r.eventos ? r.eventos.titulo : 'Evento').pen.push(r));
-  if (!grupos.size) return '';
+  if (!grupos.size && !sueltos.length) return vacio('Sin eventos ni ventas este mes.');
   const lista = [...grupos.entries()].sort((a, b) => a[1].titulo.localeCompare(b[1].titulo, 'es'));
   const total = lista.reduce((t, [, g]) => t + g.cob.reduce((u, x) => u + +x.importe, 0), 0);
   const nCob = lista.reduce((t, [, g]) => t + g.cob.length, 0), nPen = lista.reduce((t, [, g]) => t + g.pen.length, 0);
@@ -957,25 +966,48 @@ function cajaVentas(movs, pendientes) {
       <span class="cc-tot"><b class="in">${eur(cob)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${filas}<a class="mov" href="#/evento/${id}"><span class="txt"><span class="tit" style="color:var(--morado3)">Abrir el evento</span></span>${ico('sig', 18)}</a></div></details>`;
   }).join('');
-  return totalCaja('ventas', 'Total eventos y ventas', `${nCob} cobro${nCob === 1 ? '' : 's'}`, nPen ? `Faltan ${nPen} por cobrar` : '', total) + tarjetas;
+  const n = nCob + sueltos.length;
+  return totalCaja('ventas', 'Total eventos', `${n} cobro${n === 1 ? '' : 's'}`, nPen ? `Faltan ${nPen} por cobrar` : '', total + ts) + tarjetas + (sueltos.length ? cajaPorClase(sueltos, { conFecha, volver }) : '');
 }
-function cajaMes(movs, t, ins, { conFecha = true, volver, pendientes = [] }) {
-  const l = filtrarTipo(movs, t), [i, o] = sumaCaja(movs), n = l.length;
-  if (t === 'ingreso') {
-    // Cuotas de alumnas arriba; luego el cajón de eventos y ventas; el resto de ingresos en sus tarjetas
-    const otros = l.filter((x) => !esCuota(x) && !esDeEvento(x)), [oi] = sumaCaja(otros), ventas = cajaVentas(l, pendientes);
-    return `<div class="lista">${cajaMensualidad(l, ins)}${ventas ? `<div class="seccion">Eventos y ventas</div>${ventas}` : ''}${otros.length ? `<div class="seccion">Otros ingresos · ${eur(oi)}</div>${cajaPorClase(otros, { conFecha, volver })}` : ''}</div>`;
+// Lo que se ve debajo del calendario según la tarjeta de arriba y el botón elegido
+const SUBCAJA = { ingreso: [['mensualidad', 'Mensualidad'], ['eventos', 'Eventos'], ['total', 'Total']], gasto: [['extras', 'Extras'], ['cambio', 'Cambio']] };
+const subCaja = (params, t) => { const l = SUBCAJA[t] || [], s = params.get('s'); return l.some(([k]) => k === s) ? s : l.length ? l[0][0] : ''; };
+const filtrosCaja = (mes, t, s) => SUBCAJA[t] ? `<div class="filtros">${SUBCAJA[t].map(([k, txt]) => `<button data-ir="#/caja?mes=${mes}&t=${t}&s=${k}" class="${s === k ? 'on' : ''}">${txt}</button>`).join('')}</div>` : '';
+// Resumen en filas: Mensualidades 400 € ›, Eventos 90 € ›…
+const filaResumen = (txt, det, imp, href, clase = 'in') => `<a class="mov" href="${href}"><span class="txt"><span class="tit">${txt}</span>${det ? `<span class="det">${det}</span>` : ''}</span><b class="${clase}">${imp}</b>${ico('sig', 16)}</a>`;
+function cajaCambio(cambios, editar) {
+  const fuera = cambios.filter((x) => !x.devuelto_en), tf = fuera.reduce((t, x) => t + +x.importe, 0);
+  const dia = (f) => aFecha(f).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  const filas = cambios.slice().sort((a, b) => (!!a.devuelto_en - !!b.devuelto_en) || a.fecha.localeCompare(b.fecha)).map((x) => `<div class="reserva ${x.devuelto_en ? 'pagada' : ''}">
+    <span class="txt"><span class="tit">${esc(x.concepto || 'Cambio')}</span><span class="det">${esc(['Sacado el ' + dia(x.fecha), x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · '))}</span></span>
+    <b>${eur(x.importe)}</b>${x.devuelto_en ? `<span class="vt-ok">${ico('check', 16)} Devuelto ${dia(x.devuelto_en)}</span>` : editar ? `<button class="vt-cobrar" data-devuelto="${x.id}">Devuelto</button>` : '<span class="chip gris">Fuera</span>'}</div>`).join('');
+  return totalCaja('cambio', 'Cambio fuera de la caja', fuera.length ? `${fuera.length} sin devolver` : 'Todo devuelto', 'No cuenta como gasto', tf)
+    + (filas ? `<div class="tarjeta reservas">${filas}</div>` : vacio('No se ha sacado cambio este mes.'));
+}
+function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], cambios = [], mes }) {
+  const [i, o] = sumaCaja(movs), ing = movs.filter((x) => x.tipo === 'ingreso'), gas = movs.filter((x) => x.tipo === 'gasto' && !esCambio(x));
+  const por = (g) => ing.filter((x) => grupoIngreso(x) === g), suma = (l) => sumaCaja(l)[0];
+  const [men, evs, ext] = ['mensualidad', 'eventos', 'extras'].map(por), fuera = cambios.filter((x) => !x.devuelto_en).reduce((t, x) => t + +x.importe, 0);
+  const ir = (tt, ss) => `#/caja?mes=${mes}&t=${tt}&s=${ss}`;
+  if (t === 'ingreso' && s === 'mensualidad') {
+    const sueltas = men.filter((x) => !esCuota(x));
+    return `<div class="lista">${cajaMensualidad(men, ins)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
-  if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${n} gasto${n === 1 ? '' : 's'}`, '', o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin gastos.')}</div>`;
-  return `<div class="lista">${totalCaja('balance', 'Balance', `Ingresos ${eur(i)} · Gastos ${eur(o)}`, '', i - o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin movimientos.')}</div>`;
+  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}</div>`;
+  if (t === 'ingreso') return `<div class="lista">${totalCaja('', 'Total ingresos del mes', `Mensualidades ${eur(suma(men))} · Eventos ${eur(suma(evs))}${ext.length ? ` · Extras ${eur(suma(ext))}` : ''}`, '', i)}
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', `${men.length} cobro${men.length === 1 ? '' : 's'}`, eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${evs.length} cobro${evs.length === 1 ? '' : 's'}`, eur(suma(evs)), ir('ingreso', 'eventos'))}</div>
+    ${ext.length ? `<div class="seccion">Extras · ${eur(suma(ext))}</div>${cajaPorClase(ext, { conFecha, volver })}` : ''}</div>`;
+  if (t === 'gasto' && s === 'cambio') return `<div class="lista">${cajaCambio(cambios, puedeEditar('caja'))}</div>`;
+  if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${gas.length} gasto${gas.length === 1 ? '' : 's'}`, '', o)}${gas.length ? cajaPorClase(gas, { conFecha, volver }) : vacio('Sin gastos este mes.')}</div>`;
+  // Balance: todo junto
+  return `<div class="lista">${totalCaja('balance', 'Balance del mes', `Ingresos ${eur(i)} · Gastos ${eur(o)}`, fuera ? `Cambio fuera: ${eur(fuera)} (no cuenta)` : '', i - o)}
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', '', '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', '', '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', 'Escuela amiga y otros', '+' + eur(suma(ext)), ir('ingreso', 'total'))}${filaResumen('Gastos', 'Limpieza, papelería, decoración…', '−' + eur(o), ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
 }
-// Debajo del calendario solo hay dos pestañas: Mensualidad (el dinero) y Horas (lo que trabaja cada profesora)
-const filtrosCaja = (mes, v, t = 'todo') => `<div class="filtros">${[['mensualidad', 'Mensualidad', `#/caja?mes=${mes}&t=${t}`], ['horas', 'Horas', `#/caja?mes=${mes}&v=horas`]].map(([k, txt, h]) => `<button data-ir="${h}" class="${v === k ? 'on' : ''}">${txt}</button>`).join('')}</div>`;
 async function pantallaCaja(params) {
   if (!puedeVer('caja')) return sinPermiso();
   if (params.get('v') === 'horas') return await pantallaHoras(params);
   const hoy = hoyISO();
-  const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params);
+  const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = subCaja(params, t);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
   const movs = await leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en'));
@@ -983,8 +1015,10 @@ async function pantallaCaja(params) {
   const [tIn, tOut] = sumaCaja(movs);
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
   // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
-  const pendientes = t === 'ingreso' ? await intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [];
-  const ins = t === 'ingreso' && puedeVer('inscripciones')
+  // Cambio: el de este mes y el que siga fuera de meses anteriores
+  const cambios = t !== 'ingreso' && !cajaSinApartados ? await intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [];
+  const pendientes = t === 'ingreso' && sc === 'eventos' ? await intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [];
+  const ins = t === 'ingreso' && sc === 'mensualidad' && puedeVer('inscripciones')
     ? await intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
   const primero = (new Date(y, m - 1, 1).getDay() + 6) % 7, nDias = new Date(y, m, 0).getDate();
@@ -1004,9 +1038,14 @@ async function pantallaCaja(params) {
     <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
       <button class="cal-mas" id="cal-mas" type="button" aria-expanded="false"><span>Ver el mes entero</span>${ico('abajo', 18)}</button></div>
     <div class="seccion">Movimientos del mes</div>
-    ${filtrosCaja(mes, 'mensualidad', t)}
-    ${!movs.length && t !== 'ingreso' ? vacio('Sin movimientos este mes.') : cajaMes(movs, t, ins, { volver: `#/caja?mes=${mes}&t=${t}`, pendientes })}
-  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}` : null);
+    ${filtrosCaja(mes, t, sc)}
+    ${cajaMes(movs, t, sc, ins, { volver: `#/caja?mes=${mes}&t=${t}&s=${sc}`, pendientes, cambios, mes })}
+  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}${sc === 'cambio' ? '&apartado=cambio' : sc === 'eventos' ? '&apartado=evento' : ''}` : null);
+  $app.querySelectorAll('[data-devuelto]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { await q(sb.from('caja').update({ devuelto_en: hoy }).eq('id', b.dataset.devuelto)); aviso('Apuntado: el cambio ya está devuelto'); router(); }
+    catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
   document.getElementById('cal-mas').onclick = (ev) => {
     const b = ev.currentTarget, abierto = document.getElementById('cal').classList.toggle('plegado') === false;
     b.setAttribute('aria-expanded', abierto); b.querySelector('span').textContent = abierto ? 'Ver solo esta semana' : 'Ver el mes entero';
@@ -1057,7 +1096,18 @@ function calcularHoras(mes, { dias, clases, profes, equipo, cambios, festivos })
   const semanas = Math.ceil((dias.length + ((aFecha(dias[0]).getDay() + 6) % 7)) / 7);
   return { lista, total: lista.filter((x) => x.k !== 'sin').reduce((t, x) => t + x.min, 0), semanas };
 }
+// Horas de cada clase en el mes: las de su profesora y las que cubrió otra persona
+function horasPorClase(r) {
+  const h = {}, de = (id) => (h[id] = h[id] || { min: 0, otras: [] });
+  r.lista.forEach((x) => {
+    Object.entries(x.clases).forEach(([id, g]) => { de(id).min += g.min; });
+    x.extra.forEach((e) => { de(e.c.id).min += e.min; de(e.c.id).otras.push(`${x.nombre.split(' ')[0]} cubrió ${horasTxt(e.min)}`); });
+    x.faltas.filter((e) => !e.cubre).forEach((e) => { de(e.c.id).otras.push(`Anulada ${aFecha(e.f).getDate()}/${aFecha(e.f).getMonth() + 1}`); });
+  });
+  return h;
+}
 async function pantallaHoras(params) {
+  if (!puedeVer('caja')) return sinPermiso();
   const hoy = hoyISO(), mes = params.get('mes') || hoy.slice(0, 7);
   const d = await datosHoras(mes), r = calcularHoras(mes, d), ed = puedeEditar('caja');
   const [y, m] = mes.split('-').map(Number);
@@ -1072,24 +1122,23 @@ async function pantallaHoras(params) {
       <div class="cc-movs">${filas.join('')}</div></details>`;
   };
   const cambiosTxt = d.cambios.length + d.festivos.length;
-  pintar(cabecera('Caja', { sub: 'Horas de las profesoras' }) + `<main class="cont">
-    <div class="mes"><button data-ir="#/caja?mes=${prev}&v=horas" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/caja?mes=${next}&v=horas" aria-label="Mes siguiente">${ico('sig')}</button></div>
-    ${filtrosCaja(mes, 'horas')}
+  pintar(cabecera('Horas del mes', { volver: '#/clases', sub: 'Horas de las profesoras' }) + `<main class="cont">
+    <div class="mes"><button data-ir="#/horas?mes=${prev}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/horas?mes=${next}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     <div class="tarjeta horas-total"><div class="ht-sup">Horas del mes · ${r.semanas} semanas</div><div class="ht-num">${horasTxt(r.total)}</div>
       <div class="ht-det">${r.lista.filter((x) => x.k !== 'sin').length} persona${r.lista.filter((x) => x.k !== 'sin').length === 1 ? '' : 's'}${cambiosTxt ? ` · ${d.cambios.length} cambio${d.cambios.length === 1 ? '' : 's'} · ${d.festivos.length} día${d.festivos.length === 1 ? '' : 's'} sin clase` : ''}</div></div>
     <div class="lista">${r.lista.map(tarjeta).join('') || vacio('No hay clases con horario este mes.')}</div>
     ${ed ? `<a class="btn sec" href="#/caja/cambio?mes=${mes}">${ico('mas')} Apuntar una falta o un cambio</a>` : ''}
     <div class="seccion">Faltas y cambios del mes</div>
     <div class="lista">${d.cambios.map((c) => { const cl = d.clases.find((x) => x.id === c.clase_id); const quien = c.anulada ? 'Anulada' : 'La da ' + ((c.cubre_profesora_id ? (d.profes.find((p) => p.id === c.cubre_profesora_id) || {}).nombre : (d.equipo.find((e) => e.id === c.cubre_perfil_id) || {}).nombre) || '¿?');
-      return fila({ iconoHtml: `<span class="ini">${ico('profe', 18)}</span>`, href: ed ? `#/caja/cambio?mes=${mes}&id=${c.id}` : `#/caja?mes=${mes}&v=horas`, tit: `${diaC(c.fecha)} · ${cl ? cl.nombre : 'Clase'}`, det: esc(quien + (c.nota ? ' · ' + c.nota : '')) }); }).join('') || vacio('Ninguna falta apuntada.')}</div>
+      return fila({ iconoHtml: `<span class="ini">${ico('profe', 18)}</span>`, href: ed ? `#/caja/cambio?mes=${mes}&id=${c.id}` : `#/horas?mes=${mes}`, tit: `${diaC(c.fecha)} · ${cl ? cl.nombre : 'Clase'}`, det: esc(quien + (c.nota ? ' · ' + c.nota : '')) }); }).join('') || vacio('Ninguna falta apuntada.')}</div>
     <div class="seccion">Días sin clase</div>
-    <div class="lista">${d.festivos.map((f) => fila({ iconoHtml: `<span class="ini" style="color:#9A6326;background:rgba(242,196,141,0.25)">${ico('clases', 18)}</span>`, href: ed ? `#/caja/festivo?mes=${mes}&fecha=${f.fecha}` : `#/caja?mes=${mes}&v=horas`, tit: diaC(f.fecha), det: esc(f.motivo || 'Sin clase para nadie') })).join('') || vacio('Ningún festivo este mes.')}</div>
+    <div class="lista">${d.festivos.map((f) => fila({ iconoHtml: `<span class="ini" style="color:#9A6326;background:rgba(242,196,141,0.25)">${ico('clases', 18)}</span>`, href: ed ? `#/caja/festivo?mes=${mes}&fecha=${f.fecha}` : `#/horas?mes=${mes}`, tit: diaC(f.fecha), det: esc(f.motivo || 'Sin clase para nadie') })).join('') || vacio('Ningún festivo este mes.')}</div>
     ${ed ? `<a class="btn sec" href="#/caja/festivo?mes=${mes}">${ico('mas')} Marcar un día sin clase</a>` : ''}
-  </main>`, 'caja');
+  </main>`, 'clases');
 }
 async function formCambio(params) {
   if (!puedeEditar('caja')) return sinPermiso();
-  const id = params.get('id'), mes = params.get('mes') || hoyISO().slice(0, 7), volver = `#/caja?mes=${mes}&v=horas`;
+  const id = params.get('id'), mes = params.get('mes') || hoyISO().slice(0, 7), volver = `#/horas?mes=${mes}`;
   const reg = id ? await q(sb.from('clases_cambios').select('*').eq('id', id).single()) : null;
   const d = await datosHoras((reg ? reg.fecha : mes + '-01').slice(0, 7));
   const fecha0 = reg ? reg.fecha : (mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01');
@@ -1136,7 +1185,7 @@ async function formCambio(params) {
     ev.target.disabled = true;
     try {
       await q(reg ? sb.from('clases_cambios').update(datos).eq('id', reg.id) : sb.from('clases_cambios').insert(datos));
-      aviso('Guardado'); location.hash = `#/caja?mes=${datos.fecha.slice(0, 7)}&v=horas`;
+      aviso('Guardado'); location.hash = `#/horas?mes=${datos.fecha.slice(0, 7)}`;
     } catch (e) { ev.target.disabled = false; aviso(/duplicate key/i.test(e.message || '') ? 'Esa clase ya tiene un cambio apuntado ese día. Ábrelo desde la lista para cambiarlo.' : traducirError(e), true); }
   };
   const bb = document.getElementById('borrar');
@@ -1145,7 +1194,7 @@ async function formCambio(params) {
 }
 async function formFestivo(params) {
   if (!puedeEditar('caja')) return sinPermiso();
-  const mes = params.get('mes') || hoyISO().slice(0, 7), f0 = params.get('fecha'), volver = `#/caja?mes=${mes}&v=horas`;
+  const mes = params.get('mes') || hoyISO().slice(0, 7), f0 = params.get('fecha'), volver = `#/horas?mes=${mes}`;
   const reg = f0 ? await q(sb.from('dias_sin_clase').select('*').eq('fecha', f0).maybeSingle()) : null;
   pintar(cabecera(reg ? 'Día sin clase' : 'Marcar día sin clase', { volver, sub: 'No cuenta horas para nadie' }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="campo"><label for="f_fecha">Día *</label><input id="f_fecha" type="date" value="${reg ? reg.fecha : (mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01')}" required ${reg ? 'disabled' : ''}></div>
@@ -1159,7 +1208,7 @@ async function formFestivo(params) {
     ev.target.disabled = true;
     try {
       await q(reg ? sb.from('dias_sin_clase').update({ motivo }).eq('fecha', reg.fecha) : sb.from('dias_sin_clase').insert({ fecha, motivo }));
-      aviso('Guardado'); location.hash = `#/caja?mes=${fecha.slice(0, 7)}&v=horas`;
+      aviso('Guardado'); location.hash = `#/horas?mes=${fecha.slice(0, 7)}`;
     } catch (e) { ev.target.disabled = false; aviso(traducirError(e), true); }
   };
   const bb = document.getElementById('borrar');
@@ -1196,7 +1245,7 @@ async function formCaja(params, id = null) {
     { k: 'importe', label: 'Importe (€)', tipo: 'dinero', req: true },
     { k: 'metodo', label: 'Forma de pago', tipo: 'select', opciones: METODOS }
   ];
-  const PH = { mensualidad: 'Mensualidad de octubre', evento: 'Entradas, inscripción…', ventas: 'Camiseta talla M, sudadera…', escuela_amiga: 'Cuota de octubre', limpieza: 'Lejía, bayetas…', papeleria: 'Folios, tinta…', material: 'Altavoz, vestuario…', local: 'Alquiler, luz, agua…', otro: '' };
+  const PH = { mensualidad: 'Mensualidad de octubre', evento: 'Entradas, inscripción…', ventas: 'Camiseta talla M, sudadera…', escuela_amiga: 'Cuota de octubre', limpieza: 'Lejía, bayetas…', papeleria: 'Folios, tinta…', material: 'Altavoz, vestuario…', local: 'Alquiler, luz, agua…', decoracion: 'Globos, guirnaldas…', cambio: 'Cambio para la caja', otro: '' };
   const desdeEvento = params.get('evento');
   const volver = desdeEvento ? `#/evento/${desdeEvento}` : `#/caja/dia/${ini.fecha}`;
   pintar(cabecera(id ? 'Editar movimiento' : 'Nuevo movimiento', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
@@ -1227,6 +1276,7 @@ async function formCaja(params, id = null) {
       const guardar = (d) => id ? q(sb.from('caja').update(d).eq('id', id)) : q(sb.from('caja').insert(d));
       try { await guardar(datos); } catch (e) {
         if (!faltaApartado(e)) throw e;
+        if (apartado === 'cambio' || apartado === 'decoracion') throw new Error('Esta parte aún no está activada en la base de datos.');
         const { apartado: _a, evento_id: _e, ...sinApartado } = datos; await guardar(sinApartado);
       }
       aviso('Guardado'); location.hash = desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
@@ -2401,6 +2451,7 @@ async function router() {
         return await pantallaAlumna(p[1]);
       case 'inscripciones': return await pantallaInscripciones();
       case 'inscripcion': return await formInscripcion(params);
+      case 'horas': return await pantallaHoras(params);
       case 'caja':
         if (p[1] === 'dia') return await pantallaCajaDia(p[2], params);
         if (p[1] === 'nuevo') return await formCaja(params);
