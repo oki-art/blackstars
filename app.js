@@ -135,9 +135,27 @@ function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
   return `<nav class="nav" aria-label="Navegación">${items.filter((i) => !i[3] || ver(i[3])).map((i) => `<a href="#/${i[0]}" class="${activa === i[0] ? 'on' : ''}">${ico(i[2], 22)}${i[1]}</a>`).join('')}</nav>`;
 }
+// Ojito en las contraseñas: mientras se mantiene pulsado se ve lo escrito; al soltar se oculta otra vez
+function ojoClaves() {
+  $app.querySelectorAll('input[type="password"]:not([data-ojo])').forEach((inp) => {
+    inp.dataset.ojo = '1';
+    const caja = document.createElement('div'); caja.className = 'clave-ojo';
+    inp.parentNode.insertBefore(caja, inp); caja.appendChild(inp);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'ojo-btn'; b.setAttribute('aria-label', 'Mantén pulsado para ver la contraseña'); b.innerHTML = ico('ojo', 22);
+    caja.appendChild(b);
+    const ver = (si) => { inp.type = si ? 'text' : 'password'; b.classList.toggle('on', si); };
+    b.addEventListener('pointerdown', (ev) => { ev.preventDefault(); ver(true); });
+    ['pointerup', 'pointerleave', 'pointercancel', 'blur'].forEach((t) => b.addEventListener(t, () => ver(false)));
+    b.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); ver(true); } });
+    b.addEventListener('keyup', () => ver(false));
+    b.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  });
+}
 function pintar(html, nav = null, botonMas = null) {
   $app.innerHTML = html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
   window.scrollTo(0, 0);
+  ojoClaves();
   if (document.getElementById('campana')) actualizarCampana();
 }
 // Punto de la campana: hay avisos sin leer
@@ -239,6 +257,7 @@ function pantallaLogin() {
     <button class="btn pri ancho" type="submit">Entrar</button>
     <button class="btn sec ancho" type="button" id="olvido">He olvidado la contraseña</button>
   </form></div>`;
+  ojoClaves();
   const form = document.getElementById('frm');
   form.onsubmit = async (ev) => {
     ev.preventDefault();
