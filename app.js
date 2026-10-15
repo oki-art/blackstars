@@ -357,6 +357,7 @@ async function pantallaInicio(vista = null) {
     ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false]
   ] : [
     ['alumnas', '#/alumna/nueva', 'insc', 'Nueva alumna', 'Dar de alta', true],
+    ['inscripciones', '#/inscripciones', 'clases', 'Inscripciones', 'Altas y bajas en clases', false],
     ['caja', `#/caja/nuevo?fecha=${hoy}`, 'euro', 'Movimiento', 'Ingreso o gasto', true],
     ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Próximos', false],
@@ -493,6 +494,10 @@ async function formAcceso(params) {
 }
 
 /* ---------- más ---------- */
+// Recepción y gestión tienen Documentos, Eventos, Inscripciones y Formularios en el Inicio: en Más no se repiten
+const EN_INICIO = ['*', 'eventos', 'inscripciones', 'formularios'];
+const enMas = (m) => S.admin || esProfesora(S.permisos) || !EN_INICIO.includes(m);
+const volverDe = (m) => enMas(m) ? '#/mas' : '#/inicio';
 function pantallaMas() {
   const items = [
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos del mes y estrellas de alumnas'],
@@ -504,11 +509,12 @@ function pantallaMas() {
     ['inscripciones', '#/inscripciones', 'insc', 'Inscripciones', 'Altas y bajas en clases'],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces para alumnas y respuestas'],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuelas amigas', 'Clases externas, cuota y coincidencias']
-  ].filter((i) => i[0] === '*' || puedeVer(i[0]));
+  ].filter((i) => (i[0] === '*' || puedeVer(i[0])) && enMas(i[0]));
   const ic = (n) => `<span class="ini">${ico(n)}</span>`;
+  // Tu ficha: al pulsar, tus datos personales (DNI, cuenta, tallas...), que solo ves tú y la administración
   pintar(cabecera('Más', { sub: 'Todo lo demás, a un toque' }) + `<main class="cont">
-    <div class="tarjeta" style="display:flex;gap:12px;align-items:center"><span class="ini" style="width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:rgba(201,165,90,0.18);color:#8F6A1C;font-weight:700">${esc(iniciales(S.perfil && S.perfil.nombre))}</span>
-      <div style="flex:1"><b>${esc(S.perfil ? S.perfil.nombre : '')}</b><div style="font-size:13px;color:var(--texto2)">${S.admin ? 'Administración · acceso completo' : esc(S.usuario.email)}</div></div></div>
+    <a class="tarjeta mi-ficha" href="#/mis-datos"><span class="ini-g">${esc(iniciales(S.perfil && S.perfil.nombre))}</span>
+      <span class="txt"><b>${esc(S.perfil ? S.perfil.nombre : '')}</b><span>${S.admin ? 'Administración · acceso completo' : esc(S.usuario.email)}</span><span class="mf-pie">${ico('llave', 14)} Mi ficha · DNI, cuenta y tallas</span></span>${ico('sig', 22)}</a>
     <div class="lista">${items.map((i) => fila({ href: i[1], tit: i[3], det: i[4], iconoHtml: ic(i[2]), der: ico('sig') })).join('')}
     ${S.admin ? fila({ href: '#/vista', tit: 'Ver como profesora', det: 'Comprueba qué ve cada profesora en el Inicio', iconoHtml: ic('ojo'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${S.admin ? fila({ href: '#/equipo', tit: 'Equipo y permisos', det: 'Todas las personas y lo que puede ver cada una', iconoHtml: ic('alumnas'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
@@ -832,7 +838,7 @@ function activarNotas(alumnaId) {
 async function pantallaInscripciones() {
   if (!puedeVer('inscripciones')) return sinPermiso();
   const l = await q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,alumnas(id,nombre,apellidos),clases(nombre)').order('creado_en', { ascending: false }).limit(100));
-  pintar(cabecera('Inscripciones', { volver: '#/mas', sub: 'Últimos movimientos en clases' }) + `<main class="cont"><div class="lista">${l.map((i) => fila({
+  pintar(cabecera('Inscripciones', { volver: volverDe('inscripciones'), sub: 'Últimos movimientos en clases' }) + `<main class="cont"><div class="lista">${l.map((i) => fila({
     href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: `${esc(i.clases.nombre)} · ${i.fecha_baja ? 'baja ' + fechaCorta(i.fecha_baja) : 'alta ' + fechaCorta(i.fecha_alta)}`,
     der: i.fecha_baja ? '<span class="chip gris">Baja</span>' : '<span class="chip ok">Alta</span>' })).join('') || vacio('Sin inscripciones todavía.')}</div></main>`, 'mas', puedeEditar('inscripciones') ? '#/inscripcion/nueva' : null);
 }
@@ -853,7 +859,12 @@ async function formInscripcion(params) {
 /* ---------- caja ---------- */
 const SEL_CAJA = '*,clases(nombre),alumnas(nombre,apellidos),escuelas_amigas(nombre)';
 const sumaCaja = (l) => { let i = 0, o = 0; l.forEach((x) => { if (x.tipo === 'ingreso') i += +x.importe; else o += +x.importe; }); return [i, o]; };
-const totalesCaja = (i, o) => `<div class="totales"><div><small>Ingresos</small><b class="in">${eur(i)}</b></div><div><small>Gastos</small><b class="out">${eur(o)}</b></div><div><small>Balance</small><b>${eur(i - o)}</b></div></div>`;
+// Las tres tarjetas de arriba son también el filtro: Ingresos (solo ingresos), Gastos (solo gastos), Balance (todo)
+const TIPOS_CAJA = ['ingreso', 'gasto', 'todo'];
+const tipoCaja = (params) => TIPOS_CAJA.includes(params.get('t')) ? params.get('t') : 'todo';
+const filtrarTipo = (movs, t) => t === 'todo' ? movs : movs.filter((x) => x.tipo === t);
+const totalesCaja = (i, o, base, t) => `<div class="totales filtro">${[['ingreso', 'Ingresos', 'in', i], ['gasto', 'Gastos', 'out', o], ['todo', 'Balance', '', i - o]]
+  .map(([k, txt, c, v]) => `<button type="button" data-ir="${base}t=${k}" class="${t === k ? 'on' : ''}" aria-pressed="${t === k}"><small>${txt}</small><b class="${c}">${eur(v)}</b></button>`).join('')}</div>`;
 const ordenRegistro = (a, b) => a.fecha.localeCompare(b.fecha) || String(a.creado_en || '').localeCompare(String(b.creado_en || ''));
 // Un movimiento dentro de una tarjeta (o suelto en "Todas")
 function movCaja(x, { conFecha = false, conClase = false, volver }) {
@@ -890,7 +901,6 @@ function cajaMensualidad(movs, ins) {
     a.importe += +x.importe; a.n++; g.al.set(x.alumna_id, a); g.total += +x.importe;
   });
   (ins || []).forEach((x) => { const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'); if (!g.al.has(x.alumna_id)) g.faltan.set(x.alumna_id, nom(x.alumnas)); });
-  if (!grupos.size) return vacio('Este mes todavía no hay cobros de alumnas con su clase.');
   const lista = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const nAl = lista.reduce((t, g) => t + g.al.size, 0), nFal = lista.reduce((t, g) => t + g.faltan.size, 0), total = lista.reduce((t, g) => t + g.total, 0);
   const porNombre = (a, b) => a.localeCompare(b, 'es');
@@ -902,26 +912,34 @@ function cajaMensualidad(movs, ins) {
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${pagadas}${faltan}</div></details>`;
   }).join('');
-  return `<div class="lista"><div class="mens-total"><span><small>Total mensualidades</small><b>${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}</b>${ins ? `<em>Faltan ${nFal}</em>` : ''}</span><b class="mens-eur">${eur(total)}</b></div>${tarjetas}</div>`;
+  return totalCaja('', 'Total mensualidades', `${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}`, ins && nFal ? `Faltan ${nFal}` : '', total) + tarjetas;
 }
-const filtrosCaja = (base, v, mens = false) => `<div class="filtros">${[['clase', 'Por clase'], ['todas', 'Todas'], ...(mens ? [['mensualidad', 'Mensualidad'], ['horas', 'Horas']] : [])].map(([k, t]) => `<button data-ir="${base}v=${k}" class="${v === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
-function listaCaja(movs, v, { conFecha, volver }) {
-  if (!movs.length) return '';
-  if (v === 'todas') return `<div class="tarjeta caja-todas">${movs.slice().sort(ordenRegistro).map((x) => movCaja(x, { conFecha, conClase: true, volver })).join('')}</div>`;
-  return `<div class="lista">${cajaPorClase(movs, { conFecha, volver })}</div>`;
+const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small><b>${linea}</b>${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
+// Movimientos del mes según la tarjeta pulsada arriba (Ingresos, Gastos o Balance), agrupados por clase
+function cajaMes(movs, t, ins, { conFecha = true, volver }) {
+  const l = filtrarTipo(movs, t), [i, o] = sumaCaja(movs), n = l.length;
+  if (t === 'ingreso') {
+    // Cuotas de alumnas (con su clase) arriba; el resto de ingresos en sus tarjetas
+    const otros = l.filter((x) => !(x.alumna_id && x.clase_id));
+    return `<div class="lista">${cajaMensualidad(l, ins)}${otros.length ? `<div class="seccion">Otros ingresos</div>${cajaPorClase(otros, { conFecha, volver })}` : ''}</div>`;
+  }
+  if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${n} gasto${n === 1 ? '' : 's'}`, '', o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin gastos.')}</div>`;
+  return `<div class="lista">${totalCaja('balance', 'Balance', `Ingresos ${eur(i)} · Gastos ${eur(o)}`, '', i - o)}${n ? cajaPorClase(l, { conFecha, volver }) : vacio('Sin movimientos.')}</div>`;
 }
+// Debajo del calendario solo hay dos pestañas: Mensualidad (el dinero) y Horas (lo que trabaja cada profesora)
+const filtrosCaja = (mes, v, t = 'todo') => `<div class="filtros">${[['mensualidad', 'Mensualidad', `#/caja?mes=${mes}&t=${t}`], ['horas', 'Horas', `#/caja?mes=${mes}&v=horas`]].map(([k, txt, h]) => `<button data-ir="${h}" class="${v === k ? 'on' : ''}">${txt}</button>`).join('')}</div>`;
 async function pantallaCaja(params) {
   if (!puedeVer('caja')) return sinPermiso();
   if (params.get('v') === 'horas') return await pantallaHoras(params);
   const hoy = hoyISO();
-  const mes = params.get('mes') || hoy.slice(0, 7), v = ['todas', 'mensualidad'].includes(params.get('v')) ? params.get('v') : 'clase';
+  const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
   const movs = await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en'));
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
-  const ins = v === 'mensualidad' && puedeVer('inscripciones')
+  const ins = t === 'ingreso' && puedeVer('inscripciones')
     ? await intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
   const primero = (new Date(y, m - 1, 1).getDay() + 6) % 7, nDias = new Date(y, m, 0).getDate();
@@ -931,19 +949,19 @@ async function pantallaCaja(params) {
   let cal = DIAS_C.map((d) => `<div class="dow">${d}</div>`).join('') + `<div class="${semana === 0 ? 'sem' : ''}"></div>`.repeat(primero);
   for (let d = 1; d <= nDias; d++) {
     const f = `${mes}-${pad(d)}`, l = porDia[f] || [];
-    const pi = l.some((x) => x.tipo === 'ingreso'), po = l.some((x) => x.tipo === 'gasto');
-    cal += `<button data-ir="#/caja/dia/${f}" class="${f === hoy ? 'hoy' : ''} ${l.length ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
+    const pi = t !== 'gasto' && l.some((x) => x.tipo === 'ingreso'), po = t !== 'ingreso' && l.some((x) => x.tipo === 'gasto');
+    cal += `<button data-ir="#/caja/dia/${f}?t=${t}" class="${f === hoy ? 'hoy' : ''} ${pi || po ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
   }
   const titulo = capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }));
   pintar(cabecera('Caja', { sub: 'Ingresos y gastos por clase' }) + `<main class="cont">
-    <div class="mes"><button data-ir="#/caja?mes=${prev}&v=${v}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="#/caja?mes=${next}&v=${v}" aria-label="Mes siguiente">${ico('sig')}</button></div>
-    ${totalesCaja(tIn, tOut)}
+    <div class="mes"><button data-ir="#/caja?mes=${prev}&t=${t}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="#/caja?mes=${next}&t=${t}" aria-label="Mes siguiente">${ico('sig')}</button></div>
+    ${totalesCaja(tIn, tOut, `#/caja?mes=${mes}&`, t)}
     <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
       <button class="cal-mas" id="cal-mas" type="button" aria-expanded="false"><span>Ver el mes entero</span>${ico('abajo', 18)}</button></div>
     <div class="seccion">Movimientos del mes</div>
-    ${filtrosCaja(`#/caja?mes=${mes}&`, v, true)}
-    ${!movs.length ? vacio('Sin movimientos este mes.') : v === 'mensualidad' ? cajaMensualidad(movs, ins) : listaCaja(movs, v, { conFecha: true, volver: `#/caja?mes=${mes}&v=${v}` })}
-  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}` : null);
+    ${filtrosCaja(mes, 'mensualidad', t)}
+    ${!movs.length && t !== 'ingreso' ? vacio('Sin movimientos este mes.') : cajaMes(movs, t, ins, { volver: `#/caja?mes=${mes}&t=${t}` })}
+  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}` : null);
   document.getElementById('cal-mas').onclick = (ev) => {
     const b = ev.currentTarget, abierto = document.getElementById('cal').classList.toggle('plegado') === false;
     b.setAttribute('aria-expanded', abierto); b.querySelector('span').textContent = abierto ? 'Ver solo esta semana' : 'Ver el mes entero';
@@ -1011,7 +1029,7 @@ async function pantallaHoras(params) {
   const cambiosTxt = d.cambios.length + d.festivos.length;
   pintar(cabecera('Caja', { sub: 'Horas de las profesoras' }) + `<main class="cont">
     <div class="mes"><button data-ir="#/caja?mes=${prev}&v=horas" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/caja?mes=${next}&v=horas" aria-label="Mes siguiente">${ico('sig')}</button></div>
-    ${filtrosCaja(`#/caja?mes=${mes}&`, 'horas', true)}
+    ${filtrosCaja(mes, 'horas')}
     <div class="tarjeta horas-total"><div class="ht-sup">Horas del mes · ${r.semanas} semanas</div><div class="ht-num">${horasTxt(r.total)}</div>
       <div class="ht-det">${r.lista.filter((x) => x.k !== 'sin').length} persona${r.lista.filter((x) => x.k !== 'sin').length === 1 ? '' : 's'}${cambiosTxt ? ` · ${d.cambios.length} cambio${d.cambios.length === 1 ? '' : 's'} · ${d.festivos.length} día${d.festivos.length === 1 ? '' : 's'} sin clase` : ''}</div></div>
     <div class="lista">${r.lista.map(tarjeta).join('') || vacio('No hay clases con horario este mes.')}</div>
@@ -1104,14 +1122,13 @@ async function formFestivo(params) {
 }
 async function pantallaCajaDia(fecha, params) {
   if (!puedeVer('caja')) return sinPermiso();
-  const v = params.get('v') === 'todas' ? 'todas' : 'clase';
+  const t = tipoCaja(params);
   const movs = await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).eq('fecha', fecha).order('creado_en'));
-  const [i, o] = sumaCaja(movs);
-  pintar(cabecera(capital(fechaLarga(fecha)), { volver: `#/caja?mes=${fecha.slice(0, 7)}`, sub: 'Caja del día' }) + `<main class="cont">
-    ${totalesCaja(i, o)}
-    ${movs.length ? filtrosCaja(`#/caja/dia/${fecha}?`, v) : ''}
-    ${listaCaja(movs, v, { conFecha: false, volver: `#/caja/dia/${fecha}` }) || vacio('No hay movimientos este día.')}
-  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${fecha}` : null);
+  const [i, o] = sumaCaja(movs), l = filtrarTipo(movs, t);
+  pintar(cabecera(capital(fechaLarga(fecha)), { volver: `#/caja?mes=${fecha.slice(0, 7)}&t=${t}`, sub: 'Caja del día' }) + `<main class="cont">
+    ${totalesCaja(i, o, `#/caja/dia/${fecha}?`, t)}
+    ${l.length ? `<div class="lista">${cajaPorClase(l, { conFecha: false, volver: `#/caja/dia/${fecha}?t=${t}` })}</div>` : vacio(t === 'ingreso' ? 'No hay ingresos este día.' : t === 'gasto' ? 'No hay gastos este día.' : 'No hay movimientos este día.')}
+  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${fecha}${t !== 'todo' ? '&tipo=' + t : ''}` : null);
 }
 async function formCaja(params, id = null) {
   if (!puedeEditar('caja')) return sinPermiso();
@@ -1331,7 +1348,7 @@ async function pantallaDocumentos(params) {
   const miFicha = S.admin ? null : await intentar(async () => q(sb.rpc('mi_profesora')));
   const datos = S.admin ? fila({ href: '#/datos', tit: 'Datos del equipo', det: 'DNI, cuenta y tallas', iconoHtml: `<span class="ini">${ico('llave', 18)}</span>`, der: '<span class="chip oro">Solo admin</span>' })
     : miFicha && typeof miFicha === 'string' ? fila({ href: `#/datos/${miFicha}`, tit: 'Mis datos', det: 'DNI, cuenta y talla · privados', iconoHtml: `<span class="ini">${ico('llave', 18)}</span>`, der: ico('sig') }) : '';
-  pintar(cabecera('Documentos', { volver: ges ? '#/mas' : '#/inicio', sub: ges ? 'Enviados y recibidos' : 'Recibidos y enviados' }) + `<main class="cont">
+  pintar(cabecera('Documentos', { volver: ges ? volverDe('*') : '#/inicio', sub: ges ? 'Enviados y recibidos' : 'Recibidos y enviados' }) + `<main class="cont">
     ${datos ? `<div class="lista">${datos}</div>` : ''}
     <div class="filtros">${tabs.map(([k, t]) => `<button data-ir="#/documentos?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="lista">${l.map((d) => fila({ href: `#/documento/${d.id}`, iconoHtml: `<span class="ini">${ico('doc', 18)}</span>`, tit: d.titulo,
@@ -1429,48 +1446,63 @@ const CAMPOS_CUENTAN = CAMPOS_DATOS.filter((c) => c.k !== 'notas');
 const datosRellenos = (d) => d ? CAMPOS_CUENTAN.filter((c) => d[c.k]).length : 0;
 async function pantallaDatosEquipo() {
   if (!S.admin) return sinPermiso();
-  const [profes, datos] = await Promise.all([
+  const [profes, datos, equipo, datosEq] = await Promise.all([
     q(sb.from('profesoras').select('id,nombre,activa').order('activa', { ascending: false }).order('nombre')),
-    q(sb.from('profesoras_datos').select('*'))
+    q(sb.from('profesoras_datos').select('*')),
+    intentar(() => q(sb.rpc('equipo_sin_ficha'))),
+    intentar(() => q(sb.from('perfiles_datos').select('*')))
   ]);
   const por = Object.fromEntries(datos.map((d) => [d.profesora_id, d]));
+  const porEq = Object.fromEntries(datosEq.map((d) => [d.perfil_id, d]));
+  const chipDatos = (n) => n === CAMPOS_CUENTAN.length ? '<span class="chip ok">Completo</span>' : n ? '<span class="chip oro">A medias</span>' : '<span class="chip gris">Vacío</span>';
+  const resto = equipo.filter((e) => e.id !== S.usuario.id).map((e) => { const d = porEq[e.id], n = datosRellenos(d);
+    return fila({ href: `#/datos/e/${e.id}`, tit: e.nombre, det: n ? `${n} de ${CAMPOS_CUENTAN.length} datos${d.talla_camiseta ? ' · Talla ' + d.talla_camiseta : ''}` : 'Sin datos todavía', der: chipDatos(n) }); }).join('');
   const tallas = {}; profes.filter((p) => p.activa).forEach((p) => { const t = (por[p.id] || {}).talla_camiseta || 'Sin talla'; tallas[t] = (tallas[t] || 0) + 1; });
   const orden = [...TALLAS, 'Sin talla'].filter((t) => tallas[t]);
-  pintar(cabecera('Datos del equipo', { volver: '#/documentos', sub: 'Solo los ves tú y cada profesora los suyos' }) + `<main class="cont">
+  pintar(cabecera('Datos del equipo', { volver: '#/documentos', sub: 'Solo los ves tú y cada persona los suyos' }) + `<main class="cont">
     <div class="tarjeta"><h3>${ico('profe', 18)} Camisetas</h3><p class="nota" style="margin:4px 0 10px">Para hacer el pedido (profesoras en activo)</p>
       <div class="tallas">${orden.map((t) => `<span class="chip ${t === 'Sin talla' ? 'gris' : 'mor'}">${t} × ${tallas[t]}</span>`).join('') || '<span class="nota">Aún no hay profesoras.</span>'}</div></div>
     <div class="lista">${profes.map((p) => { const n = datosRellenos(por[p.id]); return fila({ href: `#/datos/${p.id}`, tit: p.nombre, det: n ? `${n} de ${CAMPOS_CUENTAN.length} datos${por[p.id].talla_camiseta ? ' · Talla ' + por[p.id].talla_camiseta : ''}` : 'Sin datos todavía',
       der: !p.activa ? '<span class="chip gris">Inactiva</span>' : n === CAMPOS_CUENTAN.length ? '<span class="chip ok">Completo</span>' : n ? '<span class="chip oro">A medias</span>' : '<span class="chip gris">Vacío</span>' }); }).join('') || vacio('Aún no hay profesoras.')}</div>
+    ${resto ? `<div class="seccion">Resto del equipo</div><div class="lista">${resto}</div>` : ''}
   </main>`, 'mas');
 }
-async function pantallaDatos(id) {
-  const [p, d, mia] = await Promise.all([
-    S.admin ? q(sb.from('profesoras').select('id,nombre').eq('id', id).maybeSingle()) : Promise.resolve(null),
-    q(sb.from('profesoras_datos').select('*').eq('profesora_id', id).maybeSingle()),
-    S.admin ? Promise.resolve(null) : intentar(async () => q(sb.rpc('mi_profesora')))
-  ]);
-  if (!S.admin && mia !== id) return sinPermiso();
-  const nombre = p ? p.nombre : (S.perfil ? S.perfil.nombre : '');
+// De quién son los datos: una profesora (por su ficha) o una persona del equipo sin ficha (por su usuario)
+async function fuenteDatos(id, perfilId) {
+  if (perfilId) return { tabla: 'perfiles_datos', col: 'perfil_id', val: perfilId, ruta: `#/datos/e/${perfilId}`, mio: perfilId === S.usuario.id,
+    nombre: async () => perfilId === S.usuario.id ? S.perfil.nombre : S.nombres[perfilId] || '' };
+  const mia = S.admin ? null : await intentar(async () => q(sb.rpc('mi_profesora')));
+  return { tabla: 'profesoras_datos', col: 'profesora_id', val: id, ruta: `#/datos/${id}`, mio: mia === id,
+    nombre: async () => S.admin ? ((await q(sb.from('profesoras').select('nombre').eq('id', id).maybeSingle())) || {}).nombre || '' : S.perfil.nombre };
+}
+// "Mi ficha" (desde Más): la de profesora si la tiene; si no, la del equipo
+async function pantallaMisDatos() {
+  const mia = S.admin ? null : await intentar(async () => q(sb.rpc('mi_profesora')));
+  location.replace(mia && typeof mia === 'string' ? `#/datos/${mia}` : `#/datos/e/${S.usuario.id}`);
+}
+async function pantallaDatos(id, perfilId) {
+  const f = await fuenteDatos(id, perfilId);
+  if (!S.admin && !f.mio) return sinPermiso();
+  const [d, nombre] = await Promise.all([q(sb.from(f.tabla).select('*').eq(f.col, f.val).maybeSingle()), f.nombre()]);
+  const ajeno = S.admin && !f.mio;
   const filas = CAMPOS_DATOS.filter((c) => d && d[c.k]).map((c) => {
     const v = c.k === 'iban' ? ibanBonito(d[c.k]) : c.tipo === 'fecha' ? fechaCorta(d[c.k]) + (edad(d[c.k]) != null ? ` (${edad(d[c.k])} años)` : '') : d[c.k];
     const copia = ['dni', 'iban', 'seguridad_social', 'emergencia_telefono'].includes(c.k);
     return `<div class="dato-p"><span class="txt"><small>${esc(c.label)}</small><b>${esc(v)}</b></span>${copia ? `<button class="copiar-dato" data-copiar="${esc(c.k === 'iban' ? String(d[c.k]).replace(/\s+/g, '').toUpperCase() : d[c.k])}" aria-label="Copiar ${esc(c.label)}">${ico('copiar', 18)}</button>` : ''}</div>`;
   }).join('');
-  pintar(cabecera(S.admin ? nombre : 'Mis datos', { volver: S.admin ? '#/datos' : '#/documentos', sub: 'Datos personales · privados' }) + `<main class="cont">
-    <div class="tarjeta">${filas ? `<div class="datos-p">${filas}</div>` : vacio(S.admin ? 'Aún no hay datos de ' + esc(nombre.split(' ')[0]) + '. Rellénalos tú o pídele que lo haga desde su app (Documentos › Mis datos).' : 'Aún no has rellenado tus datos.')}</div>
-    <div class="nota" style="display:flex;gap:8px;align-items:center">${ico('ojo', 16)} Solo los ve la administración${S.admin ? ' y ' + esc(nombre.split(' ')[0]) : ' y tú'}.</div>
-    <button class="btn pri ancho" data-ir="#/datos/${id}/editar">${ico('lapiz')} ${filas ? 'Editar datos' : 'Rellenar datos'}</button>
+  pintar(cabecera(ajeno ? nombre : 'Mi ficha', { volver: ajeno ? '#/datos' : '#/mas', sub: ajeno ? 'Datos personales · privados' : esc(nombre) + ' · datos privados' }) + `<main class="cont">
+    <div class="tarjeta">${filas ? `<div class="datos-p">${filas}</div>` : vacio(ajeno ? 'Aún no hay datos de ' + esc(nombre.split(' ')[0]) + '. Rellénalos tú o pídele que lo haga desde su app (Más › su nombre).' : 'Aún no has rellenado tus datos: DNI, cuenta bancaria, tallas y a quién avisar si pasa algo.')}</div>
+    <div class="nota" style="display:flex;gap:8px;align-items:center">${ico('ojo', 16)} ${ajeno ? 'Solo los ves tú y ' + esc(nombre.split(' ')[0]) : S.admin ? 'Solo los ves tú' : 'Solo los ves tú y la administración'}.</div>
+    <button class="btn pri ancho" data-ir="${f.ruta}/editar">${ico('lapiz')} ${filas ? 'Editar datos' : 'Rellenar datos'}</button>
     ${d ? autorDe(d) : ''}
-  </main>`, S.admin ? 'mas' : 'inicio');
+  </main>`, 'mas');
   document.querySelectorAll('[data-copiar]').forEach((b) => { b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copiar); aviso('Copiado'); } catch (e) { aviso('No se pudo copiar', true); } }; });
 }
-async function formDatos(id) {
-  const [d, mia] = await Promise.all([
-    q(sb.from('profesoras_datos').select('*').eq('profesora_id', id).maybeSingle()),
-    S.admin ? Promise.resolve(null) : intentar(async () => q(sb.rpc('mi_profesora')))
-  ]);
-  if (!S.admin && mia !== id) return sinPermiso();
-  pintar(cabecera(d ? 'Editar datos' : 'Rellenar datos', { volver: `#/datos/${id}`, sub: S.admin ? 'Privados: solo tú y ella' : 'Solo los ves tú y la administración' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+async function formDatos(id, perfilId) {
+  const f = await fuenteDatos(id, perfilId);
+  if (!S.admin && !f.mio) return sinPermiso();
+  const d = await q(sb.from(f.tabla).select('*').eq(f.col, f.val).maybeSingle());
+  pintar(cabecera(d ? 'Editar datos' : 'Rellenar datos', { volver: f.ruta, sub: S.admin && !f.mio ? 'Privados: solo tú y esa persona' : 'Solo los ves tú y la administración' }) + `<main class="cont"><form class="form tarjeta" id="frm">
     ${CAMPOS_DATOS.map((c) => campoHtml(c, d && d[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
   const form = document.getElementById('frm');
@@ -1481,8 +1513,8 @@ async function formDatos(id) {
       const datos = leerForm(form, CAMPOS_DATOS);
       if (datos.iban) datos.iban = ibanBonito(datos.iban);
       if (datos.dni) datos.dni = datos.dni.replace(/[\s-]+/g, '').toUpperCase();
-      await q(sb.from('profesoras_datos').upsert({ profesora_id: id, ...datos }));
-      aviso('Guardado'); location.hash = `#/datos/${id}`;
+      await q(sb.from(f.tabla).upsert({ [f.col]: f.val, ...datos }));
+      aviso('Guardado'); location.hash = f.ruta;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
   };
 }
@@ -1553,7 +1585,7 @@ async function pantallaEventos(params) {
   let r = sb.from('eventos').select('id,titulo,fecha,hora,lugar,inscripciones_evento(count)');
   r = f === 'proximos' ? r.gte('fecha', hoy).order('fecha') : r.lt('fecha', hoy).order('fecha', { ascending: false });
   const l = await q(r);
-  pintar(cabecera('Eventos', { volver: '#/mas', sub: 'Talleres, shows y fiestas' }) + `<main class="cont">
+  pintar(cabecera('Eventos', { volver: volverDe('eventos'), sub: 'Talleres, shows y fiestas' }) + `<main class="cont">
     <div class="filtros">${[['proximos', 'Próximos'], ['pasados', 'Pasados']].map(([k, t]) => `<button data-ir="#/eventos?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="lista">${l.map((e) => fila({ href: `#/evento/${e.id}`, ini: aFecha(e.fecha).getDate(), tit: e.titulo, det: esc([fechaCorta(e.fecha), hora(e.hora), e.lugar].filter(Boolean).join(' · ')),
       der: `<span class="chip mor">${e.inscripciones_evento && e.inscripciones_evento[0] ? e.inscripciones_evento[0].count : 0}</span>` })).join('') || vacio(f === 'proximos' ? 'No hay eventos próximos.' : 'No hay eventos pasados.')}</div>
@@ -1694,7 +1726,7 @@ async function pantallaFormularios() {
   if (!puedeVer('formularios')) return sinPermiso();
   const l = await q(sb.from('formularios').select('id,titulo,estado,creado_en,respuestas_formulario(count)').order('creado_en', { ascending: false }));
   const est = { borrador: '<span class="chip gris">Borrador</span>', abierto: '<span class="chip ok">Abierto</span>', cerrado: '<span class="chip no">Cerrado</span>' };
-  pintar(cabecera('Formularios', { volver: '#/mas', sub: 'Enlaces por WhatsApp y respuestas' }) + `<main class="cont"><div class="lista">${l.map((f) => fila({
+  pintar(cabecera('Formularios', { volver: volverDe('formularios'), sub: 'Enlaces por WhatsApp y respuestas' }) + `<main class="cont"><div class="lista">${l.map((f) => fila({
     href: `#/formulario/${f.id}`, iconoHtml: `<span class="ini">${ico('form', 18)}</span>`, tit: f.titulo, det: `${f.respuestas_formulario && f.respuestas_formulario[0] ? f.respuestas_formulario[0].count : 0} respuestas · ${fechaCorta(f.creado_en)}`, der: est[f.estado] })).join('') || vacio('Aún no hay formularios.')}</div></main>`, 'mas', puedeEditar('formularios') ? '#/formulario/nuevo' : null);
 }
 async function formFormulario(id) {
@@ -2104,8 +2136,10 @@ async function router() {
       case 'aviso': return await formAviso();
       case 'documentos': return await pantallaDocumentos(params);
       case 'documento': return p[1] === 'nuevo' ? await formDocumento() : await pantallaDocumento(p[1]);
+      case 'mis-datos': return await pantallaMisDatos();
       case 'datos':
         if (!p[1]) return await pantallaDatosEquipo();
+        if (p[1] === 'e') return p[3] === 'editar' ? await formDatos(null, p[2]) : await pantallaDatos(null, p[2]);
         return p[2] === 'editar' ? await formDatos(p[1]) : await pantallaDatos(p[1]);
       case 'nueva-clave': return pantallaNuevaClave();
       case 'clases': return await pantallaClases(params);

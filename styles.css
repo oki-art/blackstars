@@ -164,7 +164,10 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 
 /* Caja */
 .totales{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.totales div{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:10px;text-align:center;box-shadow:var(--sombra)}
+.totales>div,.totales>button{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:10px;text-align:center;box-shadow:var(--sombra)}
+.totales>button{cursor:pointer;min-height:64px;border-width:2px;border-color:transparent;outline:1px solid var(--borde);outline-offset:-1px;transition:border-color .15s,background .15s}
+.totales>button.on{border-color:var(--morado);outline-color:transparent;background:#F4F0FD;box-shadow:0 8px 22px rgba(118,80,224,0.18)}
+.totales>button.on small{color:var(--morado3)}
 .totales small{display:block;font-size:11px;color:var(--texto2);font-weight:700;text-transform:uppercase;letter-spacing:0.08em}
 .totales b{font-size:16px}
 .mes{display:flex;align-items:center;justify-content:space-between}
@@ -202,6 +205,9 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .mov-dia{width:40px;height:40px;border-radius:12px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(118,80,224,0.08);color:var(--morado3);font-size:10px;font-weight:700;line-height:1.1;text-transform:uppercase}
 .mov-dia b{font-family:'Sora',sans-serif;font-size:15px}
 .mens-total{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px;border-radius:20px;background:#F2C48D;color:var(--negro);box-shadow:0 10px 24px rgba(242,196,141,0.35)}
+.mens-total.gasto{background:#F8D9DC;box-shadow:0 10px 24px rgba(209,47,59,0.14)}
+.mens-total.gasto .mens-eur{color:var(--gasto)}
+.mens-total.balance{background:#E7E0FA;box-shadow:0 10px 24px rgba(118,80,224,0.16)}
 .mens-total small{display:block;font-size:11px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;opacity:0.8}
 .mens-total span b{font-size:15px}
 .mens-total em{display:block;font-style:normal;font-size:13px;font-weight:600;opacity:0.75;margin-top:2px}
@@ -374,3 +380,10 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .calendario.plegado > :not(.dow):not(.sem){display:none}
 .cal-mas{width:100%;min-height:44px;margin-top:6px;border:0;background:transparent;color:var(--morado2);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
 .cal-mas[aria-expanded="true"] svg{transform:rotate(180deg)}
+/* Más: tu ficha (abre tus datos personales) */
+.mi-ficha{display:flex;gap:12px;align-items:center;cursor:pointer}
+.mi-ficha .ini-g{width:48px;height:48px;border-radius:50%;flex:none;display:grid;place-items:center;background:rgba(201,165,90,0.18);color:#8F6A1C;font-weight:700}
+.mi-ficha .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.mi-ficha .txt>span{font-size:13px;color:var(--texto2);overflow:hidden;text-overflow:ellipsis}
+.mi-ficha .mf-pie{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--morado3)!important;font-weight:600}
+.mi-ficha>svg{color:var(--texto2);flex:none}
