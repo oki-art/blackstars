@@ -88,6 +88,7 @@ function traducirError(e) {
   if (/Invalid login credentials/i.test(m)) return 'Correo o contraseña incorrectos.';
   if (/hora_fin|check constraint/i.test(m)) return 'Revisa los datos: hay algún valor no válido (por ejemplo, la hora de fin antes que la de inicio).';
   if (/foreign key/i.test(m)) return 'No se puede: hay otros datos que dependen de este registro.';
+  if (/PGRST205|Could not find the table|relation .* does not exist/i.test(m)) return 'Esta parte aún no está activada en la base de datos.';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'Sin conexión. Inténtalo de nuevo.';
   return m;
 }
