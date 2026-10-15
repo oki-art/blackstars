@@ -920,21 +920,29 @@ async function pantallaCaja(params) {
     ? await intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
   const primero = (new Date(y, m - 1, 1).getDay() + 6) % 7, nDias = new Date(y, m, 0).getDate();
-  let cal = DIAS_C.map((d) => `<div class="dow">${d}</div>`).join('') + '<div></div>'.repeat(primero);
+  // Plegado: solo la semana de hoy (o la primera del mes si es otro mes); al pulsar se ve el mes entero
+  const filaDe = (d) => Math.floor((primero + d - 1) / 7);
+  const semana = mes === hoy.slice(0, 7) ? filaDe(+hoy.slice(8, 10)) : 0;
+  let cal = DIAS_C.map((d) => `<div class="dow">${d}</div>`).join('') + `<div class="${semana === 0 ? 'sem' : ''}"></div>`.repeat(primero);
   for (let d = 1; d <= nDias; d++) {
     const f = `${mes}-${pad(d)}`, l = porDia[f] || [];
     const pi = l.some((x) => x.tipo === 'ingreso'), po = l.some((x) => x.tipo === 'gasto');
-    cal += `<button data-ir="#/caja/dia/${f}" class="${f === hoy ? 'hoy' : ''} ${l.length ? 'con' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
+    cal += `<button data-ir="#/caja/dia/${f}" class="${f === hoy ? 'hoy' : ''} ${l.length ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
   }
   const titulo = capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }));
   pintar(cabecera('Caja', { sub: 'Ingresos y gastos por clase' }) + `<main class="cont">
     <div class="mes"><button data-ir="#/caja?mes=${prev}&v=${v}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="#/caja?mes=${next}&v=${v}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     ${totalesCaja(tIn, tOut)}
-    <div class="tarjeta"><div class="calendario">${cal}</div></div>
+    <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
+      <button class="cal-mas" id="cal-mas" type="button" aria-expanded="false"><span>Ver el mes entero</span>${ico('abajo', 18)}</button></div>
     <div class="seccion">Movimientos del mes</div>
     ${filtrosCaja(`#/caja?mes=${mes}&`, v, true)}
     ${!movs.length ? vacio('Sin movimientos este mes.') : v === 'mensualidad' ? cajaMensualidad(movs, ins) : listaCaja(movs, v, { conFecha: true, volver: `#/caja?mes=${mes}&v=${v}` })}
   </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}` : null);
+  document.getElementById('cal-mas').onclick = (ev) => {
+    const b = ev.currentTarget, abierto = document.getElementById('cal').classList.toggle('plegado') === false;
+    b.setAttribute('aria-expanded', abierto); b.querySelector('span').textContent = abierto ? 'Ver solo esta semana' : 'Ver el mes entero';
+  };
 }
 /* ---------- Caja › Horas de las profesoras ----------
    Se calculan con el horario de cada clase y los días del mes; las faltas, cambios y días sin clase

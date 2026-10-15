@@ -370,3 +370,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .clave-ojo input{padding-right:56px}
 .ojo-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:var(--texto2);display:grid;place-items:center;cursor:pointer;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .ojo-btn.on{color:var(--morado);background:rgba(118,80,224,0.10)}
+/* Caja: calendario plegado en la semana actual */
+.calendario.plegado > :not(.dow):not(.sem){display:none}
+.cal-mas{width:100%;min-height:44px;margin-top:6px;border:0;background:transparent;color:var(--morado2);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.cal-mas[aria-expanded="true"] svg{transform:rotate(180deg)}
