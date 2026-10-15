@@ -859,6 +859,16 @@ async function formInscripcion(params) {
 
 /* ---------- caja ---------- */
 const SEL_CAJA = '*,clases(nombre),alumnas(nombre,apellidos),escuelas_amigas(nombre),eventos(titulo)';
+// Mientras no esté hecha en la base de datos la migración 014 (apartados y evento), la caja funciona como antes
+let cajaSinApartados = false;
+const faltaApartado = (e) => /evento|apartado|PGRST200|PGRST204|42703|schema cache/i.test((e && (e.message || e.details || e.hint)) || '');
+async function leerCaja(filtrar) {
+  const tabla = S.admin ? 'caja_con_autor' : 'caja', viejo = SEL_CAJA.replace(',eventos(titulo)', '');
+  if (!cajaSinApartados) {
+    try { return await q(filtrar(sb.from(tabla).select(SEL_CAJA))); } catch (e) { if (!faltaApartado(e)) throw e; cajaSinApartados = true; }
+  }
+  return q(filtrar(sb.from(tabla).select(viejo)));
+}
 // Apartados de la caja: de dónde viene cada ingreso y en qué se va cada gasto
 const APARTADOS = {
   ingreso: [['mensualidad', 'Mensualidad'], ['evento', 'Evento'], ['ventas', 'Ventas (camisetas…)'], ['escuela_amiga', 'Escuela amiga'], ['otro', 'Otro ingreso']],
@@ -948,7 +958,7 @@ async function pantallaCaja(params) {
   const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
-  const movs = await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en'));
+  const movs = await leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en'));
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
@@ -1136,7 +1146,7 @@ async function formFestivo(params) {
 async function pantallaCajaDia(fecha, params) {
   if (!puedeVer('caja')) return sinPermiso();
   const t = tipoCaja(params);
-  const movs = await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).eq('fecha', fecha).order('creado_en'));
+  const movs = await leerCaja((r) => r.eq('fecha', fecha).order('creado_en'));
   const [i, o] = sumaCaja(movs), l = filtrarTipo(movs, t);
   pintar(cabecera(capital(fechaLarga(fecha)), { volver: `#/caja?mes=${fecha.slice(0, 7)}&t=${t}`, sub: 'Caja del día' }) + `<main class="cont">
     ${totalesCaja(i, o, `#/caja/dia/${fecha}?`, t)}
@@ -1192,7 +1202,11 @@ async function formCaja(params, id = null) {
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
     if (!datos.concepto) datos.concepto = apartado === 'evento' ? 'Evento · ' + ((eventos.find(([v]) => v === datos.evento_id) || [0, ''])[1].split(' · ')[0]) : nombreApartado(tipo, apartado);
     try {
-      if (id) await q(sb.from('caja').update(datos).eq('id', id)); else await q(sb.from('caja').insert(datos));
+      const guardar = (d) => id ? q(sb.from('caja').update(d).eq('id', id)) : q(sb.from('caja').insert(d));
+      try { await guardar(datos); } catch (e) {
+        if (!faltaApartado(e)) throw e;
+        const { apartado: _a, evento_id: _e, ...sinApartado } = datos; await guardar(sinApartado);
+      }
       aviso('Guardado'); location.hash = desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
     } catch (e) { aviso(traducirError(e), true); }
   };
@@ -1633,7 +1647,7 @@ async function pantallaEvento(id) {
   // Caja del evento: lo que se ha cobrado y gastado en él (quien ve la Caja)
   let cajaEv = '';
   if (puedeVer('caja')) {
-    const movs = await intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).eq('evento_id', id).order('fecha').order('creado_en')));
+    const movs = await intentar(() => leerCaja((r) => r.eq('evento_id', id).order('fecha').order('creado_en')));
     const [i, o] = sumaCaja(movs);
     cajaEv = `<div class="seccion">Caja del evento</div>
       <div class="totales"><div><small>Ingresos</small><b class="in">${eur(i)}</b></div><div><small>Gastos</small><b class="out">${eur(o)}</b></div><div><small>Balance</small><b>${eur(i - o)}</b></div></div>
