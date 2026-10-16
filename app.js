@@ -503,7 +503,8 @@ async function formAcceso(params) {
 const EN_INICIO = ['*', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
 // Las profesoras tienen Documentos, Logros, Eventos e Incidencias en el Inicio; Inscripciones no lo ven
 const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones'];
-const enMas = (m) => S.admin || !(esProfesora(S.permisos) ? EN_INICIO_PROFE : EN_INICIO).includes(m);
+// La administración también: en Más solo su ficha, Ver como profesora, Equipo y permisos y la contraseña
+const enMas = (m) => !(!S.admin && esProfesora(S.permisos) ? EN_INICIO_PROFE : EN_INICIO).includes(m);
 const volverDe = (m) => enMas(m) ? '#/mas' : '#/inicio';
 function pantallaMas() {
   const items = [
