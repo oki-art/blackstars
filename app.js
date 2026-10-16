@@ -919,7 +919,7 @@ function movCaja(x, { conFecha = false, conClase = false, volver }) {
   const met = Object.fromEntries(METODOS), d = aFecha(x.fecha);
   const det = [conClase ? (x.clases ? x.clases.nombre : x.escuelas_amigas ? x.escuelas_amigas.nombre : '') : '', x.alumnas ? `${x.alumnas.nombre} ${x.alumnas.apellidos || ''}`.trim() : '',
     x.metodo ? met[x.metodo] : '', x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · ');
-  const href = puedeEditar('caja') ? `#/caja/${x.id}/editar` : volver;
+  const href = puedeEditar('caja') ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : volver;
   return `<a class="mov" href="${esc(href)}">${conFecha ? `<span class="mov-dia"><b>${d.getDate()}</b>${DIAS_ABR[diaISO(d)]}</span>` : `<span class="mov-tipo ${x.tipo === 'ingreso' ? 'bg-in' : 'bg-out'}"></span>`}
     <span class="txt"><span class="tit">${esc(x.concepto)}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
     <b class="${x.tipo === 'ingreso' ? 'in' : 'out'}">${x.tipo === 'ingreso' ? '+' : '−'}${eur(x.importe)}</b></a>`;
@@ -1050,7 +1050,7 @@ async function pantallaCaja(params) {
     cal += `<button data-ir="#/caja/dia/${f}?t=${t}" class="${f === hoy ? 'hoy' : ''} ${pi || po ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
   }
   const titulo = capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }));
-  pintar(cabecera('Caja', { sub: 'Ingresos y gastos del mes' }) + `<main class="cont">
+  pintar(cabecera('Caja', { volver: '#/inicio', sub: 'Ingresos y gastos del mes' }) + `<main class="cont">
     <div class="mes"><button data-ir="#/caja?mes=${prev}&t=${t}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="#/caja?mes=${next}&t=${t}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     ${totalesCaja(tIn, tOut, `#/caja?mes=${mes}&`, t)}
     <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
@@ -1058,7 +1058,7 @@ async function pantallaCaja(params) {
     <div class="seccion">Movimientos del mes</div>
     ${filtrosCaja(mes, t, sc)}
     ${cajaMes(movs, t, sc, ins, { volver: `#/caja?mes=${mes}&t=${t}&s=${sc}`, pendientes, cambios, mes })}
-  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}${sc === 'cambio' ? '&apartado=cambio' : sc === 'eventos' ? '&apartado=evento' : ''}` : null);
+  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}${sc === 'cambio' ? '&apartado=cambio' : sc === 'eventos' ? '&apartado=evento' : ''}&volver=${encodeURIComponent(`#/caja?mes=${mes}&t=${t}&s=${sc}`)}` : null);
   $app.querySelectorAll('[data-devuelto]').forEach((b) => b.onclick = async () => {
     b.disabled = true;
     try { await q(sb.from('caja').update({ devuelto_en: hoy }).eq('id', b.dataset.devuelto)); aviso('Apuntado: el cambio ya está devuelto'); router(); }
@@ -1265,7 +1265,8 @@ async function formCaja(params, id = null) {
   ];
   const PH = { mensualidad: 'Mensualidad de octubre', evento: 'Entradas, inscripción…', ventas: 'Camiseta talla M, sudadera…', escuela_amiga: 'Cuota de octubre', limpieza: 'Lejía, bayetas…', papeleria: 'Folios, tinta…', material: 'Altavoz, vestuario…', local: 'Alquiler, luz, agua…', decoracion: 'Globos, guirnaldas…', cambio: 'Cambio para la caja', otro: '' };
   const desdeEvento = params.get('evento');
-  const volver = desdeEvento ? `#/evento/${desdeEvento}` : `#/caja/dia/${ini.fecha}`;
+  // Al volver o guardar se regresa a la pantalla desde la que se abrió (la Caja del mes, el día, el evento…)
+  const origen = params.get('volver'), volver = origen && origen.startsWith('#/') ? origen : desdeEvento ? `#/evento/${desdeEvento}` : `#/caja/dia/${ini.fecha}`;
   pintar(cabecera(id ? 'Editar movimiento' : 'Nuevo movimiento', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="tipo"><button type="button" data-t="ingreso" class="in">Ingreso</button><button type="button" data-t="gasto" class="out">Gasto</button></div>
     <div class="campo"><label>¿De qué es?</label><div class="filtros tipos-ini" id="apartados"></div></div>
@@ -1299,7 +1300,7 @@ async function formCaja(params, id = null) {
         if (apartado === 'cambio' || apartado === 'decoracion') throw new Error('Esta parte aún no está activada en la base de datos.');
         const { apartado: _a, evento_id: _e, ...sinApartado } = datos; await guardar(sinApartado);
       }
-      aviso('Guardado'); location.hash = desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
+      aviso('Guardado'); location.hash = origen || desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
     } catch (e) { aviso(traducirError(e), true); }
   };
   const b = document.getElementById('borrar');
