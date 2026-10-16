@@ -85,6 +85,7 @@ function traducirError(e) {
   if (/coerce the result to a single JSON object|PGRST116/i.test(m)) return 'Esto ya no existe o no tienes acceso a ello.';
   if (/exclusion|conflicting key value violates exclusion/i.test(m)) return 'La sala ya está ocupada ese día a esa hora por otra clase.';
   if (/row-level security|permission denied/i.test(m)) return 'No tienes permiso para hacer esto.';
+  if (/evento_coordinadoras/i.test(m) && /duplicate key/i.test(m)) return 'Esa persona ya coordina este evento.';
   if (/inscripcion_activa_unica|duplicate key/i.test(m)) return 'Ese registro ya existe.';
   if (/Invalid login credentials/i.test(m)) return 'Correo o contraseña incorrectos.';
   if (/hora_fin|check constraint/i.test(m)) return 'Revisa los datos: hay algún valor no válido (por ejemplo, la hora de fin antes que la de inicio).';
@@ -181,6 +182,7 @@ function sinPermiso() {
 
 /* ---------- formularios genéricos ---------- */
 function campoHtml(c, valor) {
+  if (c.tipo === 'html') return c.html;
   const id = 'f_' + c.k, v = valor ?? c.def ?? '';
   const req = c.req ? 'required' : '';
   let input;
@@ -197,6 +199,7 @@ function campoHtml(c, valor) {
 function leerForm(form, campos) {
   const fd = new FormData(form), out = {};
   campos.forEach((c) => {
+    if (c.tipo === 'html') return;
     if (c.tipo === 'bool') { out[c.k] = form.elements[c.k].checked; return; }
     let v = fd.get(c.k); v = v == null ? '' : String(v).trim();
     if (v === '') out[c.k] = null;
@@ -207,7 +210,7 @@ function leerForm(form, campos) {
 }
 
 /* Pantalla de alta / edición reutilizable */
-async function pantallaForm({ titulo, tabla, modulo, campos, id = null, volver, despues, valoresIniciales = {}, transformar = (d) => d }) {
+async function pantallaForm({ titulo, tabla, modulo, campos, id = null, volver, despues, valoresIniciales = {}, transformar = (d) => d, alGuardar = null }) {
   if (!puedeEditar(modulo)) return sinPermiso();
   let reg = null;
   if (id) reg = await q(sb.from(tabla).select('*').eq('id', id).single());
@@ -225,6 +228,7 @@ async function pantallaForm({ titulo, tabla, modulo, campos, id = null, volver, 
       const r = id
         ? await q(sb.from(tabla).update(datos).eq('id', id).select().single())
         : await q(sb.from(tabla).insert(datos).select().single());
+      if (alGuardar) { try { await alGuardar(r); } catch (e2) { aviso(traducirError(e2), true); } }
       aviso('Guardado');
       location.hash = despues ? despues(r) : volver;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
@@ -1746,8 +1750,12 @@ async function pantallaEvento(id) {
     q(sb.from('inscripciones_evento').select('id,estado,alumnas(id,nombre,apellidos)').eq('evento_id', id)),
     q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id))
   ]);
-  const coord = e.coordinadora_id && puedeVer('profesoras') ? await intentar(() => q(sb.from('profesoras').select('nombre').eq('id', e.coordinadora_id).single())) : null;
   const ed = puedeEditar('eventos');
+  const coords = await leerCoordinadoras(e), conTabla = await hayCoordinadoras();
+  const htmlCoord = `<div class="seccion">Coordinación${coords.length > 1 ? ` (${coords.length})` : ''}</div>
+    <div class="lista">${coords.map((c) => fila({ href: `#/evento/${id}`, tit: nomCoord(c), det: c.principal ? 'Coordinadora principal' : 'También coordina',
+      der: `<span class="chips">${c.principal ? '<span class="chip oro">Principal</span>' : ''}${ed && conTabla && !c.principal ? `<button class="chip mor" data-principal="${c.id}" style="border:0;cursor:pointer;min-height:32px">Hacer principal</button>` : ''}${ed && conTabla ? `<button class="chip no" data-quitar-coord="${c.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : ''}</span>` })).join('') || vacio('Nadie coordina este evento todavía.')}</div>
+    ${ed && conTabla ? `<div class="campo"><select id="addCoord">${opcionesCoordHtml(await opcionesCoordinadoras(), '', coords, coords.length ? '+ Añadir otra coordinadora…' : '+ Elegir coordinadora principal…')}</select></div>` : ''}`;
   const ventas = {}, htmlVentas = await bloqueVentas(id, ventas);
   // Caja del evento: lo que se ha cobrado y gastado en él (quien ve la Caja), por clase
   let cajaEv = '';
@@ -1768,11 +1776,12 @@ async function pantallaEvento(id) {
   }
   pintar(cabecera(e.titulo, { volver: '#/eventos', sub: capital(fechaLarga(e.fecha)) + (e.hora ? ' · ' + hora(e.hora) : '') }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
-      <dt>Lugar</dt><dd>${esc(e.lugar || '—')}</dd><dt>Coordina</dt><dd>${esc(coord && coord.nombre ? coord.nombre : '—')}</dd>
+      <dt>Lugar</dt><dd>${esc(e.lugar || '—')}</dd><dt>Coordina</dt><dd>${esc(coords.length ? coords.map(nomCoord).join(', ') : '—')}</dd>
       ${e.precio_alumna != null ? `<dt>Precio</dt><dd>${eur(e.precio_alumna)}</dd>` : ''}${e.inscripcion_hasta ? `<dt>Inscripción hasta</dt><dd>${fechaCorta(e.inscripcion_hasta)}</dd>` : ''}
       ${e.descripcion ? `<dt>Descripción</dt><dd>${esc(e.descripcion)}</dd>` : ''}${e.normas ? `<dt>Normas</dt><dd>${esc(e.normas)}</dd>` : ''}${e.condiciones ? `<dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
+    ${htmlCoord}
     ${htmlVentas}
     ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
@@ -1786,6 +1795,25 @@ async function pantallaEvento(id) {
   activarCobros();
   const sp = document.getElementById('addProf');
   if (sp) sp.onchange = async () => { if (!sp.value) return; try { await q(sb.from('evento_profesoras').insert({ evento_id: id, profesora_id: sp.value })); router(); } catch (er) { aviso(traducirError(er), true); } };
+  const sc = document.getElementById('addCoord');
+  if (sc) sc.onchange = async () => {
+    const quien = elegidaCoord(sc.value); sc.value = '';
+    if (!quien) return;
+    try { await q(sb.from('evento_coordinadoras').insert({ evento_id: id, ...quien, principal: !coords.some((c) => c.principal) })); router(); } catch (er) { aviso(traducirError(er), true); }
+  };
+  $app.querySelectorAll('[data-principal]').forEach((b) => b.onclick = async (ev) => { ev.preventDefault(); ev.stopPropagation();
+    try { await q(sb.from('evento_coordinadoras').update({ principal: false }).eq('evento_id', id).eq('principal', true));
+      await q(sb.from('evento_coordinadoras').update({ principal: true }).eq('id', b.dataset.principal)); router(); } catch (er) { aviso(traducirError(er), true); } });
+  $app.querySelectorAll('[data-quitar-coord]').forEach((b) => b.onclick = async (ev) => { ev.preventDefault(); ev.stopPropagation();
+    const c = coords.find((x) => x.id === b.dataset.quitarCoord);
+    if (!confirm(`¿Quitar a ${c ? nomCoord(c) : 'esta persona'} de la coordinación?`)) return;
+    try {
+      await q(sb.from('evento_coordinadoras').delete().eq('id', b.dataset.quitarCoord));
+      // Si se quita la principal, pasa a serlo la siguiente
+      const sig = c && c.principal ? coords.find((x) => x.id !== c.id) : null;
+      if (sig) await q(sb.from('evento_coordinadoras').update({ principal: true }).eq('id', sig.id));
+      router();
+    } catch (er) { aviso(traducirError(er), true); } });
   const sa = document.getElementById('addAlu');
   if (sa) sa.onchange = async () => { if (!sa.value) return; try { await q(sb.from('inscripciones_evento').insert({ evento_id: id, alumna_id: sa.value })); router(); } catch (er) { aviso(traducirError(er), true); } };
   $app.querySelectorAll('[data-quitar-prof]').forEach((b) => b.onclick = async (ev) => { ev.preventDefault(); ev.stopPropagation();
@@ -1794,6 +1822,59 @@ async function pantallaEvento(id) {
     if (!confirm('¿Cancelar la inscripción de esta alumna?')) return;
     try { await q(sb.from('inscripciones_evento').update({ estado: 'cancelada' }).eq('id', b.dataset.cancelar)); router(); } catch (er) { aviso(traducirError(er), true); } });
 }
+/* ---------- coordinación de un evento: una principal y las que se quieran añadir ----------
+   Puede coordinar una profesora o cualquier persona del equipo (Adela, María…), aunque aún no tenga usuario. */
+const nomCoord = (c) => (c.profesoras && c.profesoras.nombre) || c.nombre || '—';
+async function hayCoordinadoras() {   // ¿está pegada la migración 018?
+  if (S.coordOk == null) { const { error } = await sb.from('evento_coordinadoras').select('id').limit(1); S.coordOk = !error; }
+  return S.coordOk;
+}
+async function leerCoordinadoras(e) {
+  if (await hayCoordinadoras()) return intentar(() => q(sb.from('evento_coordinadoras').select('id,profesora_id,nombre,principal,profesoras(nombre)').eq('evento_id', e.id).order('principal', { ascending: false }).order('creado_en')));
+  // Sin la 018: la coordinadora de antes
+  if (!e.coordinadora_id || !puedeVer('profesoras')) return [];
+  const p = await intentar(() => q(sb.from('profesoras').select('nombre').eq('id', e.coordinadora_id).single()));
+  return p && p.nombre ? [{ id: '', profesora_id: e.coordinadora_id, nombre: p.nombre, principal: true }] : [];
+}
+async function opcionesCoordinadoras() {
+  const [profes, equipo, usados] = await Promise.all([
+    puedeVer('profesoras') ? intentar(opcionesProfesoras) : [],
+    intentar(() => q(sb.rpc('equipo_sin_ficha'))),
+    intentar(() => q(sb.from('evento_coordinadoras').select('nombre').is('profesora_id', null)))
+  ]);
+  const vistos = new Set(), nombres = [];
+  [...equipo.map((p) => p.nombre), ...usados.map((u) => u.nombre)].forEach((n) => { const t = String(n || '').trim(); if (t && !vistos.has(t.toLowerCase())) { vistos.add(t.toLowerCase()); nombres.push(t); } });
+  return { profes, equipo: nombres.sort((a, b) => a.localeCompare(b, 'es')) };
+}
+function opcionesCoordHtml({ profes, equipo }, sel, quitar = [], primera = '—') {
+  const ya = (v) => quitar.some((c) => v === (c.profesora_id ? 'p:' + c.profesora_id : 'n:' + String(c.nombre || '').trim().toLowerCase()));
+  const pr = profes.filter(([pid]) => !ya('p:' + pid)), eq = equipo.filter((n) => !ya('n:' + n.toLowerCase()));
+  const op = (v, t) => `<option value="${esc(v)}" data-nombre="${esc(t)}" ${v === sel ? 'selected' : ''}>${esc(t)}</option>`;
+  return `<option value="">${esc(primera)}</option>`
+    + (pr.length ? `<optgroup label="Profesoras">${pr.map(([v, t]) => op('p:' + v, t)).join('')}</optgroup>` : '')
+    + (eq.length ? `<optgroup label="Resto del equipo">${eq.map((n) => op('n:' + n, n)).join('')}</optgroup>` : '')
+    + '<option value="otra">Otra persona (escribir su nombre)…</option>';
+}
+// Lo elegido en el desplegable → fila para guardar ({ profesora_id, nombre } o { nombre })
+function elegidaCoord(v, otra = null) {
+  if (!v) return null;
+  if (v.startsWith('p:')) { const o = document.querySelector(`option[value="${CSS.escape(v)}"]`); return { profesora_id: v.slice(2), nombre: o ? o.dataset.nombre : null }; }
+  if (v.startsWith('n:')) return { nombre: v.slice(2) };
+  const n = String(otra != null ? otra : prompt('Nombre de la persona que coordina (por ejemplo, Adela o María):') || '').trim();
+  return n ? { nombre: n } : null;
+}
+// Formulario del evento: guarda la principal (si cambia, la anterior deja de coordinar)
+async function guardarPrincipal(evento, quien) {
+  const l = await q(sb.from('evento_coordinadoras').select('id,profesora_id,nombre,principal').eq('evento_id', evento));
+  const misma = (c) => quien && (quien.profesora_id ? c.profesora_id === quien.profesora_id : !c.profesora_id && String(c.nombre || '').trim().toLowerCase() === quien.nombre.toLowerCase());
+  const actual = l.find((c) => c.principal), nueva = l.find(misma);
+  if (actual && actual === nueva) return;
+  if (actual) await q(sb.from('evento_coordinadoras').delete().eq('id', actual.id));
+  if (!quien) return;
+  if (nueva) await q(sb.from('evento_coordinadoras').update({ principal: true }).eq('id', nueva.id));
+  else await q(sb.from('evento_coordinadoras').insert({ evento_id: evento, ...quien, principal: true }));
+}
+
 /* ---------- ventas y reservas de un evento (camisetas, entradas...) ----------
    Artículos con precio; cada reserva: quién, cuántas, talla y si está pagada. Al cobrar entra en la caja. */
 const gestionaVentas = () => puedeEditar('eventos') || puedeEditar('caja');
@@ -1993,22 +2074,46 @@ async function formReserva(params) {
 }
 async function formEvento(id, params) {
   // Al crear: si se va a vender algo (camisetas, entradas…), al guardar se pasa directo a poner qué se vende, precio y tallas
-  let vender = false;
+  let vender = false, coordSel = undefined;
   const venta = !id && params && params.get('venta') === '1';
+  const conTabla = await hayCoordinadoras();
+  let campoCoord = { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] };
+  let selIni = '';
+  if (conTabla) {
+    const prin = id ? (await intentar(() => q(sb.from('evento_coordinadoras').select('profesora_id,nombre').eq('evento_id', id).eq('principal', true)))).find(Boolean) : null;
+    selIni = prin ? (prin.profesora_id ? 'p:' + prin.profesora_id : 'n:' + String(prin.nombre).trim()) : '';
+    const opc = await opcionesCoordinadoras();
+    if (selIni.startsWith('n:') && !opc.equipo.some((n) => 'n:' + n === selIni)) opc.equipo.push(selIni.slice(2));
+    campoCoord = { k: '_coord', label: 'Coordinadora principal', tipo: 'html', html: `<div class="campo"><label for="f__coord">Coordinadora principal</label><select id="f__coord" name="_coord">${opcionesCoordHtml(opc, selIni)}</select>
+      <input id="f__coord_otra" name="_coord_otra" type="text" placeholder="Escribe su nombre (Adela, María…)" style="display:none;margin-top:8px">
+      <div class="ayuda">Puede ser una profesora o alguien del equipo. Después, en el evento, puedes añadir más coordinadoras.</div></div>` };
+  }
   await pantallaForm({
     titulo: id ? 'Editar evento' : venta ? 'Nueva venta' : 'Nuevo evento', tabla: 'eventos', modulo: 'eventos', id, volver: id ? `#/evento/${id}` : venta ? '#/caja?t=ingreso&s=eventos' : '#/eventos',
     despues: (r) => vender ? `#/articulo/nuevo?evento=${r.id}` : `#/evento/${r.id}`, valoresIniciales: venta ? { _vender: true } : {},
-    transformar: (d) => { vender = !!d._vender; delete d._vender; return d; },
+    transformar: (d) => {
+      vender = !!d._vender; delete d._vender;
+      if (conTabla) {
+        d.coordinadora_id = null;   // la coordinación va ahora en evento_coordinadoras (la 018 ya copió la de antes)
+        const f = document.getElementById('frm'), v = f.elements._coord.value;
+        coordSel = v === selIni ? undefined : elegidaCoord(v, f.elements._coord_otra.value);
+        if (v === 'otra' && !coordSel) throw new Error('Escribe el nombre de la coordinadora');
+      }
+      return d;
+    },
+    alGuardar: (r) => conTabla && coordSel !== undefined ? guardarPrincipal(r.id, coordSel) : null,
     campos: [
       { k: 'titulo', label: 'Título', req: true, ph: venta ? 'Camisetas Navidad, Entradas fin de curso…' : 'Halloween, Gala de Navidad…' },
       ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
       { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
-      { k: 'lugar', label: 'Lugar' }, { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] },
+      { k: 'lugar', label: 'Lugar' }, campoCoord,
       { k: 'descripcion', label: 'Descripción', tipo: 'textarea' }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },
       { k: 'inscripcion_hasta', label: 'Inscripción hasta', tipo: 'fecha' }, { k: 'normas', label: 'Normas del evento', tipo: 'textarea' },
       { k: 'condiciones', label: 'Condiciones (plazos, vestuario…)', tipo: 'textarea' }
     ]
   });
+  const sc = document.getElementById('f__coord'), otra = document.getElementById('f__coord_otra');
+  if (sc) sc.onchange = () => { otra.style.display = sc.value === 'otra' ? '' : 'none'; if (sc.value === 'otra') otra.focus(); };
 }
 
 /* ---------- escuelas amigas ---------- */
