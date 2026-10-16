@@ -363,7 +363,8 @@ async function pantallaInicio(vista = null) {
     ['alumnas', '#/alumna/nueva', 'insc', 'Nueva alumna', 'Dar de alta', true],
     ['inscripciones', '#/inscripciones', 'clases', 'Inscripciones', 'Altas y bajas en clases', false],
     ['caja', `#/caja/nuevo?fecha=${hoy}`, 'euro', 'Movimiento', 'Ingreso o gasto', true],
-    ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
+    ['incidencias', '#/incidencias', 'alerta', 'Incidencias', 'Ver y apuntar', false],
+    ['profesoras', '#/profesoras', 'profe', 'Profesoras', 'Equipo y clases', false],
     ['eventos', '#/eventos', 'evento', 'Eventos', 'Próximos', false],
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos y estrellas', false],
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Ideas y propuestas', false],
@@ -498,8 +499,8 @@ async function formAcceso(params) {
 }
 
 /* ---------- más ---------- */
-// Recepción y gestión tienen Documentos, Eventos, Inscripciones y Formularios en el Inicio: en Más no se repiten
-const EN_INICIO = ['*', 'eventos', 'inscripciones', 'formularios'];
+// Recepción y gestión tienen todo en los accesos del Inicio: en Más solo queda su ficha y la contraseña
+const EN_INICIO = ['*', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
 // Las profesoras tienen Documentos, Logros, Eventos e Incidencias en el Inicio; Inscripciones no lo ven
 const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones'];
 const enMas = (m) => S.admin || !(esProfesora(S.permisos) ? EN_INICIO_PROFE : EN_INICIO).includes(m);
@@ -1690,7 +1691,7 @@ async function pantallaNormas(params) {
     $app.querySelectorAll('[data-baja]').forEach((x) => x.onclick = () => { x.disabled = true; mover(+x.dataset.baja, +x.dataset.baja + 1); });
     return;
   }
-  pintar(cabecera('Normas', { volver: '#/mas', sub: 'Reglas de la escuela' }) + `<main class="cont">
+  pintar(cabecera('Normas', { volver: '#/inicio', sub: 'Reglas de la escuela' }) + `<main class="cont">
     ${ed && l.filter((n) => n.activa).length > 1 ? `<button class="btn sec ancho" data-ir="#/normas?ordenar=1">${ico('arriba', 18)}${ico('abajo', 18)} Cambiar el orden</button>` : ''}
     ${l.map((n) => `<div class="tarjeta" ${n.activa ? '' : 'style="opacity:.55"'}>
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><h2>${esc(n.titulo)}</h2>${ed ? `<a href="#/norma/${n.id}" aria-label="Editar" style="color:var(--morado3)">${ico('lapiz')}</a>` : ''}</div>
@@ -1705,7 +1706,7 @@ const formNorma = (id) => pantallaForm({
 async function pantallaProfesoras() {
   if (!puedeVer('profesoras')) return sinPermiso();
   const l = await q(sb.from('profesoras').select('*,clases(count)').order('activa', { ascending: false }).order('nombre'));
-  pintar(cabecera('Profesoras', { volver: '#/mas', sub: 'Equipo y clases asignadas' }) + `<main class="cont"><div class="lista">${l.map((p) => fila({
+  pintar(cabecera('Profesoras', { volver: volverDe('profesoras'), sub: 'Equipo y clases asignadas' }) + `<main class="cont"><div class="lista">${l.map((p) => fila({
     href: puedeEditar('profesoras') ? `#/profesora/${p.id}` : '#/profesoras', tit: p.nombre, det: esc([p.telefono, p.email].filter(Boolean).join(' · ')),
     der: p.activa ? `<span class="chip mor">${p.clases && p.clases[0] ? p.clases[0].count : 0} clases</span>` : '<span class="chip gris">Inactiva</span>' })).join('') || vacio('Aún no hay profesoras.')}</div></main>`, 'mas', puedeEditar('profesoras') ? '#/profesora/nueva' : null);
 }
@@ -2013,7 +2014,7 @@ async function formEvento(id, params) {
 async function pantallaEscuelas() {
   if (!puedeVer('escuelas_amigas')) return sinPermiso();
   const l = await q(sb.from('escuela_amiga_resumen').select('*').order('nombre'));
-  pintar(cabecera('Escuelas amigas', { volver: '#/mas', sub: 'Clases externas, cuota y coincidencias' }) + `<main class="cont">
+  pintar(cabecera('Escuelas amigas', { volver: volverDe('escuelas_amigas'), sub: 'Clases externas, cuota y coincidencias' }) + `<main class="cont">
     <div class="lista">${l.map((e) => fila({ href: `#/escuela/${e.id}`, iconoHtml: `<span class="ini">${ico('escuela', 18)}</span>`, tit: e.nombre,
       det: `${(+e.horas_semana).toLocaleString('es-ES')} h/semana · ${e.n_clases} clases · ${e.n_alumnas} alumnas`, der: `<span class="chip oro">${eur(e.cuota_mensual)}/mes</span>` })).join('') || vacio('Aún no hay escuelas amigas.')}</div>
     ${fila({ href: '#/coincidencias', tit: 'Coincidencias', det: 'Alumnas que van a las dos escuelas', iconoHtml: `<span class="ini">${ico('alumnas', 18)}</span>`, der: ico('sig') })}
