@@ -422,6 +422,7 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .vt-total b{font-family:'Sora',sans-serif;font-size:24px;color:var(--morado3)}
 .mens-total.ventas{background:#F7D7AF;box-shadow:0 10px 24px rgba(242,196,141,0.30)}
 /* tallas editables y reserva con varias tallas */
+.ins-editar{display:inline-grid;place-items:center;width:36px;height:36px;margin-right:6px;border-radius:999px;border:0;background:rgba(118,80,224,0.10);color:var(--morado2);cursor:pointer;flex:none}
 .vt-editar{display:inline-flex;vertical-align:middle;margin-left:6px;color:var(--morado3)}
 .talla-ed{display:inline-flex;align-items:center;gap:6px;padding-right:4px}
 .talla-ed button{width:24px;height:24px;border-radius:50%;border:0;background:rgba(118,80,224,0.14);color:var(--morado3);font-weight:700;cursor:pointer;line-height:1}

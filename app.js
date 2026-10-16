@@ -666,7 +666,7 @@ async function pantallaClase(id) {
     ${puedeEditar('clases') ? `<a class="btn sec" href="#/clase/${id}/editar">${ico('lapiz')} Editar clase</a>` : ''}
     ${!c.escuela_amiga_id && puedeVer('logros') ? `<a class="btn sec" href="#/logros/clase/${id}">${ico('trofeo')} ${puedeEditar('logros') ? 'Dar estrellas' : 'Ver estrellas'}</a>` : ''}
     ${!c.escuela_amiga_id && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
-      <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '' })).join('') || vacio('Nadie inscrita todavía.')}</div>
+      <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: (i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '') + (puedeEditar('inscripciones') ? `<button class="ins-editar" data-ir="#/inscripcion/${i.id}?clase=${id}" aria-label="Corregir fechas">${ico('lapiz', 18)}</button>` : '') })).join('') || vacio('Nadie inscrita todavía.')}</div>
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
     ${autorDe(c)}
   </main>`, 'clases');
@@ -769,8 +769,8 @@ async function pantallaAlumna(id) {
       ${a.notas ? `<dt>Notas</dt><dd>${esc(a.notas)}</dd>` : ''}
     </dl></div>
     ${bloqueNotas(notas)}
-    ${puedeVer('inscripciones') ? `<div class="seccion">Clases</div><div class="lista">${ins.filter((i) => !i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${esc(textoHorario(i.clases))} · desde ${fechaCorta(i.fecha_alta)}`, der: puedeEditar('inscripciones') ? `<button class="chip no" data-baja-ins="${i.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('No está en ninguna clase.')}</div>
-      ${ins.some((i) => i.fecha_baja) ? `<div class="seccion">Clases anteriores</div><div class="lista">${ins.filter((i) => i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${fechaCorta(i.fecha_alta)} – ${fechaCorta(i.fecha_baja)}` })).join('')}</div>` : ''}
+    ${puedeVer('inscripciones') ? `<div class="seccion">Clases</div><div class="lista">${ins.filter((i) => !i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${esc(textoHorario(i.clases))} · desde ${fechaCorta(i.fecha_alta)}`, der: puedeEditar('inscripciones') ? `<button class="ins-editar" data-ir="#/inscripcion/${i.id}?alumna=${id}" aria-label="Corregir fechas">${ico('lapiz', 18)}</button>` + `<button class="chip no" data-baja-ins="${i.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('No está en ninguna clase.')}</div>
+      ${ins.some((i) => i.fecha_baja) ? `<div class="seccion">Clases anteriores</div><div class="lista">${ins.filter((i) => i.fecha_baja).map((i) => fila({ href: `#/clase/${i.clases.id}`, tit: i.clases.nombre, det: `${fechaCorta(i.fecha_alta)} – ${fechaCorta(i.fecha_baja)}`, der: puedeEditar('inscripciones') ? `<button class="ins-editar" data-ir="#/inscripcion/${i.id}?alumna=${id}" aria-label="Corregir fechas">${ico('lapiz', 18)}</button>` : '' })).join('')}</div>` : ''}
       ${puedeEditar('inscripciones') && a.estado === 'activa' ? `<a class="btn sec" href="#/inscripcion/nueva?alumna=${id}">${ico('mas')} Añadir a una clase</a>` : ''}` : ''}
     ${puedeEditar('alumnas') ? `<div class="botones"><a class="btn sec" href="#/alumna/${id}/editar">${ico('lapiz')} Editar</a>
       ${a.estado === 'activa' ? `<button class="btn peligro" id="baja">Dar de baja</button>` : `<button class="btn sec" id="alta">Volver a dar de alta</button>`}</div>` : ''}
@@ -860,6 +860,26 @@ async function formInscripcion(params) {
       { k: 'fecha_alta', label: 'Desde', tipo: 'fecha', def: hoyISO() }
     ]
   });
+}
+
+// Corregir las fechas de una alumna en una clase (si se puso mal al inscribirla)
+async function formFechasInscripcion(id, params) {
+  if (!puedeEditar('inscripciones')) return sinPermiso();
+  const i = await q(sb.from('inscripciones').select('id,alumna_id,clase_id,fecha_alta,fecha_baja,alumnas(nombre,apellidos),clases(nombre)').eq('id', id).single());
+  const volver = params.get('clase') ? `#/clase/${params.get('clase')}` : `#/alumna/${i.alumna_id}`;
+  pintar(cabecera('Corregir fechas', { volver, sub: `${nomAlumna(i.alumnas)} · ${i.clases.nombre}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_alta">En la clase desde</label><input id="f_alta" type="date" required value="${esc(i.fecha_alta)}"></div>
+    ${i.fecha_baja ? `<div class="campo"><label for="f_baja">Hasta (día que la dejó)</label><input id="f_baja" type="date" required value="${esc(i.fecha_baja)}"></div>` : ''}
+    <p class="nota">Esta fecha cuenta para saber en qué meses tiene que pagar la mensualidad de esta clase.</p>
+    <button class="btn pri ancho" type="submit">Guardar</button>
+  </form></main>`, false);
+  document.getElementById('frm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const alta = document.getElementById('f_alta').value, fb = document.getElementById('f_baja'), baja = fb ? fb.value : null;
+    if (baja && baja < alta) { aviso('La fecha de salida no puede ser antes de la de entrada', true); return; }
+    try { await q(sb.from('inscripciones').update(baja ? { fecha_alta: alta, fecha_baja: baja } : { fecha_alta: alta }).eq('id', id)); aviso('Fechas corregidas'); location.hash = volver; }
+    catch (e) { aviso(traducirError(e), true); }
+  };
 }
 
 /* ---------- caja ---------- */
@@ -2499,7 +2519,7 @@ async function router() {
         if (p[2] === 'editar') return await pantallaForm({ titulo: 'Editar alumna', tabla: 'alumnas', modulo: 'alumnas', id: p[1], campos: CAMPOS_ALUMNA, volver: `#/alumna/${p[1]}` });
         return await pantallaAlumna(p[1]);
       case 'inscripciones': return await pantallaInscripciones();
-      case 'inscripcion': return await formInscripcion(params);
+      case 'inscripcion': return p[1] && p[1] !== 'nueva' ? await formFechasInscripcion(p[1], params) : await formInscripcion(params);
       case 'horas': return await pantallaHoras(params);
       case 'caja':
         if (p[1] === 'dia') return await pantallaCajaDia(p[2], params);
