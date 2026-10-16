@@ -1715,14 +1715,22 @@ async function pantallaEvento(id) {
   ]);
   const coord = e.coordinadora_id && puedeVer('profesoras') ? await intentar(() => q(sb.from('profesoras').select('nombre').eq('id', e.coordinadora_id).single())) : null;
   const ed = puedeEditar('eventos');
-  // Caja del evento: lo que se ha cobrado y gastado en él (quien ve la Caja)
+  const ventas = {}, htmlVentas = await bloqueVentas(id, ventas);
+  // Caja del evento: lo que se ha cobrado y gastado en él (quien ve la Caja), por clase
   let cajaEv = '';
   if (puedeVer('caja')) {
     const movs = await intentar(() => leerCaja((r) => r.eq('evento_id', id).order('fecha').order('creado_en')));
     const [i, o] = sumaCaja(movs);
     cajaEv = `<div class="seccion">Caja del evento</div>
       <div class="totales"><div><small>Ingresos</small><b class="in">${eur(i)}</b></div><div><small>Gastos</small><b class="out">${eur(o)}</b></div><div><small>Balance</small><b>${eur(i - o)}</b></div></div>
-      ${movs.length ? `<div class="tarjeta caja-todas">${movs.map((x) => movCaja(x, { conFecha: true, volver: `#/evento/${id}` })).join('')}</div>` : vacio('Aún no hay cobros ni gastos de este evento.')}
+      ${movs.length ? (() => {
+        const deCaja = new Map((ventas.res || []).filter((r) => r.caja_id).map((r) => [r.caja_id, r]));
+        const ing = movs.filter((x) => x.tipo === 'ingreso'), gas = movs.filter((x) => x.tipo === 'gasto' && !esCambio(x));
+        const tarjeta = (nombre, l, clase = '') => { const [a, b] = sumaCaja(l); return `<details class="caja-clase ${clase}"><summary class="cc-cab"><span><h3>${esc(nombre)}</h3><small>${l.length} movimiento${l.length === 1 ? '' : 's'}</small></span>
+          <span class="cc-tot">${a ? `<b class="in">+${eur(a)}</b>` : ''}${b ? `<b class="out">−${eur(b)}</b>` : ''}</span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+          <div class="cc-movs">${l.map((x) => movCaja(x, { conFecha: true, volver: `#/evento/${id}` })).join('')}</div></details>`; };
+        return `<div class="lista">${porClase(ing, (x) => { const r = deCaja.get(x.id); return r ? claseDe(r.alumnas) : ''; }).map(([cl, l]) => tarjeta(cl, l)).join('')}${gas.length ? tarjeta('Gastos del evento', gas, 'apart') : ''}</div>`;
+      })() : vacio('Aún no hay cobros ni gastos de este evento.')}
       ${puedeEditar('caja') ? `<a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=evento&evento=${id}">${ico('mas')} Apuntar un gasto del evento</a>` : ''}`;
   }
   pintar(cabecera(e.titulo, { volver: '#/eventos', sub: capital(fechaLarga(e.fecha)) + (e.hora ? ' · ' + hora(e.hora) : '') }) + `<main class="cont">
@@ -1732,7 +1740,7 @@ async function pantallaEvento(id) {
       ${e.descripcion ? `<dt>Descripción</dt><dd>${esc(e.descripcion)}</dd>` : ''}${e.normas ? `<dt>Normas</dt><dd>${esc(e.normas)}</dd>` : ''}${e.condiciones ? `<dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
-    ${await bloqueVentas(id)}
+    ${htmlVentas}
     ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
@@ -1768,13 +1776,20 @@ const tallasReserva = (r) => {
   const m = {}; r.talla.split(' · ').forEach((x) => { const k = x.match(/^(.*) ×(\d+)$/); if (k) m[k[1]] = (m[k[1]] || 0) + +k[2]; }); return m;
 };
 const textoTallas = (m) => { const l = Object.entries(m).filter(([, n]) => n > 0); return l.length === 1 ? l[0][0] : l.map(([t, n]) => `${t} ×${n}`).join(' · '); };
+// Las ventas de un evento se agrupan por la clase de la alumna; quien no es alumna va en "Familias y público"
+const SIN_CLASE = 'Familias y público';
+const porClase = (l, claseDe_) => {
+  const g = new Map(); l.forEach((x) => { const k = claseDe_(x) || SIN_CLASE; if (!g.has(k)) g.set(k, []); g.get(k).push(x); });
+  return [...g.entries()].sort((a, b) => (a[0] === SIN_CLASE) - (b[0] === SIN_CLASE) || a[0].localeCompare(b[0], 'es'));
+};
 const SEL_RESERVA = '*,evento_articulos(nombre,precio,con_talla,tallas),alumnas(nombre,apellidos,inscripciones(fecha_baja,clases(nombre)))';
-async function bloqueVentas(id) {
+async function bloqueVentas(id, guardar = {}) {
   const ges = gestionaVentas(), cobra = puedeEditar('caja');
   const [arts, res] = await Promise.all([
     intentar(() => q(sb.from('evento_articulos').select('*').eq('evento_id', id).order('creado_en'))),
     intentar(() => q(sb.from('evento_reservas').select(SEL_RESERVA).eq('evento_id', id).neq('estado', 'cancelada').order('creado_en')))
   ]);
+  guardar.res = res;
   if (!arts.length && !ges) return '';
   const f = new URLSearchParams(location.hash.split('?')[1] || '').get('r') || 'pendientes';
   const pend = res.filter((r) => r.estado === 'reservada'), pag = res.filter((r) => r.estado === 'pagada');
@@ -1791,7 +1806,7 @@ async function bloqueVentas(id) {
   const lista = (f === 'pagadas' ? pag : f === 'todas' ? res : pend);
   const fila = (r) => {
     const a = r.evento_articulos || {}, quien = r.alumnas ? nomAlumna(r.alumnas) : r.comprador, cl = claseDe(r.alumnas);
-    const det = [cl, `${r.cantidad} × ${a.nombre || ''}`, r.talla ? (Object.keys(tallasReserva(r)).length > 1 ? 'tallas ' : 'talla ') + textoTallas(tallasReserva(r)) : ''].filter(Boolean).join(' · ');
+    const det = [`${r.cantidad} × ${a.nombre || ''}`, r.talla ? (Object.keys(tallasReserva(r)).length > 1 ? 'tallas ' : 'talla ') + textoTallas(tallasReserva(r)) : ''].filter(Boolean).join(' · ');
     const der = r.estado === 'pagada' ? `<span class="vt-ok">${ico('check', 16)} Pagado</span>`
       : cobra ? `<button class="vt-cobrar" data-cobrar="${r.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>';
     return `<div class="reserva ${r.estado}"><span class="txt"><span class="tit">${esc(quien || '—')}</span><span class="det">${esc(det)}</span></span>
@@ -1802,7 +1817,11 @@ async function bloqueVentas(id) {
     ${arts.length ? `<div class="tarjeta vt-resumen">${resumen}
       <div class="vt-totales"><div><small>Cobrado</small><b class="in">${eur(suma(pag))}</b></div><div><small>Falta cobrar</small><b>${eur(suma(pend))}</b></div></div></div>
     <div class="filtros">${[['pendientes', `Pendientes (${pend.length})`], ['pagadas', `Pagadas (${pag.length})`], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/evento/${id}?r=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
-    <div class="tarjeta reservas">${lista.map(fila).join('') || `<div class="vacio" style="border:0">${f === 'pendientes' ? 'No hay nada pendiente de cobrar.' : 'Todavía no hay nada aquí.'}</div>`}</div>` : vacio('Añade lo que vendes en este evento (camisetas, entradas…) con su precio.')}
+    ${lista.length ? porClase(lista, (r) => claseDe(r.alumnas)).map(([cl, l]) => {
+      const cob = suma(l.filter((r) => r.estado === 'pagada')), falta = suma(l.filter((r) => r.estado === 'reservada'));
+      return `<details class="caja-clase vt-clase" open><summary class="cc-cab"><span><h3>${esc(cl)}</h3><small>${l.length} reserva${l.length === 1 ? '' : 's'} · ${uds(l)} ud.${falta ? ` · falta ${eur(falta)}` : ''}</small></span>
+        <span class="cc-tot"><b class="in">${eur(cob)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary><div class="reservas">${l.map(fila).join('')}</div></details>`;
+    }).join('') : `<div class="tarjeta vacio" style="border:0">${f === 'pendientes' ? 'No hay nada pendiente de cobrar.' : 'Todavía no hay nada aquí.'}</div>`}` : vacio('Añade lo que vendes en este evento (camisetas, entradas…) con su precio.')}
     ${ges ? (arts.length ? `<div class="dos-btn"><a class="btn pri" href="#/reserva/nueva?evento=${id}">${ico('mas')} Reserva</a><a class="btn sec" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Artículo</a></div>`
       : `<a class="btn pri" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Añadir camisetas, entradas…</a>`) : ''}`;
 }
