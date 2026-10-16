@@ -875,7 +875,7 @@ async function leerCaja(filtrar) {
 }
 // Apartados de la caja: de dónde viene cada ingreso y en qué se va cada gasto
 const APARTADOS = {
-  ingreso: [['mensualidad', 'Mensualidad'], ['evento', 'Evento'], ['ventas', 'Ventas (camisetas…)'], ['escuela_amiga', 'Escuela amiga'], ['otro', 'Otro ingreso']],
+  ingreso: [['mensualidad', 'Mensualidad'], ['evento', 'Evento'], ['ventas', 'Ventas sueltas (antiguas)'], ['escuela_amiga', 'Escuela amiga'], ['otro', 'Otro ingreso']],
   gasto: [['limpieza', 'Limpieza'], ['papeleria', 'Papelería'], ['decoracion', 'Decoración'], ['material', 'Material y vestuario'], ['local', 'Local (alquiler, luz, agua)'], ['evento', 'Evento'], ['cambio', 'Cambio (se devuelve)'], ['otro', 'Otro gasto']]
 };
 // Los movimientos antiguos no tienen apartado: se deduce (con clase = mensualidad; con escuela = escuela amiga)
@@ -960,11 +960,8 @@ function cajaVentas(movs, pendientes, { conFecha, volver } = {}) {
   const nCob = lista.reduce((t, [, g]) => t + g.cob.length, 0), nPen = lista.reduce((t, [, g]) => t + g.pen.length, 0);
   const tarjetas = lista.map(([id, g]) => {
     const cob = g.cob.reduce((t, x) => t + +x.importe, 0), falta = g.pen.reduce((t, r) => t + +r.importe, 0);
-    const filas = g.cob.map((x) => `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(x.alumnas ? nomAlumna(x.alumnas) : x.concepto)}</span><span class="det">${esc(x.concepto)}</span></span><b class="in">${eur(x.importe)}</b></div>`)
-      .concat(g.pen.map((r) => `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(r.alumnas ? nomAlumna(r.alumnas) : r.comprador || '—')}</span><span class="det">${r.cantidad} × ${esc(r.evento_articulos ? r.evento_articulos.nombre : '')}</span></span><b>Pendiente ${eur(r.importe)}</b></div>`)).join('');
-    return `<details class="caja-clase externa"><summary class="cc-cab"><span><h3>${esc(g.titulo)}</h3><small>${g.cob.length} cobro${g.cob.length === 1 ? '' : 's'}${g.pen.length ? ` · faltan ${g.pen.length} (${eur(falta)})` : ''}</small></span>
-      <span class="cc-tot"><b class="in">${eur(cob)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
-      <div class="cc-movs">${filas}<a class="mov" href="#/evento/${id}"><span class="txt"><span class="tit" style="color:var(--morado3)">Abrir el evento</span></span>${ico('sig', 18)}</a></div></details>`;
+    return `<a class="caja-clase externa enlace-ev" href="#/evento/${id}"><span class="cc-cab"><span><h3>${esc(g.titulo)}</h3><small>${g.cob.length} cobro${g.cob.length === 1 ? '' : 's'}${g.pen.length ? ` · faltan ${g.pen.length} (${eur(falta)})` : ''}</small></span>
+      <span class="cc-tot"><b class="in">${eur(cob)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></span></a>`;
   }).join('');
   const n = nCob + sueltos.length;
   return totalCaja('ventas', 'Total eventos', `${n} cobro${n === 1 ? '' : 's'}`, nPen ? `Faltan ${nPen} por cobrar` : '', total + ts) + tarjetas + (sueltos.length ? cajaPorClase(sueltos, { conFecha, volver }) : '');
@@ -993,7 +990,7 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
     const sueltas = men.filter((x) => !esCuota(x));
     return `<div class="lista">${cajaMensualidad(men, ins)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
-  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}</div>`;
+  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
   if (t === 'ingreso') return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', '', '', i)}
     <div class="tarjeta reservas">${filaResumen('Mensualidades', `${men.length} cobro${men.length === 1 ? '' : 's'}`, eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${evs.length} cobro${evs.length === 1 ? '' : 's'}`, eur(suma(evs)), ir('ingreso', 'eventos'))}</div>
     ${ext.length ? `<div class="seccion">Extras · ${eur(suma(ext))}</div>${cajaPorClase(ext, { conFecha, volver })}` : ''}</div>`;
@@ -1256,8 +1253,10 @@ async function formCaja(params, id = null) {
     ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
   </form>${autorDe(reg)}</main>`, false);
   const pintarApartados = () => {
-    if (!APARTADOS[tipo].some(([k]) => k === apartado)) apartado = APARTADOS[tipo][0][0];
-    document.getElementById('apartados').innerHTML = APARTADOS[tipo].map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
+    // Las camisetas y entradas se venden desde el evento; "Ventas" solo sale al editar un movimiento antiguo
+    const opciones = APARTADOS[tipo].filter(([k]) => k !== 'ventas' || (reg && apartadoDe(reg) === 'ventas'));
+    if (!opciones.some(([k]) => k === apartado)) apartado = opciones[0][0];
+    document.getElementById('apartados').innerHTML = opciones.map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
     $app.querySelectorAll('[data-solo]').forEach((d) => { d.hidden = !d.dataset.solo.split(' ').includes(apartado); });
     document.getElementById('f_concepto').placeholder = PH[apartado] || '';
   };
