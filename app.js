@@ -990,7 +990,7 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
     const sueltas = men.filter((x) => !esCuota(x));
     return `<div class="lista">${cajaMensualidad(men, ins)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
-  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
+  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo?venta=1">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
   if (t === 'ingreso') return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', '', '', i)}
     <div class="tarjeta reservas">${filaResumen('Mensualidades', `${men.length} cobro${men.length === 1 ? '' : 's'}`, eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${evs.length} cobro${evs.length === 1 ? '' : 's'}`, eur(suma(evs)), ir('ingreso', 'eventos'))}</div>
     ${ext.length ? `<div class="seccion">Extras · ${eur(suma(ext))}</div>${cajaPorClase(ext, { conFecha, volver })}` : ''}</div>`;
@@ -1803,7 +1803,8 @@ async function bloqueVentas(id) {
       <div class="vt-totales"><div><small>Cobrado</small><b class="in">${eur(suma(pag))}</b></div><div><small>Falta cobrar</small><b>${eur(suma(pend))}</b></div></div></div>
     <div class="filtros">${[['pendientes', `Pendientes (${pend.length})`], ['pagadas', `Pagadas (${pag.length})`], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/evento/${id}?r=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="tarjeta reservas">${lista.map(fila).join('') || `<div class="vacio" style="border:0">${f === 'pendientes' ? 'No hay nada pendiente de cobrar.' : 'Todavía no hay nada aquí.'}</div>`}</div>` : vacio('Añade lo que vendes en este evento (camisetas, entradas…) con su precio.')}
-    ${ges ? `<div class="dos-btn">${arts.length ? `<a class="btn pri" href="#/reserva/nueva?evento=${id}">${ico('mas')} Reserva</a>` : ''}<a class="btn sec" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Artículo</a></div>` : ''}`;
+    ${ges ? (arts.length ? `<div class="dos-btn"><a class="btn pri" href="#/reserva/nueva?evento=${id}">${ico('mas')} Reserva</a><a class="btn sec" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Artículo</a></div>`
+      : `<a class="btn pri" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Añadir camisetas, entradas…</a>`) : ''}`;
 }
 // Botones "Cobrar" de la ficha del evento: se elige la forma de pago y entra en caja
 function activarCobros() {
@@ -1828,7 +1829,7 @@ async function formArticulo(params, id) {
   pintar(cabecera(id ? 'Editar artículo' : 'Nuevo artículo', { volver: `#/evento/${ev}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="campo"><label for="f_nombre">Qué se vende</label><input id="f_nombre" required value="${esc(a.nombre)}" placeholder="Camiseta, Entrada, Sudadera…"></div>
     <div class="campo"><label for="f_precio">Precio por unidad (€)</label><input id="f_precio" type="number" inputmode="decimal" step="0.01" min="0" required value="${a.precio}"></div>
-    <label class="check"><input type="checkbox" id="f_talla" ${a.con_talla ? 'checked' : ''}><span>Lleva talla</span></label>
+    <label class="check"><input type="checkbox" id="f_talla" ${a.con_talla ? 'checked' : ''}><span>Lleva talla (al marcarlo salen las tallas, de niña y de adulta)</span></label>
     <div class="campo" id="campo-tallas"><label>Tallas (toca la × para quitar una)</label><div class="tallas" id="lista-tallas"></div>
       <div class="vt-add-talla"><input id="f_nueva" placeholder="Añadir talla: 2 años, XXXL…"><button type="button" class="btn sec" id="add">Añadir</button></div>
       <button type="button" class="enlace" id="defecto">Volver a las tallas de siempre</button></div>
@@ -1921,11 +1922,18 @@ async function formReserva(params) {
     } catch (e2) { aviso(traducirError(e2), true); btn.disabled = false; }
   };
 }
-async function formEvento(id) {
+async function formEvento(id, params) {
+  // Al crear: si se va a vender algo (camisetas, entradas…), al guardar se pasa directo a poner qué se vende, precio y tallas
+  let vender = false;
+  const venta = !id && params && params.get('venta') === '1';
   await pantallaForm({
-    titulo: id ? 'Editar evento' : 'Nuevo evento', tabla: 'eventos', modulo: 'eventos', id, volver: id ? `#/evento/${id}` : '#/eventos', despues: (r) => `#/evento/${r.id}`,
+    titulo: id ? 'Editar evento' : venta ? 'Nueva venta' : 'Nuevo evento', tabla: 'eventos', modulo: 'eventos', id, volver: id ? `#/evento/${id}` : venta ? '#/caja?t=ingreso&s=eventos' : '#/eventos',
+    despues: (r) => vender ? `#/articulo/nuevo?evento=${r.id}` : `#/evento/${r.id}`, valoresIniciales: venta ? { _vender: true } : {},
+    transformar: (d) => { vender = !!d._vender; delete d._vender; return d; },
     campos: [
-      { k: 'titulo', label: 'Título', req: true }, { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
+      { k: 'titulo', label: 'Título', req: true, ph: venta ? 'Camisetas Navidad, Entradas fin de curso…' : 'Halloween, Gala de Navidad…' },
+      ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
+      { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
       { k: 'lugar', label: 'Lugar' }, { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] },
       { k: 'descripcion', label: 'Descripción', tipo: 'textarea' }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },
       { k: 'inscripcion_hasta', label: 'Inscripción hasta', tipo: 'fecha' }, { k: 'normas', label: 'Normas del evento', tipo: 'textarea' },
@@ -2470,7 +2478,7 @@ async function router() {
       case 'reserva': return await formReserva(params);
       case 'articulo': return await formArticulo(params, p[1] === 'nuevo' ? null : p[1]);
       case 'evento':
-        if (p[1] === 'nuevo') return await formEvento(null);
+        if (p[1] === 'nuevo') return await formEvento(null, params);
         if (p[2] === 'editar') return await formEvento(p[1]);
         return await pantallaEvento(p[1]);
       case 'escuelas': return await pantallaEscuelas();
