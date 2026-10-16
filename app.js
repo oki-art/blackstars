@@ -114,6 +114,7 @@ async function cargarSesion() {
   ]);
   S.perfil = perfil; S.admin = !!(perfil && perfil.rol === 'admin' && perfil.activo);
   S.permisos = {}; (permisos || []).forEach((p) => { S.permisos[p.modulo] = p; });
+  S.cargadoEn = Date.now();
   if (S.admin) {
     const ps = await q(sb.from('perfiles').select('id,nombre'));
     S.nombres = {}; ps.forEach((p) => { S.nombres[p.id] = p.nombre; });
@@ -2494,6 +2495,8 @@ async function router() {
   const qs = new URLSearchParams(location.search);
   if (qs.get('f')) return formularioPublico(qs.get('f'));
   if (!S.usuario) return pantallaLogin();
+  // Si la administración cambia los permisos, se notan al moverse por la app (sin cerrar sesión)
+  if (Date.now() - (S.cargadoEn || 0) > 15000) { try { await cargarSesion(); } catch (e) { console.error(e); } if (!S.usuario) return pantallaLogin(); }
   if (S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave) return pantallaNuevaClave();
   const [ruta, query] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
   const params = new URLSearchParams(query || '');
@@ -2586,6 +2589,8 @@ document.addEventListener('click', (ev) => {
   const v = ev.target.closest('[data-volver]');
   if (v) { ev.preventDefault(); location.hash = v.dataset.volver; }
 });
+// Al volver a la app (otra pestaña, móvil desbloqueado) se recargan los permisos por si han cambiado; la pantalla no se toca para no perder lo que se esté escribiendo
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.usuario && Date.now() - (S.cargadoEn || 0) > 15000) cargarSesion().catch(console.error); });
 window.addEventListener('hashchange', () => { document.getElementById('aviso').className = ''; router(); });
 
 sb.auth.onAuthStateChange((evento) => {
