@@ -945,7 +945,7 @@ function cajaMensualidad(movs, ins) {
   }).join('');
   return totalCaja('', 'Total mensualidades', `${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}`, ins && nFal ? `Faltan ${nFal}` : '', total) + tarjetas;
 }
-const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small><b>${linea}</b>${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
+const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small>${linea ? `<b>${linea}</b>` : ''}${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
 // Movimientos del mes según la tarjeta pulsada arriba (Ingresos, Gastos o Balance), agrupados por clase
 // Cajón de eventos y ventas: lo cobrado este mes en cada evento y lo que falta por cobrar de sus reservas
 const esDeEvento = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'evento' && x.evento_id;
@@ -994,7 +994,7 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
     return `<div class="lista">${cajaMensualidad(men, ins)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
   if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}</div>`;
-  if (t === 'ingreso') return `<div class="lista">${totalCaja('', 'Total ingresos del mes', `Mensualidades ${eur(suma(men))} · Eventos ${eur(suma(evs))}${ext.length ? ` · Extras ${eur(suma(ext))}` : ''}`, '', i)}
+  if (t === 'ingreso') return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', '', '', i)}
     <div class="tarjeta reservas">${filaResumen('Mensualidades', `${men.length} cobro${men.length === 1 ? '' : 's'}`, eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${evs.length} cobro${evs.length === 1 ? '' : 's'}`, eur(suma(evs)), ir('ingreso', 'eventos'))}</div>
     ${ext.length ? `<div class="seccion">Extras · ${eur(suma(ext))}</div>${cajaPorClase(ext, { conFecha, volver })}` : ''}</div>`;
   if (t === 'gasto' && s === 'cambio') return `<div class="lista">${cajaCambio(cambios, puedeEditar('caja'))}</div>`;
