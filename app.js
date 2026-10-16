@@ -101,7 +101,8 @@ async function q(promesa) {
 
 /* ---------- permisos ---------- */
 const puedeVer = (m) => S.admin || !!(S.permisos[m] && S.permisos[m].puede_ver);
-const puedeEditar = (m) => S.admin || !!(S.permisos[m] && S.permisos[m].puede_escribir);
+// Las profesoras nunca dan altas ni bajas en clases (eso es de recepción y administración), aunque se les marque por error
+const puedeEditar = (m) => S.admin || (!(m === 'inscripciones' && esProfesora(S.permisos)) && !!(S.permisos[m] && S.permisos[m].puede_escribir));
 
 async function cargarSesion() {
   const { data } = await sb.auth.getSession();
@@ -354,7 +355,7 @@ async function pantallaInicio(vista = null) {
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
     ['logros', '#/logros', 'trofeo', 'Logros', 'Mis retos y estrellas', false],
-    ['incidencias', '#/incidencia/nueva', 'alerta', 'Incidencia', 'Apuntar lo que pasa', true],
+    ['incidencias', '#/incidencias', 'alerta', 'Incidencias', 'Ver y apuntar', false],
     ['eventos', '#/eventos', 'evento', 'Mis eventos', 'Próximos', false],
     ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false]
   ] : [
@@ -498,7 +499,9 @@ async function formAcceso(params) {
 /* ---------- más ---------- */
 // Recepción y gestión tienen Documentos, Eventos, Inscripciones y Formularios en el Inicio: en Más no se repiten
 const EN_INICIO = ['*', 'eventos', 'inscripciones', 'formularios'];
-const enMas = (m) => S.admin || esProfesora(S.permisos) || !EN_INICIO.includes(m);
+// Las profesoras tienen Documentos, Logros, Eventos e Incidencias en el Inicio; Inscripciones no lo ven
+const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones'];
+const enMas = (m) => S.admin || !(esProfesora(S.permisos) ? EN_INICIO_PROFE : EN_INICIO).includes(m);
 const volverDe = (m) => enMas(m) ? '#/mas' : '#/inicio';
 function pantallaMas() {
   const items = [
@@ -842,7 +845,7 @@ function activarNotas(alumnaId) {
 
 /* ---------- inscripciones ---------- */
 async function pantallaInscripciones() {
-  if (!puedeVer('inscripciones')) return sinPermiso();
+  if (!puedeVer('inscripciones') || (!S.admin && esProfesora(S.permisos))) return sinPermiso();
   const l = await q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,alumnas(id,nombre,apellidos),clases(nombre)').order('creado_en', { ascending: false }).limit(100));
   pintar(cabecera('Inscripciones', { volver: volverDe('inscripciones'), sub: 'Últimos movimientos en clases' }) + `<main class="cont"><div class="lista">${l.map((i) => fila({
     href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: `${esc(i.clases.nombre)} · ${i.fecha_baja ? 'baja ' + fechaCorta(i.fecha_baja) : 'alta ' + fechaCorta(i.fecha_alta)}`,
@@ -1322,7 +1325,7 @@ async function pantallaIncidencias(params) {
   let r = sb.from(S.admin ? 'incidencias_con_autor' : 'incidencias').select('*,clases(nombre),alumnas(nombre,apellidos)').order('fecha', { ascending: false }).limit(200);
   if (f === 'semana') { const d = new Date(); d.setDate(d.getDate() - 7); r = r.gte('fecha', `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`); }
   const l = await q(r);
-  pintar(cabecera('Incidencias', { volver: '#/mas', sub: 'Lo que pasa en clase' }) + `<main class="cont">
+  pintar(cabecera('Incidencias', { volver: volverDe('incidencias'), sub: 'Lo que pasa en clase' }) + `<main class="cont">
     <div class="filtros">${[['todas', 'Todas'], ['semana', 'Últimos 7 días']].map(([k, t]) => `<button data-ir="#/incidencias?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="lista">${l.map((x) => fila({ href: puedeEditar('incidencias') ? `#/incidencia/${x.id}` : '#/incidencias', iconoHtml: `<span class="ini" style="color:var(--gasto);background:rgba(209,47,59,0.10)">${ico('alerta', 18)}</span>`,
       tit: x.descripcion, det: esc([fechaCorta(x.fecha), x.clases ? x.clases.nombre : '', x.alumnas ? x.alumnas.nombre : '', x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · ')) })).join('') || vacio('Sin incidencias. ¡Bien!')}</div>
@@ -2337,7 +2340,7 @@ async function pantallaLogros(params) {
       <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
       ${barra(v)}<div class="tc-pie"><span>Media de la clase: ${v}%</span>${ico('sig', 18)}</div></a>`;
   };
-  pintar(cabecera('Logros', { volver: '#/mas', sub: 'Retos de profesoras y estrellas de alumnas' }) + `<main class="cont">
+  pintar(cabecera('Logros', { volver: volverDe('logros'), sub: 'Retos de profesoras y estrellas de alumnas' }) + `<main class="cont">
     ${selectorMes(mes, '#/logros?')}
     <div class="tarjeta-caja"><span class="ico-caja">${ico('evento', 26)}</span><span class="txt"><b>Recompensa del mes</b>
       ${gestiona ? `<input id="recompensa" class="input-oro" placeholder="Ej.: entrada a un taller" value="${esc(recompensa)}">` : `<span>${esc(recompensa || 'Aún sin decidir')}</span>`}</span></div>
