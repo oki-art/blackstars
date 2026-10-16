@@ -126,14 +126,14 @@ function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
   const izq = volver
     ? `<button class="volver" data-volver="${esc(volver)}" aria-label="Volver">${ico('volver')}</button>`
     : `<img class="logo" src="icons/logo.png" alt="Blackstars">`;
-  // Insignia: "Admin", o el papel arriba y el nombre de pila debajo (dos líneas cortas)
+  // Insignia: el papel (Admin, Gestión, Profesora…) arriba y el nombre de pila debajo (dos líneas cortas)
   const nombrePila = S.perfil ? esc(String(S.perfil.nombre).trim().split(/\s+/)[0]) : '';
-  const rol = insignia != null ? esc(insignia) : S.admin ? 'Admin'
-    : nombrePila ? `<small>${papel(S.permisos)}</small>${nombrePila}` : '';
+  const rol = insignia != null ? esc(insignia) : !nombrePila ? (S.admin ? 'Admin' : '')
+    : `<small>${S.admin ? 'Admin' : papel(S.permisos)}</small>${nombrePila}`;
   // En "Ver como…" la campana solo se enseña (no abre tus avisos)
   const campana = !S.usuario ? '' : insignia == null ? `<a class="campana ${S.noLeidas ? 'con' : ''}" id="campana" href="#/avisos" aria-label="Avisos">${ico('campana', 22)}<i></i></a>`
     : `<span class="campana" aria-hidden="true">${ico('campana', 22)}<i></i></span>`;
-  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana && insignia == null) ? `<span class="insignia${insignia == null && !S.admin ? ' dos' : ''}">${rol}</span>` : ''}</div></header>`;
+  return `<header class="cab">${izq}<div class="t"><div class="sup">Academia Blackstars</div><h1>${esc(titulo)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div><div class="cab-der">${campana}${rol && !(volver && campana && insignia == null) ? `<span class="insignia${insignia == null && nombrePila ? ' dos' : ''}">${rol}</span>` : ''}</div></header>`;
 }
 function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
