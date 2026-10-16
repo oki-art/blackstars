@@ -57,6 +57,7 @@ function ico(nombre, t = 20) {
     volver: '<path d="M15 5l-7 7 7 7"/>', sig: '<path d="M9 5l7 7-7 7"/>', mas: '<path d="M12 5v14M5 12h14"/>',
     casa: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>', clases: '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/>',
     alumnas: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 6 4.8"/>',
+    papelera: '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     caja: '<rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10h19"/><circle cx="16.5" cy="14.5" r="1.4"/>',
     puntos: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
     ojo: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -1283,8 +1284,13 @@ async function formCaja(params, id = null) {
   };
   const b = document.getElementById('borrar');
   if (b) b.onclick = async () => {
-    if (!confirm('¿Borrar este movimiento? No se puede deshacer.')) return;
-    try { await q(sb.from('caja').delete().eq('id', id)); aviso('Borrado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); }
+    // Si es el cobro de una reserva de evento, se deshace el pago (la reserva vuelve a "Cobrar")
+    const res = await intentar(() => q(sb.from('evento_reservas').select('id').eq('caja_id', id).limit(1)));
+    if (!confirm(res.length ? '¿Borrar este cobro? Se quita de la caja y la reserva del evento vuelve a "Cobrar".' : '¿Borrar este movimiento? No se puede deshacer.')) return;
+    try {
+      await (res.length ? q(sb.rpc('deshacer_pago', { p_id: res[0].id })) : q(sb.from('caja').delete().eq('id', id)));
+      aviso('Borrado'); location.hash = volver;
+    } catch (e) { aviso(traducirError(e), true); }
   };
 }
 
@@ -1807,8 +1813,10 @@ async function bloqueVentas(id, guardar = {}) {
   const fila = (r) => {
     const a = r.evento_articulos || {}, quien = r.alumnas ? nomAlumna(r.alumnas) : r.comprador, cl = claseDe(r.alumnas);
     const det = [`${r.cantidad} × ${a.nombre || ''}`, r.talla ? (Object.keys(tallasReserva(r)).length > 1 ? 'tallas ' : 'talla ') + textoTallas(tallasReserva(r)) : ''].filter(Boolean).join(' · ');
-    const der = r.estado === 'pagada' ? `<span class="vt-ok">${ico('check', 16)} Pagado</span>`
-      : cobra ? `<button class="vt-cobrar" data-cobrar="${r.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>';
+    // Papelera (solo administración): en una pagada quita el cobro de la caja; en una pendiente borra la reserva
+    const papelera = S.admin ? `<button class="vt-borrar" data-${r.estado === 'pagada' ? 'deshacer' : 'borrar-res'}="${r.id}" data-quien="${esc(quien || '')}" data-importe="${r.importe}" aria-label="${r.estado === 'pagada' ? 'Borrar el cobro' : 'Borrar la reserva'}">${ico('papelera', 18)}</button>` : '';
+    const der = (r.estado === 'pagada' ? `<span class="vt-ok">${ico('check', 16)} Pagado</span>`
+      : cobra ? `<button class="vt-cobrar" data-cobrar="${r.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>') + papelera;
     return `<div class="reserva ${r.estado}"><span class="txt"><span class="tit">${esc(quien || '—')}</span><span class="det">${esc(det)}</span></span>
       <b class="${r.estado === 'pagada' ? 'in' : ''}">${eur(r.importe)}</b>${der}
       ${r.estado === 'reservada' && cobra ? `<div class="vt-metodos" id="m-${r.id}" hidden>${METODOS.map(([k, t]) => `<button data-pagar="${r.id}" data-metodo="${k}">${t}</button>`).join('')}</div>` : ''}</div>`;
@@ -1834,6 +1842,18 @@ function activarCobros() {
   $app.querySelectorAll('[data-pagar]').forEach((b) => b.onclick = async () => {
     b.disabled = true;
     try { await q(sb.rpc('pagar_reserva', { p_id: b.dataset.pagar, p_metodo: b.dataset.metodo })); aviso('Cobrado: ya está en la caja'); router(); }
+    catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
+  $app.querySelectorAll('[data-deshacer]').forEach((b) => b.onclick = async () => {
+    if (!confirm(`¿Borrar el cobro de ${b.dataset.quien} (${eur(b.dataset.importe)})?\n\nSe quita de la caja y la reserva vuelve a "Cobrar".`)) return;
+    b.disabled = true;
+    try { await q(sb.rpc('deshacer_pago', { p_id: b.dataset.deshacer })); aviso('Cobro borrado: ya no está en la caja'); router(); }
+    catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
+  $app.querySelectorAll('[data-borrar-res]').forEach((b) => b.onclick = async () => {
+    if (!confirm(`¿Borrar la reserva de ${b.dataset.quien}?\n\nNo se ha cobrado, así que la caja no cambia.`)) return;
+    b.disabled = true;
+    try { await q(sb.from('evento_reservas').delete().eq('id', b.dataset.borrarRes)); aviso('Reserva borrada'); router(); }
     catch (e) { aviso(traducirError(e), true); b.disabled = false; }
   });
 }
