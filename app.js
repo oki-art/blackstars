@@ -1817,7 +1817,10 @@ async function bloqueVentas(id, guardar = {}) {
     ${arts.length ? `<div class="tarjeta vt-resumen">${resumen}
       <div class="vt-totales"><div><small>Cobrado</small><b class="in">${eur(suma(pag))}</b></div><div><small>Falta cobrar</small><b>${eur(suma(pend))}</b></div></div></div>
     <div class="filtros">${[['pendientes', `Pendientes (${pend.length})`], ['pagadas', `Pagadas (${pag.length})`], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/evento/${id}?r=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>
-    ${lista.length ? porClase(lista, (r) => claseDe(r.alumnas)).map(([cl, l]) => {
+    ${lista.length ? porClase(lista, (r) => claseDe(r.alumnas)).map(([cl, l0]) => {
+      // En cada clase: primero las que han pagado y luego las que faltan, por nombre
+      const nom = (r) => r.alumnas ? nomAlumna(r.alumnas) : r.comprador || '';
+      const l = l0.slice().sort((a, b) => (a.estado !== 'pagada') - (b.estado !== 'pagada') || nom(a).localeCompare(nom(b), 'es'));
       const cob = suma(l.filter((r) => r.estado === 'pagada')), falta = suma(l.filter((r) => r.estado === 'reservada'));
       return `<details class="caja-clase vt-clase" open><summary class="cc-cab"><span><h3>${esc(cl)}</h3><small>${l.length} reserva${l.length === 1 ? '' : 's'} · ${uds(l)} ud.${falta ? ` · falta ${eur(falta)}` : ''}</small></span>
         <span class="cc-tot"><b class="in">${eur(cob)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary><div class="reservas">${l.map(fila).join('')}</div></details>`;
