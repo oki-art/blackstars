@@ -1723,7 +1723,7 @@ async function pantallaEvento(id) {
     cajaEv = `<div class="seccion">Caja del evento</div>
       <div class="totales"><div><small>Ingresos</small><b class="in">${eur(i)}</b></div><div><small>Gastos</small><b class="out">${eur(o)}</b></div><div><small>Balance</small><b>${eur(i - o)}</b></div></div>
       ${movs.length ? `<div class="tarjeta caja-todas">${movs.map((x) => movCaja(x, { conFecha: true, volver: `#/evento/${id}` })).join('')}</div>` : vacio('Aún no hay cobros ni gastos de este evento.')}
-      ${puedeEditar('caja') ? `<div class="dos-btn"><a class="btn sec" href="#/caja/nuevo?tipo=ingreso&apartado=evento&evento=${id}">${ico('mas')} Ingreso</a><a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=evento&evento=${id}">${ico('mas')} Gasto</a></div>` : ''}`;
+      ${puedeEditar('caja') ? `<a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=evento&evento=${id}">${ico('mas')} Apuntar un gasto del evento</a>` : ''}`;
   }
   pintar(cabecera(e.titulo, { volver: '#/eventos', sub: capital(fechaLarga(e.fecha)) + (e.hora ? ' · ' + hora(e.hora) : '') }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
