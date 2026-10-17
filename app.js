@@ -217,7 +217,7 @@ async function pantallaForm({ titulo, tabla, modulo, campos, id = null, volver, 
   const vals = Object.assign({}, valoresIniciales, reg || {});
   pintar(cabecera(titulo, { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">${campos.map((c) => campoHtml(c, vals[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button>
-    ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
+    ${id && S.admin ? `<a class="btn peligro ancho" href="#/clase/${id}/borrar">Borrar clase</a>` : ''}
   </form>${autorDe(reg)}</main>`, false);
   const form = document.getElementById('frm');
   form.onsubmit = async (ev) => {
@@ -353,9 +353,9 @@ async function pantallaInicio(vista = null) {
   let tarjetaDocs = '';
   if (!vista) {
     const pend = await intentar(async () => { const { count } = await sb.from('documentos').select('id', { count: 'exact', head: true }).eq('para_perfil', S.usuario.id).eq('estado', 'pendiente'); return count || 0; });
-    tarjetaDocs = `<a class="tarjeta-docs" href="#/documentos"><span class="ico-caja">${ico('doc', 24)}</span><span class="txt"><b>Documentos</b><span>${pend ? `${pend} pendiente${pend === 1 ? '' : 's'} de firmar o leer` : 'Subir, firmar y ver el historial'}</span></span>${pend ? `<span class="nv-n">${pend}</span>` : ico('sig', 22)}</a>`;
-  } else tarjetaDocs = `<span class="tarjeta-docs"><span class="ico-caja">${ico('doc', 24)}</span><span class="txt"><b>Documentos</b><span>Subir, firmar y ver el historial</span></span>${ico('sig', 22)}</span>`;
-  const tarjetaCaja = ver('caja') ? `<a class="tarjeta-caja" href="#/caja"><span class="ico-caja">${ico('caja', 26)}</span><span class="txt"><b>Caja</b><span>Ingresos y gastos por día</span></span>${ico('sig', 22)}</a>` : '';
+    tarjetaDocs = `<a class="mini-docs" href="#/documentos"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>${pend ? `${pend} pendiente${pend === 1 ? '' : 's'}` : 'Subir y firmar'}</span>${pend ? `<span class="nv-n">${pend}</span>` : ''}</a>`;
+  } else tarjetaDocs = `<span class="mini-docs"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>Subir y firmar</span></span>`;
+  const tarjetaCaja = ver('caja') ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>Caja</b><span>Ingresos y gastos</span></a>` : '';
   const accesos = (profesora ? [
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
@@ -379,8 +379,7 @@ async function pantallaInicio(vista = null) {
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
     ${barraLogros}
-    ${tarjetaCaja}
-    ${tarjetaDocs}
+    <div class="minis">${tarjetaCaja}${tarjetaDocs}</div>
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
@@ -599,7 +598,7 @@ async function formClase(id, escuela = null) {
     ${campos.slice(1).map((c) => campoHtml(c, vals[c.k])).join('')}
     ${!escuela && !profes.length && puedeEditar('profesoras') ? `<a class="btn sec" href="#/profesora/nueva">${ico('mas')} Añadir profesora</a>` : ''}
     <button class="btn pri ancho" type="submit">Guardar</button>
-    ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
+    ${id && S.admin ? `<a class="btn peligro ancho" href="#/clase/${id}/borrar">Borrar clase</a>` : ''}
   </form>${autorDe(reg)}</main>`, false);
   activarEditorHorarios();
   const form = document.getElementById('frm');
@@ -621,11 +620,6 @@ async function formClase(id, escuela = null) {
       catch (e) { if (!id) await sb.from('clases').delete().eq('id', claseId); throw e; }
       aviso('Guardado'); location.hash = escuela && !id ? `#/escuela/${escuela}` : `#/clase/${claseId}`;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
-  };
-  const b = document.getElementById('borrar');
-  if (b) b.onclick = async () => {
-    if (!confirm('¿Borrar la clase definitivamente? Se perderán sus inscripciones. Si solo deja de darse, mejor desmarca "Clase activa".')) return;
-    try { await q(sb.from('clases').delete().eq('id', id)); aviso('Borrada'); location.hash = escuela ? `#/escuela/${escuela}` : '#/clases'; } catch (e) { aviso(traducirError(e), true); }
   };
 }
 
@@ -678,8 +672,51 @@ async function pantallaClase(id) {
     ${!c.escuela_amiga_id && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
       <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: (i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '') + (puedeEditar('inscripciones') ? `<button class="ins-editar" data-ir="#/inscripcion/${i.id}?clase=${id}" aria-label="Corregir fechas">${ico('lapiz', 18)}</button>` : '') })).join('') || vacio('Nadie inscrita todavía.')}</div>
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
+    ${S.admin ? `<a class="btn peligro" href="#/clase/${id}/borrar">${ico('papelera', 18)} Borrar clase</a>` : ''}
     ${autorDe(c)}
   </main>`, 'clases');
+}
+
+// Antes de borrar una clase se cuenta lo que tiene, para decir qué se pierde y qué se queda
+async function pantallaBorrarClase(id) {
+  if (!S.admin) return sinPermiso();
+  const c = await q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id').eq('id', id).single());
+  const contar = (tabla, filtro) => intentar(async () => { let r = sb.from(tabla).select('id', { count: 'exact', head: true }).eq('clase_id', id); if (filtro) r = filtro(r); const { count } = await r; return count || 0; });
+  const [ahora, antes, cobros, estrellas, cambios] = await Promise.all([
+    contar('inscripciones', (r) => r.is('fecha_baja', null)), contar('inscripciones', (r) => r.not('fecha_baja', 'is', null)),
+    contar('caja'), contar('logros_estrellas'), contar('clases_cambios')
+  ]);
+  const volver = `#/clase/${id}`;
+  const linea = (n, uno, varios, que) => n ? `<li><b>${n} ${n === 1 ? uno : varios}</b> · ${que}</li>` : '';
+  const lista = [
+    linea(ahora, 'alumna inscrita ahora', 'alumnas inscritas ahora', 'se quitan de la clase (sus fichas no se tocan)'),
+    linea(antes, 'alumna que estuvo antes', 'alumnas que estuvieron antes', 'se borra ese historial'),
+    linea(cobros, 'movimiento de caja', 'movimientos de caja', 'el dinero se queda en Caja, pero pasa a "Otros"'),
+    linea(estrellas, 'estrella de logros', 'estrellas de logros', 'se borran'),
+    linea(cambios, 'cambio o falta apuntada', 'cambios o faltas apuntadas', 'se borran, y sus horas dejan de contar en Horas del mes')
+  ].join('');
+  const conHistoria = ahora + antes + cobros + estrellas + cambios > 0;
+  pintar(cabecera('Borrar clase', { volver, sub: esc(c.nombre) }) + `<main class="cont">
+    <div class="tarjeta borrar-clase">
+      ${conHistoria ? `<p><b>Esta clase tiene datos guardados:</b></p><ul>${lista}</ul>` : '<p><b>Esta clase no tiene alumnas, cobros ni historial.</b> Se puede borrar sin perder nada.</p>'}
+      <p class="nota">Borrar no se puede deshacer.${conHistoria && c.activa ? ' Si la clase solo ha dejado de darse, mejor déjala inactiva: desaparece del Inicio y de las listas, pero se guarda todo lo anterior.' : ''}</p>
+    </div>
+    ${conHistoria && c.activa ? '<button class="btn pri" id="inactiva">Dejarla inactiva</button>' : ''}
+    <button class="btn peligro" id="borrar">${ico('papelera', 18)} Borrar para siempre</button>
+    <a class="btn sec" href="${volver}">Cancelar</a>
+  </main>`, 'clases');
+  const ir = c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}` : '#/clases';
+  const bi = document.getElementById('inactiva');
+  if (bi) bi.onclick = async () => {
+    bi.disabled = true;
+    try { await q(sb.from('clases').update({ activa: false }).eq('id', id)); aviso('Clase inactiva'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); bi.disabled = false; }
+  };
+  const b = document.getElementById('borrar');
+  b.onclick = async () => {
+    if (!confirm(`¿Seguro? "${c.nombre}" se borrará para siempre.`)) return;
+    b.disabled = true;
+    try { await q(sb.from('clases').delete().eq('id', id)); aviso('Clase borrada'); location.hash = ir; } catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  };
 }
 
 /* ---------- alumnas ---------- */
@@ -1282,7 +1319,7 @@ async function formCaja(params, id = null) {
     <div class="campo"><label>¿De qué es?</label><div class="filtros tipos-ini" id="apartados"></div></div>
     ${campos.map((c) => c.solo ? `<div data-solo="${c.solo.join(' ')}">${campoHtml(c, ini[c.k])}</div>` : campoHtml(c, ini[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button>
-    ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
+    ${id && S.admin ? `<a class="btn peligro ancho" href="#/clase/${id}/borrar">Borrar clase</a>` : ''}
   </form>${autorDe(reg)}</main>`, false);
   const pintarApartados = () => {
     // Las camisetas y entradas se venden desde el evento; "Ventas" solo sale al editar un movimiento antiguo
@@ -2626,6 +2663,7 @@ async function router() {
       case 'clase':
         if (p[1] === 'nueva') return await formClase(null);
         if (p[2] === 'editar') return await formClase(p[1]);
+        if (p[2] === 'borrar') return await pantallaBorrarClase(p[1]);
         return await pantallaClase(p[1]);
       case 'alumnas': return await pantallaAlumnas(params);
       case 'alumna':
