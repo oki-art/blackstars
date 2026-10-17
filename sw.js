@@ -1,5 +1,5 @@
 // Guarda la app en el móvil para que abra rápido. Los datos siempre vienen de Supabase.
-const VERSION = 'bs-v44';
+const VERSION = 'bs-v45';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/logo.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ARCHIVOS))); self.skipWaiting(); });
@@ -10,6 +10,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  // Las guías del equipo (/guia/...) no son la app: las sirve la web tal cual (si no, al redirigir daba error)
+  if (/\/guia(\/|$)/.test(url.pathname)) return;
   // Primero la red (para recibir mejoras), y si no hay conexión, lo guardado.
   // no-cache: pide siempre la versión nueva al servidor (si no ha cambiado, llega rápido)
   e.respondWith(fetch(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => {
