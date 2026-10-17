@@ -113,6 +113,8 @@ async function cargarSesion() {
     q(sb.from('perfiles').select('*').eq('id', S.usuario.id).maybeSingle()),
     q(sb.from('permisos').select('*').eq('perfil_id', S.usuario.id))
   ]);
+  // Una persona borrada del equipo ya no puede entrar
+  if (perfil && perfil.borrado_en) { await sb.auth.signOut(); S.usuario = null; S.perfil = null; S.permisos = {}; S.admin = false; return; }
   S.perfil = perfil; S.admin = !!(perfil && perfil.rol === 'admin' && perfil.activo);
   S.permisos = {}; (permisos || []).forEach((p) => { S.permisos[p.modulo] = p; });
   S.cargadoEn = Date.now();
@@ -2383,11 +2385,10 @@ async function pantallaBorrarPersona(p) {
     if (!confirm(`¿Seguro? ${p.nombre} se borrará para siempre.`)) return;
     b.disabled = true;
     try {
-      const { data, error } = await sb.functions.invoke('borrar-acceso', { body: { id: p.id } });
-      if (error || !data || !data.ok) {
-        let msg = 'No se pudo borrar'; try { msg = (await error.context.json()).error || msg; } catch (e) { if (data && data.error) msg = data.error; }
-        throw new Error(msg);
-      }
+      // El perfil no se elimina (lo que apuntó sigue con su nombre): se marca como borrado y sin acceso
+      await q(sb.from('perfiles').update({ activo: false, borrado_en: new Date().toISOString() }).eq('id', p.id));
+      await q(sb.from('permisos').delete().eq('perfil_id', p.id));
+      await q(sb.from('profesoras').update({ perfil_id: null }).eq('perfil_id', p.id));
       aviso('Persona borrada'); location.hash = '#/equipo';
     } catch (e) { aviso(e.message || traducirError(e), true); b.disabled = false; }
   };
