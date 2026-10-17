@@ -442,7 +442,7 @@ const PLANTILLAS = {
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
   if (p.rol === 'admin') return { tipo: 'Administración total', chip: '<span class="chip oro">Todo</span>' };
-  if (!p.activo) return { tipo: 'Acceso quitado', chip: '<span class="chip no">Sin acceso</span>' };
+  if (!p.activo) return { tipo: 'De baja · no puede entrar', chip: '<span class="chip no">De baja</span>' };
   if (!filas.length) return { tipo: 'Sin permisos todavía', chip: '<span class="chip gris">Nada</span>' };
   const ver = filas.filter((f) => f.puede_ver).length, ed = filas.filter((f) => f.puede_escribir).length;
   const caja = filas.find((f) => f.modulo === 'caja');
@@ -451,9 +451,10 @@ function resumenPersona(p, filas) {
 }
 async function pantallaEquipo() {
   if (!S.admin) return sinPermiso();
-  const [ps, per, profs] = await Promise.all([q(sb.from('perfiles').select('*').order('nombre')), q(sb.from('permisos').select('*')),
+  const [todos, per, profs] = await Promise.all([q(sb.from('perfiles').select('*').order('nombre')), q(sb.from('permisos').select('*')),
     intentar(() => q(sb.from('profesoras').select('id,nombre,perfil_id').eq('activa', true).is('perfil_id', null).order('nombre')))]);
   const de = (id) => per.filter((f) => f.perfil_id === id);
+  const ps = todos.filter((p) => !p.borrado_en);   // las personas borradas ya no salen (su nombre sigue en lo que apuntaron)
   ps.sort((a, b) => (b.rol === 'admin') - (a.rol === 'admin') || a.nombre.localeCompare(b.nombre, 'es'));
   pintar(cabecera('Equipo', { volver: '#/mas', sub: 'Todas las personas con acceso' }) + `<main class="cont">
     <div class="lista">${ps.map((p) => { const r = resumenPersona(p, de(p.id)), yo = p.id === S.usuario.id;
@@ -2357,12 +2358,48 @@ async function formularioPublico(slug) {
 }
 
 /* ---------- permisos (solo admin) ---------- */
+// Borrar a una persona del equipo: no podrá volver a entrar y desaparece de Equipo; lo que apuntó sigue con su nombre
+async function pantallaBorrarPersona(p) {
+  const volver = `#/permisos?p=${p.id}`;
+  const prof = await intentar(() => q(sb.from('profesoras').select('id,nombre').eq('perfil_id', p.id).maybeSingle()));
+  pintar(cabecera('Borrar persona', { volver, sub: esc(p.nombre) }) + `<main class="cont">
+    <div class="tarjeta borrar-clase"><p><b>Si la borras:</b></p><ul>
+      <li>No podrá volver a entrar en la app con ese correo.</li>
+      <li>Desaparece de Equipo y se borran sus permisos.</li>
+      <li>Lo que apuntó (cobros, incidencias, notas…) <b>se queda</b>, con su nombre como autora.</li>
+      ${prof ? `<li>Su ficha de profesora (<b>${esc(prof.nombre)}</b>) se queda en Profesoras, sin acceso a la app. Si también sobra, bórrala desde allí.</li>` : ''}
+    </ul><p class="nota">Borrar no se puede deshacer.${p.activo ? ' Si solo deja de trabajar un tiempo, mejor dala de baja: podrás volver a darla de alta.' : ''}</p></div>
+    ${p.activo ? '<button class="btn pri" id="baja">Mejor darla de baja</button>' : ''}
+    <button class="btn peligro" id="borrar">${ico('papelera', 18)} Borrar para siempre</button>
+    <a class="btn sec" href="${volver}">Cancelar</a>
+  </main>`, 'mas');
+  const bb = document.getElementById('baja');
+  if (bb) bb.onclick = async () => {
+    bb.disabled = true;
+    try { await q(sb.from('perfiles').update({ activo: false }).eq('id', p.id)); aviso('Dada de baja'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); bb.disabled = false; }
+  };
+  const b = document.getElementById('borrar');
+  b.onclick = async () => {
+    if (!confirm(`¿Seguro? ${p.nombre} se borrará para siempre.`)) return;
+    b.disabled = true;
+    try {
+      const { data, error } = await sb.functions.invoke('borrar-acceso', { body: { id: p.id } });
+      if (error || !data || !data.ok) {
+        let msg = 'No se pudo borrar'; try { msg = (await error.context.json()).error || msg; } catch (e) { if (data && data.error) msg = data.error; }
+        throw new Error(msg);
+      }
+      aviso('Persona borrada'); location.hash = '#/equipo';
+    } catch (e) { aviso(e.message || traducirError(e), true); b.disabled = false; }
+  };
+}
+
 async function pantallaPermisos(params) {
   if (!S.admin) return sinPermiso();
   const perfiles = await q(sb.from('perfiles').select('*').neq('id', S.usuario.id).order('nombre'));
   const sel = params.get('p');
   if (!sel) { location.hash = '#/equipo'; return; }
-  const p = perfiles.find((x) => x.id === sel);
+  const p = perfiles.find((x) => x.id === sel && !x.borrado_en);
+  if (p && params.get('borrar')) return pantallaBorrarPersona(p);
   const filas = p ? await q(sb.from('permisos').select('*').eq('perfil_id', p.id)) : [];
   const per = {}; filas.forEach((f) => { per[f.modulo] = f; });
   const soloSuyo = esProfesora(per);
@@ -2376,9 +2413,15 @@ async function pantallaPermisos(params) {
         return `<div class="perm"><span style="font-weight:600">${t}${m === 'iniciativas' && per[m] && per[m].solo_propias && !soloSuyo ? '<br><small style="font-weight:400;color:var(--texto2)">Propone y ve las suyas</small>' : ''}</span><button class="${v ? 'on' : ''}" data-m="${m}" data-a="ver" aria-label="Ver ${t}" aria-pressed="${!!v}">${ico('ojo')}</button><button class="${e ? 'on' : ''}" data-m="${m}" data-a="editar" aria-label="Editar ${t}" aria-pressed="${!!e}">${ico('lapiz')}</button></div>`; }).join('')}
     </div>
     <label class="check"><input type="checkbox" id="solo" ${soloSuyo ? 'checked' : ''}><span><b>Solo ve lo suyo</b><br><span style="font-size:13px;color:var(--texto2)">Para profesoras: solo sus clases, sus alumnas, sus incidencias y sus eventos. Enlaza antes su ficha en Profesoras.</span></span></label>
-    <label class="check"><input type="checkbox" id="activo" ${p.activo ? 'checked' : ''}><span><b>Acceso activo</b><br><span style="font-size:13px;color:var(--texto2)">Si lo quitas, no verá nada aunque tenga permisos.</span></span></label>
     <div class="campo"><label for="nom">Nombre que se muestra</label><input id="nom" value="${esc(p.nombre)}"></div>
-    <p style="font-size:13px;color:var(--texto2);margin:0">Ojo = puede ver. Lápiz = puede editar. Quien edita un módulo también lo ve. Borrar definitivamente es solo de la administración.</p>`
+    <p style="font-size:13px;color:var(--texto2);margin:0">Ojo = puede ver. Lápiz = puede editar. Quien edita un módulo también lo ve. Borrar definitivamente es solo de la administración.</p>
+    <div class="seccion">Dar de baja o borrar</div>
+    <div class="tarjeta baja-persona">${p.activo
+      ? `<p><b>Dar de baja</b><br><span class="sub-baja">Deja de poder entrar en la app. Se guardan sus permisos y puedes volver a darla de alta cuando quieras.</span></p>
+        <button class="btn sec ancho" id="baja">Dar de baja</button>`
+      : `<p><span class="chip no">De baja</span> <b>No puede entrar en la app.</b><br><span class="sub-baja">Sus permisos están guardados por si vuelve.</span></p>
+        <button class="btn pri ancho" id="alta">Volver a dar de alta</button>`}</div>
+    <a class="btn peligro ancho" href="#/permisos?p=${p.id}&borrar=1">${ico('papelera', 18)} Borrar para siempre</a>`
     : vacio('Todavía no hay más personas. Cuando quieras dar acceso a alguien, créale un usuario y aparecerá aquí sin ningún permiso.')}
   </main>`, 'mas');
   if (!p) return;
@@ -2415,9 +2458,13 @@ async function pantallaPermisos(params) {
     if (!ev.target.checked) u = u.neq('modulo', 'iniciativas');
     try { await q(u); aviso(ev.target.checked ? 'Ahora solo ve lo suyo' : 'Ahora ve todo lo de sus módulos'); } catch (e) { aviso(traducirError(e), true); }
   };
-  document.getElementById('activo').onchange = async (ev) => {
-    try { await q(sb.from('perfiles').update({ activo: ev.target.checked }).eq('id', p.id)); aviso(ev.target.checked ? 'Acceso activado' : 'Acceso desactivado'); } catch (e) { aviso(traducirError(e), true); }
+  const cambiarAlta = (activo) => async () => {
+    if (!activo && !confirm(`¿Dar de baja a ${p.nombre}? No podrá entrar en la app hasta que la vuelvas a dar de alta.`)) return;
+    try { await q(sb.from('perfiles').update({ activo }).eq('id', p.id)); aviso(activo ? 'Dada de alta otra vez' : 'Dada de baja'); router(); } catch (e) { aviso(traducirError(e), true); }
   };
+  const bb = document.getElementById('baja'), ba = document.getElementById('alta');
+  if (bb) bb.onclick = cambiarAlta(false);
+  if (ba) ba.onclick = cambiarAlta(true);
   document.getElementById('nom').onchange = async (ev) => {
     const n = ev.target.value.trim(); if (!n) return;
     try { await q(sb.from('perfiles').update({ nombre: n }).eq('id', p.id)); S.nombres[p.id] = n; aviso('Nombre guardado'); } catch (e) { aviso(traducirError(e), true); }
