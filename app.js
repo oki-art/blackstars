@@ -1058,8 +1058,8 @@ function cajaCambio(cambios, editar) {
   const fuera = cambios.filter((x) => !x.devuelto_en), tf = fuera.reduce((t, x) => t + +x.importe, 0);
   const dia = (f) => aFecha(f).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
   const filas = cambios.slice().sort((a, b) => (!!a.devuelto_en - !!b.devuelto_en) || a.fecha.localeCompare(b.fecha)).map((x) => `<div class="reserva ${x.devuelto_en ? 'pagada' : ''}">
-    <span class="txt"><span class="tit">${esc(x.concepto || 'Cambio')}</span><span class="det">${esc(['Sacado el ' + dia(x.fecha), x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · '))}</span></span>
-    <b>${eur(x.importe)}</b>${x.devuelto_en ? `<span class="vt-ok">${ico('check', 16)} Devuelto ${dia(x.devuelto_en)}</span>` : editar ? `<button class="vt-cobrar" data-devuelto="${x.id}">Devuelto</button>` : '<span class="chip gris">Fuera</span>'}</div>`).join('');
+    <span class="txt"><span class="tit">${esc(x.concepto || 'Cambio')}</span><span class="det">${esc(['Sacado el ' + dia(x.fecha), x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · '))}</span>${x.devuelto_en ? `<span class="det devuelto">Devuelto el ${esc(dia(x.devuelto_en))}</span>` : '<span class="det">Aún sin devolver</span>'}</span>
+    <b>${eur(x.importe)}</b>${x.devuelto_en ? `<span class="vt-ok">${ico('check', 16)} Devuelto</span>` : editar ? `<button class="vt-cobrar" data-devuelto="${x.id}">Devuelto</button>` : '<span class="chip gris">Fuera</span>'}</div>`).join('');
   return totalCaja('cambio', 'Cambio fuera de la caja', fuera.length ? `${fuera.length} sin devolver` : 'Todo devuelto', 'No cuenta como gasto', tf)
     + (filas ? `<div class="tarjeta reservas">${filas}</div>` : vacio('No se ha sacado cambio este mes.'));
 }
