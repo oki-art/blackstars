@@ -468,3 +468,5 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .baja-persona p{margin:0}
 .baja-persona .sub-baja{font-size:13px;color:var(--texto2)}
 .mov .mov-borrar{width:36px;height:36px;margin-left:0}
+.mov.mov-sub{padding-left:36px;min-height:48px}
+.mov.mov-sub .tit{font-weight:500;font-size:13px}

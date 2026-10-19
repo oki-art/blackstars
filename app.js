@@ -993,14 +993,21 @@ function cajaPorClase(movs, { conFecha, volver }) {
       <div class="cc-movs">${g.l.map((x) => movCaja(x, { conFecha, volver })).join('')}</div></details>`;
   }).join('');
 }
+// Un pago de mensualidad: abre el movimiento; la administración tiene la papelera al lado
+function movMens(x, titulo, clase, volver) {
+  const met = Object.fromEntries(METODOS), det = [x.metodo ? met[x.metodo] : '', x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · ');
+  const href = puedeEditar('caja') ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : '';
+  return `<${href ? `a href="${esc(href)}"` : 'div'} class="mov ${clase}"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${titulo}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
+    <b class="in">${eur(x.importe)}</b>${S.admin ? `<span class="vt-borrar mov-borrar" role="button" data-borrar-mov="${x.id}" data-concepto="${esc(x.concepto)}" data-importe="${x.importe}" aria-label="Borrar este pago">${ico('papelera', 16)}</span>` : ''}</${href ? 'a' : 'div'}>`;
+}
 // Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
 const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
-function cajaMensualidad(movs, ins) {
+function cajaMensualidad(movs, ins, volver) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
   const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
   movs.filter(esCuota).forEach((x) => {
-    const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0 };
-    a.importe += +x.importe; a.n++; g.al.set(x.alumna_id, a); g.total += +x.importe;
+    const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0, movs: [] };
+    a.importe += +x.importe; a.n++; a.movs.push(x); g.al.set(x.alumna_id, a); g.total += +x.importe;
   });
   (ins || []).forEach((x) => { const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'); if (!g.al.has(x.alumna_id)) g.faltan.set(x.alumna_id, nom(x.alumnas)); });
   const lista = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -1008,7 +1015,11 @@ function cajaMensualidad(movs, ins) {
   const porNombre = (a, b) => a.localeCompare(b, 'es');
   const tarjetas = lista.map((g) => {
     const n = g.al.size, de = ins ? ` de ${n + g.faltan.size}` : '';
-    const pagadas = [...g.al.values()].sort((a, b) => porNombre(a.nombre, b.nombre)).map((a) => `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(a.nombre)}</span>${a.n > 1 ? `<span class="det">${a.n} pagos</span>` : ''}</span><b class="in">${eur(a.importe)}</b></div>`).join('');
+    // Cada pago se abre para corregirlo; con dos o más pagos salen uno a uno debajo (así se ve y se borra un cobro repetido)
+    const pagadas = [...g.al.values()].sort((a, b) => porNombre(a.nombre, b.nombre)).map((a) => a.n === 1
+      ? movMens(a.movs[0], esc(a.nombre), '', volver)
+      : `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(a.nombre)}</span><span class="det">${a.n} pagos</span></span><b class="in">${eur(a.importe)}</b></div>`
+        + a.movs.map((x) => movMens(x, `Pago del ${fechaCorta(x.fecha)}`, 'mov-sub', volver)).join('')).join('');
     const faltan = [...g.faltan.values()].sort(porNombre).map((f) => `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(f)}</span></span><b>Pendiente</b></div>`).join('');
     return `<details class="caja-clase"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
@@ -1059,7 +1070,7 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
   const ir = (tt, ss) => `#/caja?mes=${mes}&t=${tt}&s=${ss}`;
   if (t === 'ingreso' && s === 'mensualidad') {
     const sueltas = men.filter((x) => !esCuota(x));
-    return `<div class="lista">${cajaMensualidad(men, ins)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
+    return `<div class="lista">${cajaMensualidad(men, ins, volver)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
   if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo?venta=1">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
   if (t === 'ingreso') return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', '', '', i)}
