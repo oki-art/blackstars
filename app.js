@@ -2404,8 +2404,15 @@ async function pantallaPermisos(params) {
   const filas = p ? await q(sb.from('permisos').select('*').eq('perfil_id', p.id)) : [];
   const per = {}; filas.forEach((f) => { per[f.modulo] = f; });
   const soloSuyo = esProfesora(per);
+  // Correo y teléfono para el mensaje de acceso: salen de su ficha de profesora si la tiene (el correo de acceso no se guarda en la app)
+  const ficha = p ? await intentar(() => q(sb.from('profesoras').select('email,telefono').eq('perfil_id', p.id).maybeSingle())) : null;
+  const guia = soloSuyo ? 'profesora' : /adela/i.test(p ? p.nombre : '') || (per.documentos && per.documentos.puede_ver) ? 'adela' : 'maria';
   pintar(cabecera(p ? p.nombre : 'Permisos', { volver: '#/equipo', sub: p ? esc(resumenPersona(p, filas).tipo) : '' }) + `<main class="cont">
     ${p ? `<button class="btn sec ancho" data-ir="#/vista/p/${p.id}">${ico('ojo')} Ver su Inicio</button>
+    ${p.activo && p.rol !== 'admin' ? `<div class="tarjeta"><h3>Enviarle el acceso</h3><p class="nota" style="margin:4px 0 10px">Le manda por WhatsApp el enlace de la app, cómo instalarla y su guía. La contraseña no va: si no la recuerda, que pulse "He olvidado la contraseña".</p>
+      <div class="campo"><label for="correo-acc">Su correo</label><input id="correo-acc" type="email" placeholder="el correo con el que entra" value="${esc(ficha && ficha.email ? ficha.email : '')}"></div>
+      <button class="btn verde ancho" id="wa-acc">${ico('wa')} Enviar acceso por WhatsApp</button>
+      <button class="btn sec ancho" id="copiar-acc">${ico('copiar')} Copiar mensaje</button></div>` : ''}
     <div class="tarjeta"><h3>Plantillas</h3><p class="nota" style="margin:4px 0 10px">Un toque pone los permisos típicos. Luego puedes cambiar los que quieras abajo.</p>
       <div class="filtros tipos-ini">${Object.entries(PLANTILLAS).map(([k, t]) => `<button data-plantilla="${k}">${t.nombre}</button>`).join('')}</div></div>
     <div class="tarjeta">
@@ -2426,6 +2433,16 @@ async function pantallaPermisos(params) {
     : vacio('Todavía no hay más personas. Cuando quieras dar acceso a alguien, créale un usuario y aparecerá aquí sin ningún permiso.')}
   </main>`, 'mas');
   if (!p) return;
+  const msjAcceso = () => {
+    const url = new URL('./', location.href).href, correo = document.getElementById('correo-acc').value.trim();
+    return `Hola ${p.nombre.split(' ')[0]}, aquí tienes la app de Academia Blackstars: ${url}\nÁbrela en el navegador del móvil y entra con ${correo ? `tu correo (${correo})` : 'tu correo'} y tu contraseña. Si no la recuerdas, pulsa "He olvidado la contraseña".\n\nPara tenerla como app: en Android pulsa los tres puntos de arriba y luego "Añadir a pantalla de inicio" o "Instalar app". En iPhone ábrela con Safari, pulsa el botón de compartir y luego "Añadir a pantalla de inicio".\n\nTu guía: ${url}guia/${guia}/`;
+  };
+  const bwa = document.getElementById('wa-acc');
+  if (bwa) {
+    const tel = ficha && ficha.telefono ? ficha.telefono.replace(/\D/g, '') : '';
+    bwa.onclick = () => window.open(`https://wa.me/${tel ? (tel.length === 9 ? '34' + tel : tel) : ''}?text=${encodeURIComponent(msjAcceso())}`, '_blank', 'noopener');
+    document.getElementById('copiar-acc').onclick = async () => { try { await navigator.clipboard.writeText(msjAcceso()); aviso('Copiado'); } catch (e) { aviso('No se pudo copiar', true); } };
+  }
   $app.querySelectorAll('[data-plantilla]').forEach((b) => b.onclick = async () => {
     const t = PLANTILLAS[b.dataset.plantilla];
     if (!confirm(`¿Poner a ${p.nombre} los permisos de "${t.nombre}"? Se cambian los que tiene ahora.`)) return;
