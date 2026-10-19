@@ -219,7 +219,7 @@ async function pantallaForm({ titulo, tabla, modulo, campos, id = null, volver, 
   const vals = Object.assign({}, valoresIniciales, reg || {});
   pintar(cabecera(titulo, { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">${campos.map((c) => campoHtml(c, vals[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button>
-    ${id && S.admin ? `<a class="btn peligro ancho" href="#/clase/${id}/borrar">Borrar clase</a>` : ''}
+    ${id && S.admin ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar definitivamente</button>' : ''}
   </form>${autorDe(reg)}</main>`, false);
   const form = document.getElementById('frm');
   form.onsubmit = async (ev) => {
@@ -972,7 +972,7 @@ function movCaja(x, { conFecha = false, conClase = false, volver }) {
   const href = puedeEditar('caja') ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : volver;
   return `<a class="mov" href="${esc(href)}">${conFecha ? `<span class="mov-dia"><b>${d.getDate()}</b>${DIAS_ABR[diaISO(d)]}</span>` : `<span class="mov-tipo ${x.tipo === 'ingreso' ? 'bg-in' : 'bg-out'}"></span>`}
     <span class="txt"><span class="tit">${esc(x.concepto)}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
-    <b class="${x.tipo === 'ingreso' ? 'in' : 'out'}">${x.tipo === 'ingreso' ? '+' : '−'}${eur(x.importe)}</b></a>`;
+    <b class="${x.tipo === 'ingreso' ? 'in' : 'out'}">${x.tipo === 'ingreso' ? '+' : '−'}${eur(x.importe)}</b>${S.admin ? `<span class="vt-borrar mov-borrar" role="button" data-borrar-mov="${x.id}" data-concepto="${esc(x.concepto)}" data-importe="${x.importe}" aria-label="Borrar este movimiento">${ico('papelera', 16)}</span>` : ''}</a>`;
 }
 // Tarjetas por apartado: cada clase (mensualidades), cada evento, ventas, limpieza…; lo que no encaja va en "Otros"
 function cajaPorClase(movs, { conFecha, volver }) {
@@ -1322,7 +1322,7 @@ async function formCaja(params, id = null) {
     <div class="campo"><label>¿De qué es?</label><div class="filtros tipos-ini" id="apartados"></div></div>
     ${campos.map((c) => c.solo ? `<div data-solo="${c.solo.join(' ')}">${campoHtml(c, ini[c.k])}</div>` : campoHtml(c, ini[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button>
-    ${id && S.admin ? `<a class="btn peligro ancho" href="#/clase/${id}/borrar">Borrar clase</a>` : ''}
+    ${id && S.admin ? `<button class="btn peligro ancho" type="button" id="borrar">${ico('papelera', 18)} Borrar este movimiento</button>` : ''}
   </form>${autorDe(reg)}</main>`, false);
   const pintarApartados = () => {
     // Las camisetas y entradas se venden desde el evento; "Ventas" solo sale al editar un movimiento antiguo
@@ -1343,6 +1343,8 @@ async function formCaja(params, id = null) {
     if (!(datos.importe > 0)) { aviso('El importe tiene que ser mayor que 0', true); return; }
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
     if (!datos.concepto) datos.concepto = apartado === 'evento' ? 'Evento · ' + ((eventos.find(([v]) => v === datos.evento_id) || [0, ''])[1].split(' · ')[0]) : nombreApartado(tipo, apartado);
+    // Se bloquea Guardar mientras guarda: un doble toque apuntaba el mismo cobro dos veces
+    const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
     try {
       const guardar = (d) => id ? q(sb.from('caja').update(d).eq('id', id)) : q(sb.from('caja').insert(d));
       try { await guardar(datos); } catch (e) {
@@ -1351,18 +1353,20 @@ async function formCaja(params, id = null) {
         const { apartado: _a, evento_id: _e, ...sinApartado } = datos; await guardar(sinApartado);
       }
       aviso('Guardado'); location.hash = origen || desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
-    } catch (e) { aviso(traducirError(e), true); }
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
   };
   const b = document.getElementById('borrar');
-  if (b) b.onclick = async () => {
-    // Si es el cobro de una reserva de evento, se deshace el pago (la reserva vuelve a "Cobrar")
-    const res = await intentar(() => q(sb.from('evento_reservas').select('id').eq('caja_id', id).limit(1)));
-    if (!confirm(res.length ? '¿Borrar este cobro? Se quita de la caja y la reserva del evento vuelve a "Cobrar".' : '¿Borrar este movimiento? No se puede deshacer.')) return;
-    try {
-      await (res.length ? q(sb.rpc('deshacer_pago', { p_id: res[0].id })) : q(sb.from('caja').delete().eq('id', id)));
-      aviso('Borrado'); location.hash = volver;
-    } catch (e) { aviso(traducirError(e), true); }
-  };
+  if (b) b.onclick = async () => { if (await borrarMovCaja(id, reg)) location.hash = volver; };
+}
+// Borrar un movimiento de caja (solo administración). Si es el cobro de una reserva de evento, se deshace el pago (la reserva vuelve a "Cobrar")
+async function borrarMovCaja(id, reg) {
+  const res = await intentar(() => q(sb.from('evento_reservas').select('id').eq('caja_id', id).limit(1)));
+  const que = reg ? `\n\n${reg.concepto} · ${eur(reg.importe)}` : '';
+  if (!confirm((res.length ? '¿Borrar este cobro? Se quita de la caja y la reserva del evento vuelve a "Cobrar".' : '¿Borrar este movimiento? No se puede deshacer.') + que)) return false;
+  try {
+    await (res.length ? q(sb.rpc('deshacer_pago', { p_id: res[0].id })) : q(sb.from('caja').delete().eq('id', id)));
+    aviso('Borrado'); return true;
+  } catch (e) { aviso(traducirError(e), true); return false; }
 }
 
 /* ---------- incidencias ---------- */
@@ -2794,6 +2798,9 @@ async function router() {
 
 /* Clics en botones con data-ir / data-volver */
 document.addEventListener('click', (ev) => {
+  // Papelera de un movimiento en las listas de caja (va dentro del enlace: no debe abrirlo)
+  const bm = ev.target.closest('[data-borrar-mov]');
+  if (bm) { ev.preventDefault(); ev.stopPropagation(); borrarMovCaja(bm.dataset.borrarMov, { concepto: bm.dataset.concepto, importe: bm.dataset.importe }).then((ok) => ok && router()); return; }
   const ir = ev.target.closest('[data-ir]');
   if (ir) { ev.preventDefault(); const h = ir.dataset.ir; if (location.hash === h) router(); else location.hash = h; return; }
   const v = ev.target.closest('[data-volver]');
