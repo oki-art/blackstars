@@ -480,3 +480,15 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .dos-campos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .dos-campos>.campo{min-width:0}
 @media (max-width:360px){.dos-campos{grid-template-columns:1fr}}
+/* Pilates: sus clases juntas en una tarjeta (en Clases y en Caja) */
+.grupo-clases>summary{list-style:none;cursor:pointer;border-left-color:var(--dorado);background:#FFFCF6}
+.grupo-clases>summary::-webkit-details-marker{display:none}
+.gc-flecha{display:grid;place-items:center;transition:transform .2s}
+.grupo-clases[open]>summary .gc-flecha{transform:rotate(90deg)}
+.gc-clases{display:flex;flex-direction:column;gap:8px;margin:8px 0 0 14px}
+.tarjeta-clase .tc-cobrado{font-family:'Sora',sans-serif;color:var(--ingreso);margin-left:auto;margin-right:8px}
+.cc-sub{display:flex;flex-direction:column;gap:8px;padding:8px 8px 10px 14px;border-top:1px solid var(--borde)}
+.cc-sub .caja-clase{box-shadow:none}
+/* Barrita de "cargando" cuando una pantalla tarda */
+body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px;z-index:999;background:linear-gradient(90deg,transparent,var(--morado),transparent);background-size:50% 100%;background-repeat:no-repeat;animation:navegando 0.9s linear infinite}
+@keyframes navegando{from{background-position:-50% 0}to{background-position:150% 0}}
