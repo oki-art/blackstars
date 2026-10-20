@@ -471,3 +471,12 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .mov.mov-sub{padding-left:36px;min-height:48px}
 .mov.mov-sub .tit{font-weight:500;font-size:13px}
 .reserva .det.devuelto{color:var(--ingreso,#1F8A5C);font-weight:600}
+/* Clase privada (Pilates) */
+.candado{display:inline-flex;vertical-align:middle;color:var(--dorado)}
+.caja-clase.privada{border-left-color:var(--dorado);background:#FFFCF6}
+.pv-abrir{background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.pv-mas{flex-basis:100%;display:flex;flex-direction:column;gap:10px;padding:10px 12px;border-radius:12px;background:#F8F6FB;font-size:13px;color:var(--texto2)}
+.pv-mas[hidden]{display:none}
+.dos-campos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dos-campos>.campo{min-width:0}
+@media (max-width:360px){.dos-campos{grid-template-columns:1fr}}
