@@ -123,19 +123,30 @@ async function cargarSesion() {
   const { data } = await sb.auth.getSession();
   S.usuario = data.session ? data.session.user : null;
   if (!S.usuario) return;
-  const [perfil, permisos] = await Promise.all([
+  // Las tres consultas a la vez (los nombres del equipo solo se usan si es la administración)
+  const [perfil, permisos, ps] = await Promise.all([
     q(sb.from('perfiles').select('*').eq('id', S.usuario.id).maybeSingle()),
-    q(sb.from('permisos').select('*').eq('perfil_id', S.usuario.id))
+    q(sb.from('permisos').select('*').eq('perfil_id', S.usuario.id)),
+    intentar(() => q(sb.from('perfiles').select('id,nombre')))
   ]);
   // Una persona borrada del equipo ya no puede entrar
   if (perfil && perfil.borrado_en) { await sb.auth.signOut(); S.usuario = null; S.perfil = null; S.permisos = {}; S.admin = false; return; }
   S.perfil = perfil; S.admin = !!(perfil && perfil.rol === 'admin' && perfil.activo);
   S.permisos = {}; (permisos || []).forEach((p) => { S.permisos[p.modulo] = p; });
   S.cargadoEn = Date.now();
-  if (S.admin) {
-    const ps = await q(sb.from('perfiles').select('id,nombre'));
-    S.nombres = {}; ps.forEach((p) => { S.nombres[p.id] = p.nombre; });
-  }
+  S.nombres = {}; if (S.admin) ps.forEach((p) => { S.nombres[p.id] = p.nombre; });
+  // Se guarda en el móvil para que la próxima vez la app abra sin esperar a Supabase
+  try { localStorage.setItem('bs-sesion', JSON.stringify({ uid: S.usuario.id, perfil: S.perfil, permisos: S.permisos, nombres: S.nombres })); } catch (e) { /* sin almacenamiento */ }
+}
+// Abrir la app con lo guardado la última vez (permisos, nombre…); luego se comprueba por detrás
+async function sesionGuardada() {
+  try {
+    const g = JSON.parse(localStorage.getItem('bs-sesion') || 'null'), { data } = await sb.auth.getSession();
+    if (!g || !data.session || data.session.user.id !== g.uid || !g.perfil) return false;
+    S.usuario = data.session.user; S.perfil = g.perfil; S.permisos = g.permisos || {}; S.nombres = g.nombres || {};
+    S.admin = !!(g.perfil.rol === 'admin' && g.perfil.activo);
+    return true;
+  } catch (e) { return false; }
 }
 
 /* ---------- plantilla de pantalla ---------- */
@@ -3006,10 +3017,18 @@ window.addEventListener('hashchange', async () => {
 
 sb.auth.onAuthStateChange((evento) => {
   if (evento === 'PASSWORD_RECOVERY') { location.hash = '#/nueva-clave'; }
-  if (evento === 'SIGNED_OUT') { S.usuario = null; S.perfil = null; S.permisos = {}; S.admin = false; }
+  if (evento === 'SIGNED_OUT') { try { localStorage.removeItem('bs-sesion'); } catch (e) { /* nada */ } S.usuario = null; S.perfil = null; S.permisos = {}; S.admin = false; }
 });
 
 (async () => {
+  if (await sesionGuardada()) {
+    router();
+    // Si al comprobar han cambiado los permisos, se vuelve a pintar la pantalla
+    const antes = JSON.stringify([S.perfil, S.permisos]);
+    S.cargadoEn = Date.now();
+    cargarSesion().then(() => { if (!S.usuario || JSON.stringify([S.perfil, S.permisos]) !== antes) router(); }).catch(console.error);
+    return;
+  }
   try { await cargarSesion(); } catch (e) { console.error(e); }
   router();
 })();
