@@ -13,7 +13,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -58,6 +58,7 @@ function ico(nombre, t = 20) {
     casa: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>', clases: '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/>',
     alumnas: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 6 4.8"/>',
     papelera: '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    candado: '<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     caja: '<rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10h19"/><circle cx="16.5" cy="14.5" r="1.4"/>',
     puntos: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
     ojo: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -438,8 +439,8 @@ const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p &&
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
   caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
-  // Documentos no va en ninguna plantilla: solo lo da la administración a mano
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => m !== 'documentos').map(([m]) => [m, 2])) }
+  // Documentos y Pilates no van en ninguna plantilla: solo los da la administración a mano
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => m !== 'documentos' && m !== 'pilates').map(([m]) => [m, 2])) }
 };
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
@@ -596,11 +597,13 @@ async function formClase(id, escuela = null) {
   const reg = id ? await q(sb.from('clases').select('*,' + SEL_HOR).eq('id', id).single()) : null;
   escuela = escuela || (reg && reg.escuela_amiga_id);
   const profes = escuela ? [] : await intentar(opcionesProfesoras);
+  const conPrivada = !escuela && S.admin && (await clasesPrivadas(), S.privadasOk);
   const campos = escuela
     ? [{ k: 'nombre', label: 'Nombre de la clase', req: true }, { k: 'profesora_externa', label: 'Su profesora' }, { k: 'alumnas_externas', label: 'Número de alumnas', tipo: 'numero' }, { k: 'activa', label: 'Clase activa', tipo: 'bool', def: true }]
     : [{ k: 'nombre', label: 'Nombre de la clase', req: true, ph: 'STARSDANCE' }, { k: 'nivel', label: 'Nivel', ph: 'Iniciación' },
        { k: 'profesora_id', label: 'Profesora', tipo: 'select', opciones: profes, vacio: profes.length ? 'Sin asignar' : 'Aún no hay profesoras',
          ayuda: profes.length ? '' : 'Primero da de alta a las profesoras en Más › Profesoras.' },
+       ...(conPrivada ? [{ k: 'privada', label: 'Clase privada (Pilates): solo la veis tú, quien tenga el permiso Pilates y su profesora', tipo: 'bool' }] : []),
        { k: 'activa', label: 'Clase activa', tipo: 'bool', def: true }];
   const volver = id ? `#/clase/${id}` : escuela ? `#/escuela/${escuela}` : '#/clases';
   const vals = Object.assign({}, reg || {});
@@ -646,7 +649,7 @@ async function guardarHorarios(claseId, horarios) {
 async function pantallaClases(params) {
   if (!puedeVer('clases')) return sinPermiso();
   const f = params.get('f') || 'propias';
-  const clases = await q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR));
+  const [clases, privadas] = await Promise.all([q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR)), clasesPrivadas()]);
   const lista = clases.filter((c) => f === 'propias' ? !c.escuela_amiga_id && c.activa : f === 'amigas' ? c.escuela_amiga_id && c.activa : !c.activa)
     .sort((a, b) => ordenClase(a) - ordenClase(b));
   // Horas de este mes de cada clase (quien lleva la caja): las da su profesora, salvo faltas y cambios
@@ -655,7 +658,7 @@ async function pantallaClases(params) {
     const n = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
     const quien = c.escuela_amiga_id ? `${esc(c.escuelas_amigas ? c.escuelas_amigas.nombre : '')}${c.profesora_externa ? ' · ' + esc(c.profesora_externa) : ''}` : (c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : 'Sin profesora');
     return `<a class="tarjeta-clase ${c.escuela_amiga_id ? 'externa' : ''}" href="#/clase/${c.id}">
-      <div class="tc-cab"><h2>${esc(c.nombre)}</h2>${c.escuela_amiga_id ? '<span class="chip oro">Externa</span>' : `<span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span>`}</div>
+      <div class="tc-cab"><h2>${esc(c.nombre)}${privadas.has(c.id) ? ` <span class="candado" title="Clase privada">${ico('candado', 16)}</span>` : ''}</h2>${c.escuela_amiga_id ? '<span class="chip oro">Externa</span>' : `<span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span>`}</div>
       <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
       <div class="tc-pie"><span>${quien}</span>${horas[c.id] ? `<span class="tc-horas">${horasTxt(horas[c.id].min)} este mes</span>` : ''}${ico('sig', 18)}</div>
       ${horas[c.id] && horas[c.id].otras.length ? `<div class="tc-cubre">${horas[c.id].otras.map((o) => esc(o)).join(' · ')}</div>` : ''}</a>`;
@@ -670,23 +673,118 @@ async function pantallaClases(params) {
 async function pantallaClase(id) {
   if (!puedeVer('clases')) return sinPermiso();
   const c = await q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),' + SEL_HOR).eq('id', id).single());
-  const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : [];
+  const ins = puedeVer('inscripciones') && !c.privada ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : [];
+  const privada = c.privada ? await bloquePrivada(c) : null;
   ins.sort((a, b) => (a.alumnas.nombre || '').localeCompare(b.alumnas.nombre || '', 'es'));
   pintar(cabecera(c.nombre, { volver: c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}` : '#/clases', sub: esc(textoHorario(c, true)) }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
       <dt>Horario</dt><dd>${horariosDe(c).map((h) => `${DIAS[h.dia_semana]} ${hora(h.hora_inicio)}–${hora(h.hora_fin)}`).join('<br>') || '—'}</dd>
       ${c.escuela_amiga_id ? `<dt>Escuela</dt><dd>${esc(c.escuelas_amigas.nombre)}</dd><dt>Profesora</dt><dd>${esc(c.profesora_externa || '—')}</dd><dt>Alumnas</dt><dd>${c.alumnas_externas ?? '—'}</dd>`
         : `<dt>Profesora</dt><dd>${esc(c.profesoras ? c.profesoras.nombre : 'Sin asignar')}</dd><dt>Nivel</dt><dd>${esc(c.nivel || '—')}</dd>`}
-      <dt>Estado</dt><dd>${c.activa ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Inactiva</span>'}</dd>
+      <dt>Estado</dt><dd>${c.activa ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Inactiva</span>'}${c.privada ? ` <span class="chip oro">${ico('candado', 14)} Privada</span>` : ''}</dd>
     </dl></div>
     ${puedeEditar('clases') ? `<a class="btn sec" href="#/clase/${id}/editar">${ico('lapiz')} Editar clase</a>` : ''}
     ${!c.escuela_amiga_id && puedeVer('logros') ? `<a class="btn sec" href="#/logros/clase/${id}">${ico('trofeo')} ${puedeEditar('logros') ? 'Dar estrellas' : 'Ver estrellas'}</a>` : ''}
-    ${!c.escuela_amiga_id && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
+    ${privada ? privada.html : ''}
+    ${!c.escuela_amiga_id && !c.privada && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
       <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: (i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '') + (puedeEditar('inscripciones') ? `<button class="ins-editar" data-ir="#/inscripcion/${i.id}?clase=${id}" aria-label="Corregir fechas">${ico('lapiz', 18)}</button>` : '') })).join('') || vacio('Nadie inscrita todavía.')}</div>
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
     ${S.admin ? `<a class="btn peligro" href="#/clase/${id}/borrar">${ico('papelera', 18)} Borrar clase</a>` : ''}
     ${autorDe(c)}
   </main>`, 'clases');
+  if (privada) privada.activar();
+}
+
+/* ---------- clase privada (Pilates) ---------- */
+// Su profesora (con el permiso Pilates) apunta alumnas con ficha corta y cobra el mes en efectivo; el cobro entra en la caja.
+// La clase, sus alumnas y sus cobros solo los ven la administración, quien tenga el permiso Pilates y su profesora (migración 020).
+const PRECIOS_PRIVADA = [['completo', 'Mes completo', 30], ['medio', 'Medio mes', 20]];
+async function clasesPrivadas() {   // ids de las clases privadas que se ven; sin la 020, ninguna
+  const { data, error } = await sb.from('clases').select('id').eq('privada', true);
+  S.privadasOk = !error;
+  return new Set(error ? [] : data.map((c) => c.id));
+}
+const gestionaPrivada = () => S.admin || puedeEditar('pilates');
+async function bloquePrivada(c) {
+  const qs = new URLSearchParams(location.hash.split('?')[1] || ''), hoy = hoyISO();
+  const mes = /^\d{4}-\d{2}$/.test(qs.get('mes') || '') ? qs.get('mes') : hoy.slice(0, 7);
+  const [y, m] = mes.split('-').map(Number), ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
+  const gest = gestionaPrivada(), verCobros = S.admin || puedeVer('pilates');
+  const [ins, cobros] = await Promise.all([
+    intentar(() => q(sb.from('inscripciones').select('id,alumna_id,fecha_alta,alumnas(id,nombre,apellidos,telefono,email,edad)').eq('clase_id', c.id).is('fecha_baja', null).lt('fecha_alta', fin))),
+    verCobros ? intentar(() => q(sb.from('caja').select('id,alumna_id,importe,concepto,fecha').eq('clase_id', c.id).eq('tipo', 'ingreso').gte('fecha', ini).lt('fecha', fin))) : []
+  ]);
+  const pago = Object.fromEntries(cobros.filter((x) => x.alumna_id).map((x) => [x.alumna_id, x]));
+  const nom = (a) => `${a.nombre} ${a.apellidos || ''}`.trim(), nMes = nombreMes(ini);
+  const lista = ins.filter((i) => i.alumnas).sort((a, b) => !pago[a.alumna_id] - !pago[b.alumna_id] || nom(a.alumnas).localeCompare(nom(b.alumnas), 'es'));
+  const nPag = lista.filter((i) => pago[i.alumna_id]).length, total = cobros.reduce((t, x) => t + +x.importe, 0);
+  const fila = (i) => {
+    const a = i.alumnas, p = pago[a.id];
+    const det = [a.edad ? a.edad + ' años' : '', verCobros ? (p ? (/medio mes/i.test(p.concepto) ? 'Medio mes' : 'Mes completo') : 'Pendiente') : ''].filter(Boolean).join(' · ');
+    const der = !verCobros ? '' : p ? `<b class="in">${eur(p.importe)}</b>${gest ? `<button class="vt-borrar" data-pv-deshacer="${p.id}" data-quien="${esc(nom(a))}" data-importe="${p.importe}" aria-label="Borrar el cobro">${ico('papelera', 18)}</button>` : ''}`
+      : gest ? `<button class="vt-cobrar" data-pv-cobrar="${a.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>';
+    return `<div class="reserva ${p ? 'pagada' : ''}"><button type="button" class="txt pv-abrir" data-pv="${a.id}" aria-expanded="false"><span class="tit">${esc(nom(a))}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</button>${der}
+      ${!p && gest ? `<div class="vt-metodos" id="m-${a.id}" hidden>${PRECIOS_PRIVADA.map(([k, t, imp]) => `<button data-pv-pagar="${a.id}" data-medio="${k === 'medio'}" data-imp="${imp}">${t} · ${imp} €</button>`).join('')}</div>` : ''}
+      <div class="pv-mas" id="pv-${a.id}" hidden><span>${esc([a.telefono, a.email].filter(Boolean).join(' · ') || 'Sin teléfono ni email')}</span>
+        ${gest ? `<button class="btn peligro" data-pv-borrar="${a.id}" data-quien="${esc(nom(a))}">${ico('papelera', 18)} Borrar alumna</button>` : ''}</div></div>`;
+  };
+  const html = `<div class="seccion">Alumnas y cobros</div>
+    ${verCobros ? `<div class="mes"><button data-ir="#/clase/${c.id}?mes=${prev}" aria-label="Mes anterior">${ico('volver')}</button><h2>${capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }))}</h2><button data-ir="#/clase/${c.id}?mes=${next}" aria-label="Mes siguiente">${ico('sig')}</button></div>
+    <div class="mens-total"><span><small>Cobrado en ${esc(nMes)}</small><b>${nPag} de ${lista.length} alumna${lista.length === 1 ? '' : 's'}</b>${lista.length - nPag ? `<em>Faltan ${lista.length - nPag}</em>` : ''}</span><b class="mens-eur">${eur(total)}</b></div>` : ''}
+    <div class="tarjeta reservas">${lista.map(fila).join('') || `<div class="vacio">Todavía no hay alumnas.${gest ? ' Pulsa "Apuntar alumna".' : ''}</div>`}</div>
+    ${gest ? `<a class="btn pri" href="#/clase/${c.id}/apuntar">${ico('mas')} Apuntar alumna</a><p class="nota">Pulsa el nombre de una alumna para ver su teléfono o borrarla si se apuntó por error. La papelera roja quita un cobro.</p>`
+      : verCobros ? '' : '<p class="nota">Para apuntar alumnas y cobrar hace falta el permiso Pilates, que da la administración en Equipo.</p>'}`;
+  const activar = () => {
+    $app.querySelectorAll('[data-pv]').forEach((b) => b.onclick = () => { const d = document.getElementById('pv-' + b.dataset.pv); d.hidden = !d.hidden; b.setAttribute('aria-expanded', String(!d.hidden)); });
+    $app.querySelectorAll('[data-pv-cobrar]').forEach((b) => b.onclick = () => { const d = document.getElementById('m-' + b.dataset.pvCobrar); d.hidden = !d.hidden; });
+    $app.querySelectorAll('[data-pv-pagar]').forEach((b) => b.onclick = async () => {
+      const grupo = b.parentElement.querySelectorAll('button'); grupo.forEach((x) => { x.disabled = true; });
+      try { await q(sb.rpc('cobrar_privada', { p_clase: c.id, p_alumna: b.dataset.pvPagar, p_importe: +b.dataset.imp, p_medio: b.dataset.medio === 'true', p_mes: ini })); aviso('Cobrado: ya está en la caja'); router(); }
+      catch (e) { aviso(traducirError(e), true); grupo.forEach((x) => { x.disabled = false; }); }
+    });
+    $app.querySelectorAll('[data-pv-deshacer]').forEach((b) => b.onclick = async () => {
+      if (!confirm(`¿Borrar el cobro de ${b.dataset.quien} (${eur(b.dataset.importe)}) de ${nMes}?\n\nSe quita de la caja y vuelve a salir "Cobrar".`)) return;
+      b.disabled = true;
+      try { await q(sb.rpc('borrar_cobro_privada', { p_caja: b.dataset.pvDeshacer })); aviso('Cobro borrado'); router(); }
+      catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+    });
+    $app.querySelectorAll('[data-pv-borrar]').forEach((b) => b.onclick = async () => {
+      if (!confirm(`¿Borrar a ${b.dataset.quien}?\n\nSe quita de ${c.nombre} junto con sus cobros de esta clase. No se puede deshacer.`)) return;
+      b.disabled = true;
+      try { await q(sb.rpc('borrar_alumna_privada', { p_alumna: b.dataset.pvBorrar, p_clase: c.id })); aviso('Alumna borrada'); router(); }
+      catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+    });
+  };
+  return { html, activar };
+}
+// Apuntar alumna en una clase privada: ficha corta y, si ya ha pagado, el cobro del mes
+async function formApuntarPrivada(id) {
+  const c = await q(sb.from('clases').select('id,nombre,privada').eq('id', id).single());
+  if (!c.privada || !gestionaPrivada()) return sinPermiso();
+  const volver = `#/clase/${id}`;
+  pintar(cabecera('Apuntar alumna', { volver, sub: esc(c.nombre) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="dos-campos">${campoHtml({ k: 'nombre', label: 'Nombre', req: true })}${campoHtml({ k: 'apellidos', label: 'Apellidos' })}</div>
+    ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', ph: 'nombre@gmail.com' })}
+    <div class="dos-campos">${campoHtml({ k: 'telefono', label: 'Teléfono', tipo: 'tel' })}
+      <div class="campo"><label for="f_edad">Edad</label><input id="f_edad" name="edad" type="number" min="1" max="120" step="1" inputmode="numeric"></div></div>
+    <label class="check"><input type="checkbox" id="pagado"><span>Ha pagado este mes (en efectivo)</span></label>
+    <div class="campo" id="campo-cuota" hidden><label for="f_cuota">¿Cuánto ha pagado?</label><select id="f_cuota">${PRECIOS_PRIVADA.map(([k, t, imp]) => `<option value="${k}">${t} · ${imp} €</option>`).join('')}</select></div>
+    <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
+  const $ = (x) => document.getElementById(x), form = $('frm');
+  $('pagado').onchange = () => { $('campo-cuota').hidden = !$('pagado').checked; };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const v = (k) => (form.elements[k].value || '').trim(), edadTxt = v('edad');
+    if (edadTxt && !(/^\d{1,3}$/.test(edadTxt) && +edadTxt >= 1 && +edadTxt <= 120)) { aviso('La edad tiene que ser un número de años', true); return; }
+    const precio = PRECIOS_PRIVADA.find(([k]) => k === $('f_cuota').value) || PRECIOS_PRIVADA[0], pagado = $('pagado').checked;
+    const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
+    try {
+      await q(sb.rpc('apuntar_alumna_privada', { p_clase: id, p_nombre: v('nombre'), p_apellidos: v('apellidos'), p_email: v('email'), p_telefono: v('telefono'),
+        p_edad: edadTxt ? +edadTxt : null, p_importe: pagado ? precio[2] : null, p_medio: pagado && precio[0] === 'medio' }));
+      aviso(pagado ? 'Apuntada y cobrada' : 'Apuntada'); location.hash = volver;
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
+  };
 }
 
 // Antes de borrar una clase se cuenta lo que tiene, para decir qué se pierde y qué se queda
@@ -817,7 +915,7 @@ async function pantallaAlumna(id) {
   const a = await q(sb.from('alumnas').select('*').eq('id', id).single());
   const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,clases(id,nombre,' + SEL_HOR + ')').eq('alumna_id', id).order('fecha_alta', { ascending: false }))) : [];
   const notas = await intentar(() => q(sb.from('alumnas_notas').select('*').eq('alumna_id', id).order('creado_en', { ascending: false })));
-  const e = edad(a.fecha_nacimiento);
+  const e = a.fecha_nacimiento ? edad(a.fecha_nacimiento) : a.edad ?? null;
   const tel = (t) => t ? `<a href="tel:${esc(t)}" style="color:var(--morado3)">${esc(t)}</a> · <a href="https://wa.me/${esc(t.replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1'))}" target="_blank" rel="noopener" style="color:#1FA855">WhatsApp</a>` : '—';
   pintar(cabecera(`${a.nombre} ${a.apellidos || ''}`, { volver: '#/alumnas', sub: (a.estado === 'activa' ? 'Activa desde ' + fechaCorta(a.fecha_alta) : 'De baja') + (a.cuota === 'media' ? ' · Medio mes' : '') }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
@@ -992,12 +1090,12 @@ function cajaPorClase(movs, { conFecha, volver }) {
       : a === 'evento' && x.evento_id ? ['v' + x.evento_id, 'Evento · ' + (x.eventos ? x.eventos.titulo : ''), 1, 'externa']
       : a === 'escuela_amiga' && x.escuela_amiga_id ? ['e' + x.escuela_amiga_id, x.escuelas_amigas ? x.escuelas_amigas.nombre : 'Escuela amiga', 2, 'externa']
       : a === 'otro' || a === 'mensualidad' || a === 'evento' ? ['otros', 'Otros', 9, 'otros'] : ['a' + a, nombreApartado(x.tipo, a), 3, 'apart'];
-    if (!grupos.has(k)) grupos.set(k, { nombre, orden, estilo, amiga: a === 'escuela_amiga', l: [] });
+    if (!grupos.has(k)) grupos.set(k, { nombre, orden, estilo, amiga: a === 'escuela_amiga', privada: k === 'c' + x.clase_id && esPrivada(x.clase_id), l: [] });
     grupos.get(k).l.push(x);
   });
   return [...grupos.values()].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')).map((g) => {
     const [i, o] = sumaCaja(g.l);
-    return `<details class="caja-clase ${g.estilo}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${g.l.length} movimiento${g.l.length === 1 ? '' : 's'}${g.amiga ? ' · Escuela amiga' : ''}</small></span>
+    return `<details class="caja-clase ${g.estilo}${g.privada ? ' privada' : ''}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}${g.privada ? candadoCaja : ''}</h3><small>${g.l.length} movimiento${g.l.length === 1 ? '' : 's'}${g.amiga ? ' · Escuela amiga' : ''}</small></span>
       <span class="cc-tot">${i ? `<b class="in">+${eur(i)}</b>` : ''}${o ? `<b class="out">−${eur(o)}</b>` : ''}</span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${g.l.map((x) => movCaja(x, { conFecha, volver })).join('')}</div></details>`;
   }).join('');
@@ -1009,11 +1107,14 @@ function movMens(x, titulo, clase, volver) {
   return `<${href ? `a href="${esc(href)}"` : 'div'} class="mov ${clase}"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${titulo}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
     <b class="in">${eur(x.importe)}</b>${S.admin ? `<span class="vt-borrar mov-borrar" role="button" data-borrar-mov="${x.id}" data-concepto="${esc(x.concepto)}" data-importe="${x.importe}" aria-label="Borrar este pago">${ico('papelera', 16)}</span>` : ''}</${href ? 'a' : 'div'}>`;
 }
+// Clases privadas (Pilates) en la caja: salen con candado (María no las ve: se lo impide la base de datos)
+const esPrivada = (claseId) => !!(S.privadas && S.privadas.has(claseId));
+const candadoCaja = ` <span class="candado" title="Clase privada: solo la ven la administración, quien tenga el permiso Pilates y su profesora">${ico('candado', 14)}</span>`;
 // Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
 const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
 function cajaMensualidad(movs, ins, volver) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
-  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
+  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, privada: esPrivada(id), al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
   movs.filter(esCuota).forEach((x) => {
     const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0, movs: [] };
     a.importe += +x.importe; a.n++; a.movs.push(x); g.al.set(x.alumna_id, a); g.total += +x.importe;
@@ -1030,7 +1131,7 @@ function cajaMensualidad(movs, ins, volver) {
       : `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(a.nombre)}</span><span class="det">${a.n} pagos</span></span><b class="in">${eur(a.importe)}</b></div>`
         + a.movs.map((x) => movMens(x, `Pago del ${fechaCorta(x.fecha)}`, 'mov-sub', volver)).join('')).join('');
     const faltan = [...g.faltan.values()].sort(porNombre).map((f) => `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(f)}</span></span><b>Pendiente</b></div>`).join('');
-    return `<details class="caja-clase"><summary class="cc-cab"><span><h3>${esc(g.nombre)}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
+    return `<details class="caja-clase${g.privada ? ' privada' : ''}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}${g.privada ? candadoCaja : ''}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${pagadas}${faltan}</div></details>`;
   }).join('');
@@ -1098,7 +1199,8 @@ async function pantallaCaja(params) {
   const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = subCaja(params, t);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
-  const movs = await leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en'));
+  const [movs, privadas] = await Promise.all([leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en')), clasesPrivadas()]);
+  S.privadas = privadas;
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
@@ -2753,6 +2855,7 @@ async function router() {
         if (p[1] === 'nueva') return await formClase(null);
         if (p[2] === 'editar') return await formClase(p[1]);
         if (p[2] === 'borrar') return await pantallaBorrarClase(p[1]);
+        if (p[2] === 'apuntar') return await formApuntarPrivada(p[1]);
         return await pantallaClase(p[1]);
       case 'alumnas': return await pantallaAlumnas(params);
       case 'alumna':
