@@ -2,8 +2,21 @@
    Una sola página: el contenido cambia según la dirección (#/alumnas, #/caja...). */
 'use strict';
 
+// Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
+const TIEMPOS = [];
+const medirFetch = async (url, opts) => {
+  const t0 = performance.now();
+  // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
+  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/.test(String(url))) VISTAS.clear();
+  try { return await fetch(url, opts); }
+  finally {
+    const u = new URL(typeof url === 'string' ? url : url.url, location.href);
+    TIEMPOS.push({ que: u.pathname.replace(/^\/(rest|auth|storage|functions)\/v1\//, ''), ms: Math.round(performance.now() - t0), en: Date.now() });
+    if (TIEMPOS.length > 80) TIEMPOS.shift();
+  }
+};
 const sb = supabase.createClient(window.BS_CONFIG.url, window.BS_CONFIG.key, {
-  auth: { persistSession: true, autoRefreshToken: true }
+  auth: { persistSession: true, autoRefreshToken: true }, global: { fetch: medirFetch }
 });
 
 const $app = document.getElementById('app');
@@ -160,11 +173,16 @@ function ojoClaves() {
     b.addEventListener('contextmenu', (ev) => ev.preventDefault());
   });
 }
+// Última vista de cada pantalla: al volver a ella se enseña al momento y se pone al día por detrás
+const VISTAS = new Map();
 function pintar(html, nav = null, botonMas = null) {
+  // Si mientras cargaba se ha tocado otra pantalla, esta ya no se pinta (si no, taparía la nueva)
+  if (S.rutaActual != null && location.hash !== S.rutaActual) return;
   $app.innerHTML = html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
   window.scrollTo(0, 0);
   ojoClaves();
   if (document.getElementById('campana')) actualizarCampana();
+  if (nav !== false && !/<form|<input|<textarea|<select/.test(html)) { VISTAS.delete(location.hash); VISTAS.set(location.hash, $app.innerHTML); if (VISTAS.size > 30) VISTAS.delete(VISTAS.keys().next().value); }
 }
 // Punto de la campana: hay avisos sin leer
 async function actualizarCampana() {
@@ -522,6 +540,19 @@ const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones
 // La administración también: en Más solo su ficha, Ver como profesora, Equipo y permisos y la contraseña
 const enMas = (m) => !(!S.admin && esProfesora(S.permisos) ? EN_INICIO_PROFE : EN_INICIO).includes(m);
 const volverDe = (m) => enMas(m) ? '#/mas' : '#/inicio';
+// Velocidad: lo que han tardado las últimas consultas (para saber si el freno está en Supabase o en el móvil)
+function pantallaVelocidad() {
+  if (!S.admin) return sinPermiso();
+  const l = TIEMPOS.filter((t) => !/notificaciones/.test(t.que)), ms = l.map((t) => t.ms).sort((a, b) => a - b);
+  const media = ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : 0, mediana = ms.length ? ms[Math.floor(ms.length / 2)] : 0;
+  const lentas = l.slice().sort((a, b) => b.ms - a.ms).slice(0, 12);
+  pintar(cabecera('Velocidad', { volver: '#/mas', sub: 'Últimas consultas a Supabase' }) + `<main class="cont">
+    <div class="mens-total"><span><small>Tiempo normal por consulta</small><b>${mediana} ms</b><em>Media ${media} ms · ${ms.length} consultas</em></span><b class="mens-eur">${(mediana / 1000).toFixed(2)} s</b></div>
+    <p class="nota">Usa la app un rato (Clases, Caja, Alumnas…) y vuelve aquí. Por debajo de 300 ms va bien; si pasa de 1000 ms, el freno está en Supabase o en la conexión.</p>
+    <div class="seccion">Las más lentas</div>
+    <div class="tarjeta">${lentas.map((t) => `<div class="mov"><span class="txt"><span class="tit">${esc(t.que.split('?')[0])}</span><span class="det">${new Date(t.en).toLocaleTimeString('es-ES')}</span></span><b class="${t.ms > 1000 ? 'out' : t.ms > 300 ? '' : 'in'}">${t.ms} ms</b></div>`).join('') || vacio('Todavía no hay consultas. Muévete por la app y vuelve.')}</div>
+  </main>`, 'mas');
+}
 function pantallaMas() {
   const items = [
     ['logros', '#/logros', 'trofeo', 'Logros', 'Retos del mes y estrellas de alumnas'],
@@ -541,6 +572,7 @@ function pantallaMas() {
       <span class="txt"><b>${esc(S.perfil ? S.perfil.nombre : '')}</b><span>${S.admin ? 'Administración · acceso completo' : esc(S.usuario.email)}</span><span class="mf-pie">${ico('llave', 14)} Mi ficha · DNI, cuenta y tallas</span></span>${ico('sig', 22)}</a>
     <div class="lista">${items.map((i) => fila({ href: i[1], tit: i[3], det: i[4], iconoHtml: ic(i[2]), der: ico('sig') })).join('')}
     ${S.admin ? fila({ href: '#/vista', tit: 'Ver como profesora', det: 'Comprueba qué ve cada profesora en el Inicio', iconoHtml: ic('ojo'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
+    ${S.admin ? fila({ href: '#/velocidad', tit: 'Velocidad', det: 'Cuánto tarda la app en traer los datos', iconoHtml: ic('idea'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${S.admin ? fila({ href: '#/equipo', tit: 'Equipo y permisos', det: 'Todas las personas y lo que puede ver cada una', iconoHtml: ic('alumnas'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${fila({ href: '#/nueva-clave', tit: 'Cambiar mi contraseña', iconoHtml: ic('llave'), der: ico('sig') })}
     </div>
@@ -738,13 +770,13 @@ async function bloquePrivada(c) {
     return `<div class="reserva ${p ? 'pagada' : ''}"><button type="button" class="txt pv-abrir" data-pv="${a.id}" aria-expanded="false"><span class="tit">${esc(nom(a))}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</button>${der}
       ${!p && gest ? `<div class="vt-metodos" id="m-${a.id}" hidden>${PRECIOS_PRIVADA.map(([k, t, imp]) => `<button data-pv-pagar="${a.id}" data-medio="${k === 'medio'}" data-imp="${imp}">${t} · ${imp} €</button>`).join('')}</div>` : ''}
       <div class="pv-mas" id="pv-${a.id}" hidden><span>${esc([a.telefono, a.email].filter(Boolean).join(' · ') || 'Sin teléfono ni email')}</span>
-        ${gest ? `<button class="btn peligro" data-pv-borrar="${a.id}" data-quien="${esc(nom(a))}">${ico('papelera', 18)} Borrar alumna</button>` : ''}</div></div>`;
+        ${gest ? `<a class="btn sec" href="#/clase/${c.id}/alumna/${a.id}">${ico('lapiz', 18)} Editar sus datos</a><button class="btn peligro" data-pv-borrar="${a.id}" data-quien="${esc(nom(a))}">${ico('papelera', 18)} Borrar alumna</button>` : ''}</div></div>`;
   };
   const html = `<div class="seccion">Alumnas y cobros</div>
     ${verCobros ? `<div class="mes"><button data-ir="#/clase/${c.id}?mes=${prev}" aria-label="Mes anterior">${ico('volver')}</button><h2>${capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }))}</h2><button data-ir="#/clase/${c.id}?mes=${next}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     <div class="mens-total"><span><small>Cobrado en ${esc(nMes)}</small><b>${nPag} de ${lista.length} alumna${lista.length === 1 ? '' : 's'}</b>${lista.length - nPag ? `<em>Faltan ${lista.length - nPag}</em>` : ''}</span><b class="mens-eur">${eur(total)}</b></div>` : ''}
     <div class="tarjeta reservas">${lista.map(fila).join('') || `<div class="vacio">Todavía no hay alumnas.${gest ? ' Pulsa "Apuntar alumna".' : ''}</div>`}</div>
-    ${gest ? `<a class="btn pri" href="#/clase/${c.id}/apuntar">${ico('mas')} Apuntar alumna</a><p class="nota">Pulsa el nombre de una alumna para ver su teléfono o borrarla si se apuntó por error. La papelera roja quita un cobro.</p>`
+    ${gest ? `<a class="btn pri" href="#/clase/${c.id}/apuntar">${ico('mas')} Apuntar alumna</a><p class="nota">Pulsa el nombre de una alumna para ver su teléfono, editar sus datos o borrarla si se apuntó por error. La papelera roja quita un cobro.</p>`
       : verCobros ? '' : '<p class="nota">Para apuntar alumnas y cobrar hace falta el permiso Pilates, que da la administración en Equipo.</p>'}`;
   const activar = () => {
     $app.querySelectorAll('[data-pv]').forEach((b) => b.onclick = () => { const d = document.getElementById('pv-' + b.dataset.pv); d.hidden = !d.hidden; b.setAttribute('aria-expanded', String(!d.hidden)); });
@@ -769,25 +801,34 @@ async function bloquePrivada(c) {
   };
   return { html, activar };
 }
-// Apuntar alumna en una clase privada: ficha corta y, si ya ha pagado, el cobro del mes
-async function formApuntarPrivada(id) {
-  const c = await q(sb.from('clases').select('id,nombre,privada').eq('id', id).single());
-  if (!c.privada || !gestionaPrivada()) return sinPermiso();
-  const volver = `#/clase/${id}`;
-  pintar(cabecera('Apuntar alumna', { volver, sub: esc(c.nombre) }) + `<main class="cont"><form class="form tarjeta" id="frm">
-    <div class="dos-campos">${campoHtml({ k: 'nombre', label: 'Nombre', req: true })}${campoHtml({ k: 'apellidos', label: 'Apellidos' })}</div>
-    ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', ph: 'nombre@gmail.com' })}
-    <div class="dos-campos">${campoHtml({ k: 'telefono', label: 'Teléfono', tipo: 'tel' })}
-      <div class="campo"><label for="f_edad">Edad</label><input id="f_edad" name="edad" type="number" min="1" max="120" step="1" inputmode="numeric"></div></div>
-    <label class="check"><input type="checkbox" id="pagado"><span>Ha pagado este mes (en efectivo)</span></label>
-    <div class="campo" id="campo-cuota" hidden><label for="f_cuota">¿Cuánto ha pagado?</label><select id="f_cuota">${PRECIOS_PRIVADA.map(([k, t, imp]) => `<option value="${k}">${t} · ${imp} €</option>`).join('')}</select></div>
+// Apuntar alumna en una clase privada: ficha corta y, si ya ha pagado, el cobro del mes. Con aid, corregir sus datos.
+async function formApuntarPrivada(id, aid) {
+  const [c, a] = await Promise.all([q(sb.from('clases').select('id,nombre,privada').eq('id', id).single()),
+    aid ? q(sb.from('alumnas').select('id,nombre,apellidos,email,telefono,edad').eq('id', aid).maybeSingle()) : null]);
+  if (!c.privada || !gestionaPrivada() || (aid && !a)) return sinPermiso();
+  const volver = `#/clase/${id}`, al = a || {};
+  pintar(cabecera(aid ? 'Editar alumna' : 'Apuntar alumna', { volver, sub: esc(c.nombre) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="dos-campos">${campoHtml({ k: 'nombre', label: 'Nombre', req: true }, al.nombre)}${campoHtml({ k: 'apellidos', label: 'Apellidos' }, al.apellidos)}</div>
+    ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', ph: 'nombre@gmail.com' }, al.email)}
+    <div class="dos-campos">${campoHtml({ k: 'telefono', label: 'Teléfono', tipo: 'tel' }, al.telefono)}
+      <div class="campo"><label for="f_edad">Edad</label><input id="f_edad" name="edad" type="number" min="1" max="120" step="1" inputmode="numeric" value="${esc(al.edad ?? '')}"></div></div>
+    ${aid ? '' : `<label class="check"><input type="checkbox" id="pagado"><span>Ha pagado este mes (en efectivo)</span></label>
+    <div class="campo" id="campo-cuota" hidden><label for="f_cuota">¿Cuánto ha pagado?</label><select id="f_cuota">${PRECIOS_PRIVADA.map(([k, t, imp]) => `<option value="${k}">${t} · ${imp} €</option>`).join('')}</select></div>`}
     <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
   const $ = (x) => document.getElementById(x), form = $('frm');
-  $('pagado').onchange = () => { $('campo-cuota').hidden = !$('pagado').checked; };
+  if (!aid) $('pagado').onchange = () => { $('campo-cuota').hidden = !$('pagado').checked; };
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const v = (k) => (form.elements[k].value || '').trim(), edadTxt = v('edad');
     if (edadTxt && !(/^\d{1,3}$/.test(edadTxt) && +edadTxt >= 1 && +edadTxt <= 120)) { aviso('La edad tiene que ser un número de años', true); return; }
+    if (aid) {
+      const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
+      try {
+        await q(sb.rpc('editar_alumna_privada', { p_alumna: aid, p_clase: id, p_nombre: v('nombre'), p_apellidos: v('apellidos'), p_email: v('email'), p_telefono: v('telefono'), p_edad: edadTxt ? +edadTxt : null }));
+        aviso('Datos guardados'); location.hash = volver;
+      } catch (e) { aviso(/editar_alumna_privada/.test(e.message || '') ? 'Falta un paso en Supabase (023). Avisa a la administración.' : traducirError(e), true); btn.disabled = false; }
+      return;
+    }
     const precio = PRECIOS_PRIVADA.find(([k]) => k === $('f_cuota').value) || PRECIOS_PRIVADA[0], pagado = $('pagado').checked;
     const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
     try {
@@ -2848,6 +2889,7 @@ async function pantallaLogrosClase(id, params) {
 async function router() {
   const qs = new URLSearchParams(location.search);
   if (qs.get('f')) return formularioPublico(qs.get('f'));
+  S.rutaActual = location.hash;
   if (!S.usuario) return pantallaLogin();
   // Si la administración cambia los permisos, se notan al moverse por la app (sin cerrar sesión)
   // Se comprueba por detrás, sin hacer esperar a la pantalla
@@ -2860,6 +2902,7 @@ async function router() {
     switch (p[0]) {
       case 'inicio': return await pantallaInicio();
       case 'mas': return pantallaMas();
+      case 'velocidad': return pantallaVelocidad();
       case 'avisos': return await pantallaAvisos();
       case 'aviso': return await formAviso();
       case 'documentos': return await pantallaDocumentos(params);
@@ -2876,6 +2919,7 @@ async function router() {
         if (p[2] === 'editar') return await formClase(p[1]);
         if (p[2] === 'borrar') return await pantallaBorrarClase(p[1]);
         if (p[2] === 'apuntar') return await formApuntarPrivada(p[1]);
+        if (p[2] === 'alumna' && p[3]) return await formApuntarPrivada(p[1], p[3]);
         return await pantallaClase(p[1]);
       case 'alumnas': return await pantallaAlumnas(params);
       case 'alumna':
@@ -2954,6 +2998,8 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // Si una pantalla tarda, una barrita arriba avisa de que el toque ha llegado
 window.addEventListener('hashchange', async () => {
   document.getElementById('aviso').className = '';
+  const previa = S.usuario && VISTAS.get(location.hash);
+  if (previa) { $app.innerHTML = previa; window.scrollTo(0, 0); }
   const t = setTimeout(() => document.body.classList.add('navegando'), 120);
   try { await router(); } finally { clearTimeout(t); document.body.classList.remove('navegando'); }
 });
