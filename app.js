@@ -477,7 +477,16 @@ async function formAcceso(params) {
     ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', req: true, ph: 'nombre@gmail.com' }, prof ? prof.email : '')}
     ${campoHtml({ k: 'clave', label: 'Contraseña provisional', req: true, ayuda: 'Solo sirve para la primera vez: al entrar, la app le pide crear la suya.' }, clave)}
     ${campoHtml({ k: 'plantilla', label: 'Permisos', tipo: 'select', req: true, opciones: Object.entries(PLANTILLAS).map(([k, t]) => [k, t.nombre]) }, prof ? 'profesora' : 'gestion')}
-    <button class="btn pri ancho" type="submit">Dar acceso</button></form></main>`, false);
+    <button class="btn pri ancho" type="submit">Dar acceso</button></form>
+    ${prof ? `<button class="btn peligro ancho" type="button" id="borrar-ficha">${ico('papelera', 18)} Borrar esta profesora</button>
+    <p class="nota">Si sobra (por ejemplo, una de prueba). Sus clases se quedan, sin profesora.</p>` : ''}</main>`, false);
+  const bf = document.getElementById('borrar-ficha');
+  if (bf) bf.onclick = async () => {
+    if (!confirm(`¿Borrar a ${prof.nombre} de Profesoras?\n\nNo se puede deshacer.`)) return;
+    bf.disabled = true;
+    try { await q(sb.from('profesoras').delete().eq('id', prof.id)); aviso('Profesora borrada'); location.hash = '#/equipo'; }
+    catch (e) { aviso(traducirError(e), true); bf.disabled = false; }
+  };
   const form = document.getElementById('frm');
   form.onsubmit = async (ev) => {
     ev.preventDefault();
