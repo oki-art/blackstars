@@ -649,20 +649,31 @@ async function guardarHorarios(claseId, horarios) {
 async function pantallaClases(params) {
   if (!puedeVer('clases')) return sinPermiso();
   const f = params.get('f') || 'propias';
-  const [clases, privadas] = await Promise.all([q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR)), clasesPrivadas()]);
+  // Horas de este mes de cada clase (quien lleva la caja): las da su profesora, salvo faltas y cambios. Todo a la vez.
+  const mesH = hoyISO().slice(0, 7), [ym, mm] = mesH.split('-').map(Number), finH = `${mm === 12 ? ym + 1 : ym}-${pad(mm === 12 ? 1 : mm + 1)}-01`;
+  const [clases, privadas, horas, cobros] = await Promise.all([q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR)), clasesPrivadas(),
+    f === 'propias' && puedeVer('caja') ? intentar(async () => horasPorClase(calcularHoras(mesH, await datosHoras(mesH)))) : {},
+    // Lo cobrado este mes en las clases privadas (Pilates); la base de datos solo deja verlo a quien le toca
+    f === 'propias' ? intentar(() => q(sb.from('caja').select('clase_id,importe').eq('tipo', 'ingreso').gte('fecha', mesH + '-01').lt('fecha', finH).not('clase_id', 'is', null))) : []]);
   const lista = clases.filter((c) => f === 'propias' ? !c.escuela_amiga_id && c.activa : f === 'amigas' ? c.escuela_amiga_id && c.activa : !c.activa)
     .sort((a, b) => ordenClase(a) - ordenClase(b));
-  // Horas de este mes de cada clase (quien lleva la caja): las da su profesora, salvo faltas y cambios
-  const mesH = hoyISO().slice(0, 7), horas = f === 'propias' && puedeVer('caja') ? await intentar(async () => horasPorClase(calcularHoras(mesH, await datosHoras(mesH)))) : {};
-  const tarjetas = lista.map((c) => {
+  const cobrado = {}; cobros.forEach((x) => { if (privadas.has(x.clase_id)) cobrado[x.clase_id] = (cobrado[x.clase_id] || 0) + +x.importe; });
+  const veCobros = S.admin || puedeVer('pilates');
+  const tarjeta = (c) => {
     const n = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
     const quien = c.escuela_amiga_id ? `${esc(c.escuelas_amigas ? c.escuelas_amigas.nombre : '')}${c.profesora_externa ? ' · ' + esc(c.profesora_externa) : ''}` : (c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : 'Sin profesora');
     return `<a class="tarjeta-clase ${c.escuela_amiga_id ? 'externa' : ''}" href="#/clase/${c.id}">
       <div class="tc-cab"><h2>${esc(c.nombre)}${privadas.has(c.id) ? ` <span class="candado" title="Clase privada">${ico('candado', 16)}</span>` : ''}</h2>${c.escuela_amiga_id ? '<span class="chip oro">Externa</span>' : `<span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span>`}</div>
       <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
-      <div class="tc-pie"><span>${quien}</span>${horas[c.id] ? `<span class="tc-horas">${horasTxt(horas[c.id].min)} este mes</span>` : ''}${ico('sig', 18)}</div>
+      <div class="tc-pie"><span>${quien}</span>${privadas.has(c.id) && veCobros ? `<b class="tc-cobrado">${eur(cobrado[c.id] || 0)}</b>` : ''}${horas[c.id] ? `<span class="tc-horas">${horasTxt(horas[c.id].min)} este mes</span>` : ''}${ico('sig', 18)}</div>
       ${horas[c.id] && horas[c.id].otras.length ? `<div class="tc-cubre">${horas[c.id].otras.map((o) => esc(o)).join(' · ')}</div>` : ''}</a>`;
-  }).join('');
+  };
+  // Las clases privadas (Pilates) van juntas en una tarjeta: al pulsarla se abren sus clases; arriba, la suma de lo cobrado este mes
+  const priv = lista.filter((c) => privadas.has(c.id)), nPriv = priv.reduce((t, c) => t + (c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0), 0);
+  const tarjetas = lista.filter((c) => !privadas.has(c.id)).map(tarjeta).join('') + (priv.length ? `<details class="grupo-clases"${lista.length === priv.length ? ' open' : ''}><summary class="tarjeta-clase privada">
+      <div class="tc-cab"><h2>Pilates <span class="candado" title="Clases privadas">${ico('candado', 16)}</span></h2><span class="chip mor">${nPriv} ${nPriv === 1 ? 'alumna' : 'alumnas'}</span></div>
+      <div class="tc-pie"><span>${priv.length} clase${priv.length === 1 ? '' : 's'}</span>${veCobros ? `<b class="tc-cobrado">${eur(priv.reduce((t, c) => t + (cobrado[c.id] || 0), 0))} este mes</b>` : ''}<span class="gc-flecha">${ico('sig', 18)}</span></div></summary>
+      <div class="gc-clases">${priv.map(tarjeta).join('')}</div></details>` : '');
   const titulo = S.admin || !(S.permisos.clases && S.permisos.clases.solo_propias) ? 'Clases' : 'Mis clases';
   pintar(cabecera(titulo, { sub: `${lista.length} ${f === 'inactivas' ? 'inactivas' : (lista.length === 1 ? 'activa' : 'activas')}` }) + `<main class="cont">
     ${titulo === 'Clases' ? `<div class="filtros">${[['propias', 'Nuestras'], ['amigas', 'Escuela amiga'], ['inactivas', 'Inactivas']].map(([k, t]) => `<button data-ir="#/clases?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
@@ -1086,11 +1097,12 @@ function cajaPorClase(movs, { conFecha, volver }) {
   const grupos = new Map();
   movs.slice().sort(ordenRegistro).forEach((x) => {
     const a = apartadoDe(x);
-    const [k, nombre, orden, estilo] = a === 'mensualidad' && x.clase_id ? ['c' + x.clase_id, x.clases ? x.clases.nombre : 'Clase', 0, '']
+    const [k, nombre, orden, estilo] = a === 'mensualidad' && x.clase_id && esPrivada(x.clase_id) ? ['pilates', 'Pilates', 0, '']
+      : a === 'mensualidad' && x.clase_id ? ['c' + x.clase_id, x.clases ? x.clases.nombre : 'Clase', 0, '']
       : a === 'evento' && x.evento_id ? ['v' + x.evento_id, 'Evento · ' + (x.eventos ? x.eventos.titulo : ''), 1, 'externa']
       : a === 'escuela_amiga' && x.escuela_amiga_id ? ['e' + x.escuela_amiga_id, x.escuelas_amigas ? x.escuelas_amigas.nombre : 'Escuela amiga', 2, 'externa']
       : a === 'otro' || a === 'mensualidad' || a === 'evento' ? ['otros', 'Otros', 9, 'otros'] : ['a' + a, nombreApartado(x.tipo, a), 3, 'apart'];
-    if (!grupos.has(k)) grupos.set(k, { nombre, orden, estilo, amiga: a === 'escuela_amiga', privada: k === 'c' + x.clase_id && esPrivada(x.clase_id), l: [] });
+    if (!grupos.has(k)) grupos.set(k, { nombre, orden, estilo, amiga: a === 'escuela_amiga', privada: k === 'pilates', l: [] });
     grupos.get(k).l.push(x);
   });
   return [...grupos.values()].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')).map((g) => {
@@ -1123,7 +1135,7 @@ function cajaMensualidad(movs, ins, volver) {
   const lista = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const nAl = lista.reduce((t, g) => t + g.al.size, 0), nFal = lista.reduce((t, g) => t + g.faltan.size, 0), total = lista.reduce((t, g) => t + g.total, 0);
   const porNombre = (a, b) => a.localeCompare(b, 'es');
-  const tarjetas = lista.map((g) => {
+  const tarjeta = (g) => {
     const n = g.al.size, de = ins ? ` de ${n + g.faltan.size}` : '';
     // Cada pago se abre para corregirlo; con dos o más pagos salen uno a uno debajo (así se ve y se borra un cobro repetido)
     const pagadas = [...g.al.values()].sort((a, b) => porNombre(a.nombre, b.nombre)).map((a) => a.n === 1
@@ -1134,7 +1146,12 @@ function cajaMensualidad(movs, ins, volver) {
     return `<details class="caja-clase${g.privada ? ' privada' : ''}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}${g.privada ? candadoCaja : ''}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${pagadas}${faltan}</div></details>`;
-  }).join('');
+  };
+  // Las clases privadas (Pilates) van juntas en una sola tarjeta con la suma de todas; dentro, cada clase con lo suyo
+  const privadas = lista.filter((g) => g.privada), pn = privadas.reduce((t, g) => t + g.al.size, 0), pf = privadas.reduce((t, g) => t + g.faltan.size, 0);
+  const tarjetas = lista.filter((g) => !g.privada).map(tarjeta).join('') + (privadas.length ? `<details class="caja-clase privada cc-grupo"><summary class="cc-cab"><span><h3>Pilates${candadoCaja}</h3><small>${privadas.length} clase${privadas.length === 1 ? '' : 's'} · ${pn}${ins ? ` de ${pn + pf}` : ''} pagada${pn === 1 && !ins ? '' : 's'}${pf ? ` · faltan ${pf}` : ''}</small></span>
+      <span class="cc-tot"><b class="in">${eur(privadas.reduce((t, g) => t + g.total, 0))}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-sub">${privadas.map(tarjeta).join('')}</div></details>` : '');
   return totalCaja('', 'Total mensualidades', `${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}`, ins && nFal ? `Faltan ${nFal}` : '', total) + tarjetas;
 }
 const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small>${linea ? `<b>${linea}</b>` : ''}${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
@@ -1199,17 +1216,19 @@ async function pantallaCaja(params) {
   const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = subCaja(params, t);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
-  const [movs, privadas] = await Promise.all([leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en')), clasesPrivadas()]);
+  // Todo a la vez (antes iba una consulta detrás de otra)
+  // Cambio: el de este mes y el que siga fuera de meses anteriores
+  // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
+  // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
+  const [movs, privadas, cambios, pendientes, ins] = await Promise.all([
+    leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en')), clasesPrivadas(),
+    t !== 'ingreso' && !cajaSinApartados ? intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [],
+    t === 'ingreso' && sc === 'eventos' ? intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [],
+    t === 'ingreso' && sc === 'mensualidad' && puedeVer('inscripciones')
+      ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null]);
   S.privadas = privadas;
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
-  // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
-  // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
-  // Cambio: el de este mes y el que siga fuera de meses anteriores
-  const cambios = t !== 'ingreso' && !cajaSinApartados ? await intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [];
-  const pendientes = t === 'ingreso' && sc === 'eventos' ? await intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [];
-  const ins = t === 'ingreso' && sc === 'mensualidad' && puedeVer('inscripciones')
-    ? await intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
   const primero = (new Date(y, m - 1, 1).getDay() + 6) % 7, nDias = new Date(y, m, 0).getDate();
   // Plegado: solo la semana de hoy (o la primera del mes si es otro mes); al pulsar se ve el mes entero
@@ -2831,7 +2850,8 @@ async function router() {
   if (qs.get('f')) return formularioPublico(qs.get('f'));
   if (!S.usuario) return pantallaLogin();
   // Si la administración cambia los permisos, se notan al moverse por la app (sin cerrar sesión)
-  if (Date.now() - (S.cargadoEn || 0) > 15000) { try { await cargarSesion(); } catch (e) { console.error(e); } if (!S.usuario) return pantallaLogin(); }
+  // Se comprueba por detrás, sin hacer esperar a la pantalla
+  if (Date.now() - (S.cargadoEn || 0) > 15000) { S.cargadoEn = Date.now(); cargarSesion().then(() => { if (!S.usuario) pantallaLogin(); }).catch(console.error); }
   if (S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave) return pantallaNuevaClave();
   const [ruta, query] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
   const params = new URLSearchParams(query || '');
@@ -2931,7 +2951,12 @@ document.addEventListener('click', (ev) => {
 });
 // Al volver a la app (otra pestaña, móvil desbloqueado) se recargan los permisos por si han cambiado; la pantalla no se toca para no perder lo que se esté escribiendo
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.usuario && Date.now() - (S.cargadoEn || 0) > 15000) cargarSesion().catch(console.error); });
-window.addEventListener('hashchange', () => { document.getElementById('aviso').className = ''; router(); });
+// Si una pantalla tarda, una barrita arriba avisa de que el toque ha llegado
+window.addEventListener('hashchange', async () => {
+  document.getElementById('aviso').className = '';
+  const t = setTimeout(() => document.body.classList.add('navegando'), 120);
+  try { await router(); } finally { clearTimeout(t); document.body.classList.remove('navegando'); }
+});
 
 sb.auth.onAuthStateChange((evento) => {
   if (evento === 'PASSWORD_RECOVERY') { location.hash = '#/nueva-clave'; }
