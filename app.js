@@ -2076,22 +2076,29 @@ async function pantallaEventos(params) {
 }
 async function pantallaEvento(id) {
   if (!puedeVer('eventos')) return sinPermiso();
-  const [e, ins, profs] = await Promise.all([
-    q(sb.from(S.admin ? 'eventos_con_autor' : 'eventos').select('*').eq('id', id).single()),
+  const ed = puedeEditar('eventos'), ventas = {};
+  // Todo a la vez (antes iba una cosa detrás de otra y el evento tardaba más de 2 s)
+  const [e, ins, profs, coords0, optCoord, htmlVentas, movs, optProfs, optAlus] = await Promise.all([
+    q(sb.from(S.admin ? 'eventos_con_autor' : 'eventos').select('*').eq('id', id).maybeSingle()),
     q(sb.from('inscripciones_evento').select('id,estado,alumnas(id,nombre,apellidos)').eq('evento_id', id)),
-    q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id))
+    q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id)),
+    hayCoordinadoras().then((ok) => ok ? leerCoordinadoras({ id }) : null),
+    ed ? hayCoordinadoras().then((ok) => ok ? opcionesCoordinadoras() : []) : [],
+    bloqueVentas(id, ventas),
+    puedeVer('caja') ? intentar(() => leerCaja((r) => r.eq('evento_id', id).order('fecha').order('creado_en'))) : [],
+    ed && puedeVer('profesoras') ? intentar(opcionesProfesoras) : [],
+    ed && puedeVer('alumnas') ? intentar(opcionesAlumnas) : []
   ]);
-  const ed = puedeEditar('eventos');
-  const coords = await leerCoordinadoras(e), conTabla = await hayCoordinadoras();
+  // Una profesora solo abre los eventos en los que está (como profesora o coordinadora)
+  if (!e) return pintar(cabecera('Evento', { volver: '#/eventos' }) + `<main class="cont">${vacio('Este evento no es tuyo: solo lo ven quienes lo coordinan o dan clase en él, y la administración.')}</main>`, 'mas');
+  const coords = coords0 || await leerCoordinadoras(e), conTabla = await hayCoordinadoras();
   const htmlCoord = `<div class="seccion">Coordinación${coords.length > 1 ? ` (${coords.length})` : ''}</div>
     <div class="lista">${coords.map((c) => fila({ href: `#/evento/${id}`, tit: nomCoord(c), det: c.principal ? 'Coordinadora principal' : 'También coordina',
       der: `<span class="chips">${c.principal ? '<span class="chip oro">Principal</span>' : ''}${ed && conTabla && !c.principal ? `<button class="chip mor" data-principal="${c.id}" style="border:0;cursor:pointer;min-height:32px">Hacer principal</button>` : ''}${ed && conTabla ? `<button class="chip no" data-quitar-coord="${c.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : ''}</span>` })).join('') || vacio('Nadie coordina este evento todavía.')}</div>
-    ${ed && conTabla ? `<div class="campo"><select id="addCoord">${opcionesCoordHtml(await opcionesCoordinadoras(), '', coords, coords.length ? '+ Añadir otra coordinadora…' : '+ Elegir coordinadora principal…')}</select></div>` : ''}`;
-  const ventas = {}, htmlVentas = await bloqueVentas(id, ventas);
+    ${ed && conTabla ? `<div class="campo"><select id="addCoord">${opcionesCoordHtml(optCoord, '', coords, coords.length ? '+ Añadir otra coordinadora…' : '+ Elegir coordinadora principal…')}</select></div>` : ''}`;
   // Caja del evento: lo que se ha cobrado y gastado en él (quien ve la Caja), por clase
   let cajaEv = '';
   if (puedeVer('caja')) {
-    const movs = await intentar(() => leerCaja((r) => r.eq('evento_id', id).order('fecha').order('creado_en')));
     const [i, o] = sumaCaja(movs);
     cajaEv = `<div class="seccion">Caja del evento</div>
       <div class="totales"><div><small>Ingresos</small><b class="in">${eur(i)}</b></div><div><small>Gastos</small><b class="out">${eur(o)}</b></div><div><small>Balance</small><b>${eur(i - o)}</b></div></div>
@@ -2117,10 +2124,10 @@ async function pantallaEvento(id) {
     ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
-    ${ed && puedeVer('profesoras') ? `<div class="campo"><select id="addProf"><option value="">+ Añadir profesora…</option>${(await intentar(opcionesProfesoras)).filter(([pid]) => !profs.some((p) => p.profesora_id === pid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
+    ${ed && puedeVer('profesoras') ? `<div class="campo"><select id="addProf"><option value="">+ Añadir profesora…</option>${optProfs.filter(([pid]) => !profs.some((p) => p.profesora_id === pid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     <div class="seccion">Alumnas inscritas (${ins.filter((i) => i.estado === 'inscrita').length})</div>
     <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, der: i.estado === 'inscrita' ? (ed ? `<button class="chip ok" data-cancelar="${i.id}" style="border:0;cursor:pointer;min-height:32px">Inscrita</button>` : '<span class="chip ok">Inscrita</span>') : '<span class="chip gris">Cancelada</span>' })).join('') || vacio('Nadie inscrita todavía.')}</div>
-    ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${(await intentar(opcionesAlumnas)).filter(([aid]) => !ins.some((i) => i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
+    ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${optAlus.filter(([aid]) => !ins.some((i) => i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
   activarCobros();
