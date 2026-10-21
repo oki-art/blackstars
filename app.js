@@ -203,6 +203,7 @@ function pintar(html, nav = null, botonMas = null) {
   if (S.rutaActual != null && location.hash !== S.rutaActual) return;
   $app.innerHTML = (VER_COMO ? `<div class="banda-vista">${ico('ojo', 18)}<span>Viendo como <b>${esc(VER_COMO.nombre)}</b> · solo mirar</span><button data-salir-ver-como>Salir</button></div>` : '') + html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
   window.scrollTo(0, 0);
+  if (/<form/.test(html)) FORMULARIOS.add(location.hash);
   ojoClaves();
   if (document.getElementById('campana')) actualizarCampana();
   if (nav !== false && !/<form|<input|<textarea|<select/.test(html)) { VISTAS.delete(location.hash); VISTAS.set(location.hash, $app.innerHTML); if (VISTAS.size > 30) VISTAS.delete(VISTAS.keys().next().value); }
@@ -352,6 +353,16 @@ async function pantallaInicio(vista = null) {
     .select('id,nombre,profesoras(nombre),inscripciones(count),' + SEL_HOR)
     .eq('activa', true).is('escuela_amiga_id', null);
   if (vista && profesora) consulta = consulta.eq('profesora_id', vista.profesora.id);
+  // Clases, Logros y Documentos se piden a la vez (antes iban una detrás de otra)
+  const pLogros = profesora && ver('logros') ? (async () => {
+    const yo = vista ? vista.profesora : await miProfesora();
+    if (!yo) return null;
+    const mes = mesDe();
+    const retos = await intentar(() => q(sb.from('logros_retos').select('id').eq('mes', mes)));
+    const hechos = retos.length ? await intentar(() => q(sb.from('logros_cumplidos').select('reto_id').eq('profesora_id', yo.id).in('reto_id', retos.map((r) => r.id)))) : [];
+    return { yo, mes, retos, hechos };
+  })().catch(() => null) : null;
+  const pDocs = vista ? null : intentar(async () => { const { count } = await sb.from('documentos').select('id', { count: 'exact', head: true }).eq('para_perfil', S.usuario.id).eq('estado', 'pendiente'); return count || 0; });
   const clases = ver('clases') ? await intentar(() => q(consulta)) : [];
   // Orden: empezando por la próxima clase de la semana (o la que está en curso).
   const ahora = new Date().toTimeString().slice(0, 5);
@@ -382,21 +393,16 @@ async function pantallaInicio(vista = null) {
        ${editar('clases') ? `<a class="btn-hero" href="#/clase/nueva">${ico('mas', 16)} Crear clase</a>` : ''}</div>`;
   // Barra de Logros de la profesora (su progreso del mes)
   let barraLogros = '';
-  if (profesora && ver('logros')) {
-    const yo = vista ? vista.profesora : await miProfesora();
-    if (yo) {
-      const mes = mesDe();
-      const retos = await intentar(() => q(sb.from('logros_retos').select('id').eq('mes', mes)));
-      const hechos = retos.length ? await intentar(() => q(sb.from('logros_cumplidos').select('reto_id').eq('profesora_id', yo.id).in('reto_id', retos.map((r) => r.id)))) : [];
-      const v = pct(hechos.length, retos.length * SEMANAS);
-      barraLogros = `<a class="tarjeta logros-inicio" href="#/logros/profesora/${yo.id}"><div class="li-cab"><span><b>Mis logros</b> · ${nombreMes(mes)}</span><span class="li-pct">${v}%</span></div>${barra(v)}
-        <div class="nota">${retos.length ? `${hechos.length} de ${retos.length * SEMANAS} conseguidos` : 'Aún no hay retos este mes'}</div></a>`;
-    }
+  const lg = pLogros && await pLogros;
+  if (lg) {
+    const { yo, mes, retos, hechos } = lg, v = pct(hechos.length, retos.length * SEMANAS);
+    barraLogros = `<a class="tarjeta logros-inicio" href="#/logros/profesora/${yo.id}"><div class="li-cab"><span><b>Mis logros</b> · ${nombreMes(mes)}</span><span class="li-pct">${v}%</span></div>${barra(v)}
+      <div class="nota">${retos.length ? `${hechos.length} de ${retos.length * SEMANAS} conseguidos` : 'Aún no hay retos este mes'}</div></a>`;
   }
   // Tarjeta de Documentos: lo pendiente de firmar o leer, y el historial
   let tarjetaDocs = '';
   if (!vista) {
-    const pend = await intentar(async () => { const { count } = await sb.from('documentos').select('id', { count: 'exact', head: true }).eq('para_perfil', S.usuario.id).eq('estado', 'pendiente'); return count || 0; });
+    const pend = await pDocs;
     tarjetaDocs = `<a class="mini-docs" href="#/documentos"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>${pend ? `${pend} pendiente${pend === 1 ? '' : 's'}` : 'Subir y firmar'}</span>${pend ? `<span class="nv-n">${pend}</span>` : ''}</a>`;
   } else tarjetaDocs = `<span class="mini-docs"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>Subir y firmar</span></span>`;
   const tarjetaCaja = ver('caja') ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>Caja</b><span>Ingresos y gastos</span></a>` : '';
@@ -786,21 +792,24 @@ async function pantallaClases(params) {
 }
 async function pantallaClase(id) {
   if (!puedeVer('clases')) return sinPermiso();
-  const c = await q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),' + SEL_HOR).eq('id', id).single());
-  const ins = puedeVer('inscripciones') && !c.privada ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : [];
+  // Una profesora solo ve la información de la clase: sus alumnas ya están en la pestaña Alumnas
+  const soloInfo = !S.admin && esProfesora(S.permisos);
+  const c = await q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),inscripciones(count),' + SEL_HOR).eq('id', id).single());
+  const nAlumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
+  const ins = puedeVer('inscripciones') && !c.privada && !soloInfo ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : [];
   const privada = c.privada ? await bloquePrivada(c) : null;
   ins.sort((a, b) => (a.alumnas.nombre || '').localeCompare(b.alumnas.nombre || '', 'es'));
   pintar(cabecera(c.nombre, { volver: c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}` : '#/clases', sub: esc(textoHorario(c, true)) }) + `<main class="cont">
     <div class="tarjeta"><dl class="datos">
       <dt>Horario</dt><dd>${horariosDe(c).map((h) => `${DIAS[h.dia_semana]} ${hora(h.hora_inicio)}–${hora(h.hora_fin)}`).join('<br>') || '—'}</dd>
       ${c.escuela_amiga_id ? `<dt>Escuela</dt><dd>${esc(c.escuelas_amigas.nombre)}</dd><dt>Profesora</dt><dd>${esc(c.profesora_externa || '—')}</dd><dt>Alumnas</dt><dd>${c.alumnas_externas ?? '—'}</dd>`
-        : `<dt>Profesora</dt><dd>${esc(c.profesoras ? c.profesoras.nombre : 'Sin asignar')}</dd><dt>Nivel</dt><dd>${esc(c.nivel || '—')}</dd>`}
+        : `<dt>Profesora</dt><dd>${esc(c.profesoras ? c.profesoras.nombre : 'Sin asignar')}</dd><dt>Nivel</dt><dd>${esc(c.nivel || '—')}</dd>${soloInfo && !c.privada ? `<dt>Alumnas</dt><dd>${nAlumnas}</dd>` : ''}`}
       <dt>Estado</dt><dd>${c.activa ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Inactiva</span>'}${c.privada ? ` <span class="chip oro">${ico('candado', 14)} Privada</span>` : ''}</dd>
     </dl></div>
     ${puedeEditar('clases') ? `<a class="btn sec" href="#/clase/${id}/editar">${ico('lapiz')} Editar clase</a>` : ''}
-    ${!c.escuela_amiga_id && puedeVer('logros') ? `<a class="btn sec" href="#/logros/clase/${id}">${ico('trofeo')} ${puedeEditar('logros') ? 'Dar estrellas' : 'Ver estrellas'}</a>` : ''}
+    ${!c.escuela_amiga_id && puedeVer('logros') ? `<a class="btn ${soloInfo ? 'pri' : 'sec'}" href="#/logros/clase/${id}">${ico('trofeo')} ${puedeEditar('logros') ? 'Dar estrellas' : 'Ver estrellas'}</a>` : ''}
     ${privada ? privada.html : ''}
-    ${!c.escuela_amiga_id && !c.privada && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
+    ${!c.escuela_amiga_id && !c.privada && !soloInfo && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
       <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, det: 'Desde ' + fechaCorta(i.fecha_alta), der: (i.alumnas.cuota === 'media' ? '<span class="chip oro">½ mes</span>' : '') + (puedeEditar('inscripciones') ? `<button class="ins-editar" data-ir="#/inscripcion/${i.id}?clase=${id}" aria-label="Corregir fechas">${ico('lapiz', 18)}</button>` : '') })).join('') || vacio('Nadie inscrita todavía.')}</div>
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
     ${S.admin ? `<a class="btn peligro" href="#/clase/${id}/borrar">${ico('papelera', 18)} Borrar clase</a>` : ''}
@@ -3061,20 +3070,73 @@ document.addEventListener('click', (ev) => {
   if (bm) { ev.preventDefault(); ev.stopPropagation(); borrarMovCaja(bm.dataset.borrarMov, { concepto: bm.dataset.concepto, importe: bm.dataset.importe }).then((ok) => ok && router()); return; }
   if (ev.target.closest('[data-salir-ver-como]')) { ev.preventDefault(); salirVerComo(); return; }
   const ir = ev.target.closest('[data-ir]');
-  if (ir) { ev.preventDefault(); const h = ir.dataset.ir; if (location.hash === h) router(); else location.hash = h; return; }
+  if (ir) { ev.preventDefault(); const h = ir.dataset.ir; if (location.hash === h) router(); else if (rutaDe(h) === rutaDe(hashActual())) cambiarSinApilar(h); else location.hash = h; return; }
   const v = ev.target.closest('[data-volver]');
-  if (v) { ev.preventDefault(); location.hash = v.dataset.volver; }
+  if (v) { ev.preventDefault(); atras(v.dataset.volver); }
 });
 // Al volver a la app (otra pestaña, móvil desbloqueado) se recargan los permisos por si han cambiado; la pantalla no se toca para no perder lo que se esté escribiendo
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.usuario && Date.now() - (S.cargadoEn || 0) > 15000) cargarSesion().catch(console.error); });
 // Si una pantalla tarda, una barrita arriba avisa de que el toque ha llegado
-window.addEventListener('hashchange', async () => {
+/* ---------- atrás en escalera ----------
+   Se apunta el camino de pantallas igual que el historial del móvil, para que atrás (la flecha de la app o la del móvil)
+   vuelva siempre a la pantalla de antes: Clases › Clase › Estrellas › atrás › Clase › atrás › Clases › atrás › Inicio.
+   - Cambiar de semana, mes o filtro no suma pasos (se cambia la pantalla, no se apila).
+   - Ir a una pantalla que ya está en el camino (al guardar un formulario, por ejemplo) vuelve a ella en vez de apilarla otra vez.
+   - Las pestañas de abajo cuelgan siempre de Inicio. */
+const PESTANAS = ['#/inicio', '#/clases', '#/alumnas', '#/caja', '#/mas'];
+const hashActual = () => location.hash && location.hash !== '#/' && location.hash !== '#' ? location.hash : '#/inicio';
+const rutaDe = (h) => h.split('?')[0];
+const FORMULARIOS = new Set();   // pantallas con formulario que se han visto
+let CAMINO = [], PASO = 0, sinApilar = false, luegoIr = null, ultimaNav = '';
+try { const g = JSON.parse(sessionStorage.getItem('bs-camino') || 'null'); if (g) { CAMINO = g.c; PASO = g.p; } } catch (e) { /* sin almacenamiento */ }
+const guardarCamino = () => { try { sessionStorage.setItem('bs-camino', JSON.stringify({ c: CAMINO, p: PASO })); } catch (e) { /* sin almacenamiento */ } };
+function cambiarSinApilar(h) { sinApilar = true; location.replace(h); }
+function atras(porDefecto) {
+  if (PASO > 0) history.back();
+  else if (porDefecto && porDefecto !== hashActual()) cambiarSinApilar(porDefecto);
+}
+// Devuelve false si esta pantalla no hay que pintarla porque enseguida se salta a otra
+function apuntarCamino() {
+  const h = hashActual(), st = history.state, n0 = st && typeof st.bsPaso === 'number' ? st.bsPaso : null;
+  const clave = h + '|' + n0;
+  if (clave === ultimaNav) return null;   // el mismo cambio avisado dos veces (popstate y hashchange)
+  if (n0 != null && CAMINO[n0] === h) {   // atrás o adelante a una pantalla ya apuntada
+    PASO = n0; ultimaNav = clave; guardarCamino();
+    if (luegoIr) { const d = luegoIr; luegoIr = null; location.hash = d; return false; }
+    return true;
+  }
+  const n = sinApilar ? PASO : (CAMINO.length ? PASO + 1 : 0); sinApilar = false;
+  CAMINO = CAMINO.slice(0, n).concat(h); PASO = n;
+  history.replaceState({ ...(history.state || {}), bsPaso: n }, '');
+  ultimaNav = h + '|' + n; guardarCamino();
+  if (n === 0) return true;
+  // Pestaña de abajo: se vuelve a Inicio y desde ahí se entra en la pestaña
+  if (PESTANAS.includes(rutaDe(h)) && rutaDe(h) !== '#/inicio') {
+    const j = CAMINO.slice(0, n).findIndex((x) => rutaDe(x) === '#/inicio');
+    if (j >= 0 && j < n - 1) {
+      if (rutaDe(CAMINO[j + 1]) === rutaDe(h)) { history.go(j + 1 - n); return false; }
+      luegoIr = h; history.go(j - n); return false;
+    }
+    if (j === n - 1) return true;
+  }
+  // Pantalla que ya estaba en el camino: se vuelve a ella
+  const i = CAMINO.slice(0, n).lastIndexOf(h);
+  if (i >= 0) { history.go(i - n); return false; }
+  // Al guardar un formulario y pasar a otra pantalla, el formulario sale del camino (atrás no vuelve a él)
+  if (FORMULARIOS.has(CAMINO[n - 1]) && n >= 2) { luegoIr = h; history.go(-2); return false; }
+  return true;
+}
+async function alNavegar() {
+  const seguir = apuntarCamino();
+  if (seguir !== true) return;
   document.getElementById('aviso').className = '';
   const previa = S.usuario && VISTAS.get(location.hash);
   if (previa) { $app.innerHTML = previa; window.scrollTo(0, 0); }
   const t = setTimeout(() => document.body.classList.add('navegando'), 120);
   try { await router(); } finally { clearTimeout(t); document.body.classList.remove('navegando'); }
-});
+}
+window.addEventListener('hashchange', alNavegar);
+window.addEventListener('popstate', alNavegar);
 
 sb.auth.onAuthStateChange((evento) => {
   if (evento === 'PASSWORD_RECOVERY') { location.hash = '#/nueva-clave'; }
@@ -3082,6 +3144,8 @@ sb.auth.onAuthStateChange((evento) => {
 });
 
 (async () => {
+  if (!history.state || typeof history.state.bsPaso !== 'number') CAMINO = [];   // pestaña nueva o recarga sin camino
+  apuntarCamino();
   if (await sesionGuardada()) {
     router();
     // Si al comprobar han cambiado los permisos, se vuelve a pintar la pantalla
