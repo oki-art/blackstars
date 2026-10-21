@@ -507,6 +507,7 @@ async function formAcceso(params) {
     ${campoHtml({ k: 'email', label: 'Email', tipo: 'email', req: true, ph: 'nombre@gmail.com' }, prof ? prof.email : '')}
     ${campoHtml({ k: 'clave', label: 'Contraseña provisional', req: true, ayuda: 'Solo sirve para la primera vez: al entrar, la app le pide crear la suya.' }, clave)}
     ${campoHtml({ k: 'plantilla', label: 'Permisos', tipo: 'select', req: true, opciones: Object.entries(PLANTILLAS).map(([k, t]) => [k, t.nombre]) }, prof ? 'profesora' : 'gestion')}
+    ${prof ? `<button class="btn sec ancho" type="button" id="guardar-ficha">Guardar cambios sin dar acceso</button>` : ''}
     <button class="btn pri ancho" type="submit">Dar acceso</button></form>
     ${prof ? `<button class="btn peligro ancho" type="button" id="borrar-ficha">${ico('papelera', 18)} Borrar esta profesora</button>
     <p class="nota">Si sobra (por ejemplo, una de prueba). Sus clases se quedan, sin profesora.</p>` : ''}</main>`, false);
@@ -518,6 +519,19 @@ async function formAcceso(params) {
     catch (e) { aviso(traducirError(e), true); bf.disabled = false; }
   };
   const form = document.getElementById('frm');
+  // Guarda nombre y email en su ficha de profesora, para darle acceso más adelante
+  const gf = document.getElementById('guardar-ficha');
+  if (gf) gf.onclick = async () => {
+    const fn = form.elements.nombre, fe = form.elements.email;
+    if (!fn.reportValidity() || !fe.reportValidity()) return;
+    gf.disabled = true;
+    try {
+      await q(sb.from('profesoras').update({ nombre: fn.value.trim(), email: fe.value.trim() || null }).eq('id', prof.id));
+      prof.nombre = fn.value.trim(); prof.email = fe.value.trim();
+      aviso('Datos guardados. Puedes darle acceso cuando quieras.');
+    } catch (e) { aviso(traducirError(e), true); }
+    gf.disabled = false;
+  };
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const d = leerForm(form, [{ k: 'nombre' }, { k: 'email' }, { k: 'clave' }, { k: 'plantilla' }]), t = PLANTILLAS[d.plantilla];
