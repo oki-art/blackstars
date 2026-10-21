@@ -2,10 +2,20 @@
    Una sola página: el contenido cambia según la dirección (#/alumnas, #/caja...). */
 'use strict';
 
+// "Ver como": la administración mira la app con la sesión de otra persona del equipo, solo para mirar.
+// Se guarda la sesión de la administración para volver a ella al salir.
+let VER_COMO = null;
+try { VER_COMO = JSON.parse(localStorage.getItem('bs-ver-como') || 'null'); } catch (e) { /* sin almacenamiento */ }
+const guardarVerComo = (vc) => { VER_COMO = vc; try { if (vc) localStorage.setItem('bs-ver-como', JSON.stringify(vc)); else localStorage.removeItem('bs-ver-como'); } catch (e) { /* sin almacenamiento */ } };
+// Lo único que se deja pasar mientras tanto, además de leer: la sesión, abrir documentos y consultas que no cambian nada
+const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/;
+
 // Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
 const TIEMPOS = [];
 const medirFetch = async (url, opts) => {
   const t0 = performance.now();
+  if (VER_COMO && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !VER_COMO_PASA.test(String(url)))
+    return new Response(JSON.stringify({ message: `Estás viendo la app como ${VER_COMO.nombre}: solo para mirar, no se puede cambiar nada.` }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
   if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/.test(String(url))) VISTAS.clear();
   try { return await fetch(url, opts); }
@@ -122,6 +132,7 @@ const puedeEditar = (m) => S.admin || (!(m === 'inscripciones' && esProfesora(S.
 async function cargarSesion() {
   const { data } = await sb.auth.getSession();
   S.usuario = data.session ? data.session.user : null;
+  if (VER_COMO && (!S.usuario || S.usuario.id !== VER_COMO.perfil)) guardarVerComo(null);
   if (!S.usuario) return;
   // Las tres consultas a la vez (los nombres del equipo solo se usan si es la administración)
   const [perfil, permisos, ps] = await Promise.all([
@@ -143,6 +154,7 @@ async function sesionGuardada() {
   try {
     const g = JSON.parse(localStorage.getItem('bs-sesion') || 'null'), { data } = await sb.auth.getSession();
     if (!g || !data.session || data.session.user.id !== g.uid || !g.perfil) return false;
+    if (VER_COMO && data.session.user.id !== VER_COMO.perfil) guardarVerComo(null);
     S.usuario = data.session.user; S.perfil = g.perfil; S.permisos = g.permisos || {}; S.nombres = g.nombres || {};
     S.admin = !!(g.perfil.rol === 'admin' && g.perfil.activo);
     return true;
@@ -189,7 +201,7 @@ const VISTAS = new Map();
 function pintar(html, nav = null, botonMas = null) {
   // Si mientras cargaba se ha tocado otra pantalla, esta ya no se pinta (si no, taparía la nueva)
   if (S.rutaActual != null && location.hash !== S.rutaActual) return;
-  $app.innerHTML = html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
+  $app.innerHTML = (VER_COMO ? `<div class="banda-vista">${ico('ojo', 18)}<span>Viendo como <b>${esc(VER_COMO.nombre)}</b> · solo mirar</span><button data-salir-ver-como>Salir</button></div>` : '') + html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
   window.scrollTo(0, 0);
   ojoClaves();
   if (document.getElementById('campana')) actualizarCampana();
@@ -432,7 +444,7 @@ async function pantallaVista(id) {
   if (!id) {
     const ps = await q(sb.from('profesoras').select('id,nombre,perfil_id').eq('activa', true).order('nombre'));
     return pintar(cabecera('Ver como profesora', { volver: '#/mas', sub: 'Así verá el Inicio cada una' }) + `<main class="cont">
-      <div class="lista">${ps.map((p) => fila({ href: `#/vista/${p.id}`, tit: p.nombre, det: p.perfil_id ? 'Con usuario: se ven sus permisos reales' : 'Sin usuario aún: se ven los permisos recomendados', der: ico('sig') })).join('') || vacio('Aún no hay profesoras. Créalas en Más › Profesoras.')}</div>
+      <div class="lista">${ps.map((p) => fila({ href: p.perfil_id ? `#/vista/p/${p.perfil_id}` : `#/vista/${p.id}`, tit: p.nombre, det: p.perfil_id ? 'Con usuario: ves toda la app como ella, solo para mirar' : 'Sin usuario aún: solo su Inicio, con los permisos recomendados', der: ico('sig') })).join('') || vacio('Aún no hay profesoras. Créalas en Más › Profesoras.')}</div>
       <p class="nota">Los permisos recomendados para una profesora son: ver sus clases, sus alumnas, normas y eventos; apuntar incidencias; Logros (dar estrellas) e Iniciativas (proponer ideas). Nunca Caja.</p>
     </main>`, 'mas');
   }
@@ -445,16 +457,50 @@ async function pantallaVista(id) {
   return pantallaInicio({ profesora, permisos, recomendada });
 }
 
-// "Ver su Inicio" de cualquier persona del equipo, con sus permisos reales
+// "Ver como": recorrer toda la app con la sesión de otra persona del equipo, sin poder cambiar nada
 async function vistaPersona(perfilId) {
   if (!S.admin) return sinPermiso();
-  const [p, filas, prof] = await Promise.all([
-    q(sb.from('perfiles').select('id,nombre').eq('id', perfilId).single()),
-    q(sb.from('permisos').select('*').eq('perfil_id', perfilId)),
-    intentar(() => q(sb.from('profesoras').select('id,nombre').eq('perfil_id', perfilId)))
-  ]);
-  const permisos = {}; filas.forEach((f) => { permisos[f.modulo] = f; });
-  return pantallaInicio({ profesora: { id: prof[0] ? prof[0].id : null, nombre: p.nombre }, permisos, salir: `#/permisos?p=${perfilId}` });
+  const p = await q(sb.from('perfiles').select('id,nombre,rol,activo,borrado_en').eq('id', perfilId).single());
+  const pila = String(p.nombre).trim().split(/\s+/)[0];
+  const puede = p.activo && !p.borrado_en && p.rol !== 'admin' && p.id !== S.usuario.id;
+  pintar(cabecera(`Ver como ${pila}`, { volver: `#/permisos?p=${p.id}` }) + `<main class="cont"><div class="tarjeta">
+    <h2>${esc(p.nombre)}</h2>
+    ${puede ? `<p class="nota" style="margin:8px 0 0">Vas a ver la app exactamente como la ve en su móvil: su Inicio, sus clases, sus alumnas, el menú Más… con sus permisos.</p>
+    <p class="nota" style="margin:8px 0 0">Es solo para mirar: no podrás guardar, cobrar ni borrar nada en su nombre. Para volver a tu cuenta, toca <b>Salir</b> en la barra oscura de arriba.</p>` : `<p class="nota" style="margin:8px 0 0">${p.rol === 'admin' ? 'Tiene acceso completo: ve lo mismo que tú.' : 'Ahora no puede entrar en la app (está de baja).'}</p>`}</div>
+    ${puede ? `<button class="btn pri ancho" id="entrar-vc">${ico('ojo')} Ver la app como ${esc(pila)}</button>` : ''}</main>`, false);
+  const b = document.getElementById('entrar-vc');
+  if (b) b.onclick = async () => {
+    b.disabled = true; b.textContent = 'Entrando…';
+    try { await entrarVerComo(p); }
+    catch (e) { aviso(e.message || traducirError(e), true); b.disabled = false; b.textContent = `Ver la app como ${pila}`; }
+  };
+}
+async function entrarVerComo(p) {
+  const { data: s } = await sb.auth.getSession();
+  if (!s.session) throw new Error('Vuelve a entrar en la app');
+  const { data, error } = await sb.functions.invoke('ver-como', { body: { perfil_id: p.id } });
+  if (error || !data || !data.ok) {
+    let msg = 'No se pudo abrir su vista'; try { msg = (await error.context.json()).error || msg; } catch (e) { if (data && data.error) msg = data.error; }
+    if (error && error.context && error.context.status === 404) msg = 'Falta activar esta opción en Supabase.';
+    throw new Error(msg);
+  }
+  guardarVerComo({ perfil: p.id, nombre: String(p.nombre).trim().split(/\s+/)[0], volver: { access_token: s.session.access_token, refresh_token: s.session.refresh_token } });
+  const { error: e2 } = await sb.auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' });
+  if (e2) { guardarVerComo(null); throw e2; }
+  VISTAS.clear();
+  await cargarSesion();
+  if (location.hash === '#/inicio') router(); else location.hash = '#/inicio';
+}
+// Volver a la cuenta de la administración: se cierra solo esta sesión de la otra persona (en su móvil sigue dentro)
+async function salirVerComo() {
+  const vc = VER_COMO; if (!vc) return;
+  try { await sb.auth.signOut({ scope: 'local' }); } catch (e) { /* da igual */ }
+  guardarVerComo(null); VISTAS.clear();
+  const { error } = await sb.auth.setSession(vc.volver);
+  if (error) { S.usuario = null; aviso('Vuelve a entrar con tu correo y contraseña', true); location.hash = ''; return router(); }
+  await cargarSesion();
+  const h = `#/permisos?p=${vc.perfil}`;
+  if (location.hash === h) router(); else location.hash = h;
 }
 
 /* ---------- equipo ---------- */
@@ -596,14 +642,14 @@ function pantallaMas() {
     <a class="tarjeta mi-ficha" href="#/mis-datos"><span class="ini-g">${esc(iniciales(S.perfil && S.perfil.nombre))}</span>
       <span class="txt"><b>${esc(S.perfil ? S.perfil.nombre : '')}</b><span>${S.admin ? 'Administración · acceso completo' : esc(S.usuario.email)}</span><span class="mf-pie">${ico('llave', 14)} Mi ficha · DNI, cuenta y tallas</span></span>${ico('sig', 22)}</a>
     <div class="lista">${items.map((i) => fila({ href: i[1], tit: i[3], det: i[4], iconoHtml: ic(i[2]), der: ico('sig') })).join('')}
-    ${S.admin ? fila({ href: '#/vista', tit: 'Ver como profesora', det: 'Comprueba qué ve cada profesora en el Inicio', iconoHtml: ic('ojo'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
+    ${S.admin ? fila({ href: '#/vista', tit: 'Ver como profesora', det: 'Mira la app tal como la ve cada profesora', iconoHtml: ic('ojo'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${S.admin ? fila({ href: '#/velocidad', tit: 'Velocidad', det: 'Cuánto tarda la app en traer los datos', iconoHtml: ic('idea'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${S.admin ? fila({ href: '#/equipo', tit: 'Equipo y permisos', det: 'Todas las personas y lo que puede ver cada una', iconoHtml: ic('alumnas'), der: '<span class="chip oro">Solo admin</span>' }) : ''}
     ${fila({ href: '#/nueva-clave', tit: 'Cambiar mi contraseña', iconoHtml: ic('llave'), der: ico('sig') })}
     </div>
     <button class="btn sec ancho" id="salir">${ico('salir')} Cerrar sesión</button>
   </main>`, 'mas');
-  document.getElementById('salir').onclick = async () => { await sb.auth.signOut(); S.usuario = null; location.hash = ''; router(); };
+  document.getElementById('salir').onclick = async () => { if (VER_COMO) return salirVerComo(); await sb.auth.signOut(); S.usuario = null; location.hash = ''; router(); };
 }
 
 /* ---------- clases ---------- */
@@ -2619,7 +2665,7 @@ async function pantallaPermisos(params) {
   const ficha = p ? await intentar(() => q(sb.from('profesoras').select('email,telefono').eq('perfil_id', p.id).maybeSingle())) : null;
   const guia = soloSuyo ? 'profesora' : /adela/i.test(p ? p.nombre : '') || (per.documentos && per.documentos.puede_ver) ? 'adela' : 'maria';
   pintar(cabecera(p ? p.nombre : 'Permisos', { volver: '#/equipo', sub: p ? esc(resumenPersona(p, filas).tipo) : '' }) + `<main class="cont">
-    ${p ? `<button class="btn sec ancho" data-ir="#/vista/p/${p.id}">${ico('ojo')} Ver su Inicio</button>
+    ${p ? `${p.activo && p.rol !== 'admin' ? `<button class="btn sec ancho" data-ir="#/vista/p/${p.id}">${ico('ojo')} Ver la app como ${esc(String(p.nombre).trim().split(/\s+/)[0])}</button>` : ''}
     ${p.activo && p.rol !== 'admin' ? `<div class="tarjeta"><h3>Enviarle el acceso</h3><p class="nota" style="margin:4px 0 10px">Le manda por WhatsApp el enlace de la app, cómo instalarla y su guía. La contraseña no va: si no la recuerda, que pulse "He olvidado la contraseña".</p>
       <div class="campo"><label for="correo-acc">Su correo</label><input id="correo-acc" type="email" placeholder="el correo con el que entra" value="${esc(ficha && ficha.email ? ficha.email : '')}"></div>
       <button class="btn verde ancho" id="wa-acc">${ico('wa')} Enviar acceso por WhatsApp</button>
@@ -2919,7 +2965,7 @@ async function router() {
   // Si la administración cambia los permisos, se notan al moverse por la app (sin cerrar sesión)
   // Se comprueba por detrás, sin hacer esperar a la pantalla
   if (Date.now() - (S.cargadoEn || 0) > 15000) { S.cargadoEn = Date.now(); cargarSesion().then(() => { if (!S.usuario) pantallaLogin(); }).catch(console.error); }
-  if (S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave) return pantallaNuevaClave();
+  if (!VER_COMO && S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave) return pantallaNuevaClave();
   const [ruta, query] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
   const params = new URLSearchParams(query || '');
   const p = ruta.split('/');
@@ -3013,6 +3059,7 @@ document.addEventListener('click', (ev) => {
   // Papelera de un movimiento en las listas de caja (va dentro del enlace: no debe abrirlo)
   const bm = ev.target.closest('[data-borrar-mov]');
   if (bm) { ev.preventDefault(); ev.stopPropagation(); borrarMovCaja(bm.dataset.borrarMov, { concepto: bm.dataset.concepto, importe: bm.dataset.importe }).then((ok) => ok && router()); return; }
+  if (ev.target.closest('[data-salir-ver-como]')) { ev.preventDefault(); salirVerComo(); return; }
   const ir = ev.target.closest('[data-ir]');
   if (ir) { ev.preventDefault(); const h = ir.dataset.ir; if (location.hash === h) router(); else location.hash = h; return; }
   const v = ev.target.closest('[data-volver]');
