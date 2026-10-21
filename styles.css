@@ -492,3 +492,6 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 /* Barrita de "cargando" cuando una pantalla tarda */
 body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px;z-index:999;background:linear-gradient(90deg,transparent,var(--morado),transparent);background-size:50% 100%;background-repeat:no-repeat;animation:navegando 0.9s linear infinite}
 @keyframes navegando{from{background-position:-50% 0}to{background-position:150% 0}}
+/* Copia guardada de una pantalla mientras llegan los datos: algo apagada, para que se note que aún se está poniendo al día */
+#app.previa main{animation:apagar .2s .35s forwards}
+@keyframes apagar{to{opacity:.72}}
