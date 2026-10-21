@@ -11,22 +11,35 @@ const guardarVerComo = (vc) => { VER_COMO = vc; try { if (vc) localStorage.setIt
 const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/;
 
 // Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
-const TIEMPOS = [];
+const TIEMPOS = [], PANTALLAS = [];   // consultas sueltas y pantallas completas (desde el toque hasta que se ve)
 const medirFetch = async (url, opts) => {
   const t0 = performance.now();
   if (VER_COMO && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !VER_COMO_PASA.test(String(url)))
     return new Response(JSON.stringify({ message: `Estás viendo la app como ${VER_COMO.nombre}: solo para mirar, no se puede cambiar nada.` }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
   if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/.test(String(url))) VISTAS.clear();
-  try { return await fetch(url, opts); }
+  // Ninguna consulta se queda esperando sin fin: a los 20 s se corta y sale "La conexión va muy lenta" (las subidas de archivos, no)
+  const subida = /\/storage\/v1\/object\/(?!sign\/)/.test(String(url)) && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method);
+  const corte = subida ? null : new AbortController(), reloj = corte && setTimeout(() => corte.abort(), 20000);
+  if (corte && opts && opts.signal) opts.signal.addEventListener('abort', () => corte.abort());
+  try { return await fetch(url, corte ? { ...opts, signal: corte.signal } : opts); }
   finally {
+    clearTimeout(reloj);
     const u = new URL(typeof url === 'string' ? url : url.url, location.href);
     TIEMPOS.push({ que: u.pathname.replace(/^\/(rest|auth|storage|functions)\/v1\//, ''), ms: Math.round(performance.now() - t0), en: Date.now() });
     if (TIEMPOS.length > 80) TIEMPOS.shift();
   }
 };
+// Candado de la sesión dentro de la app (una cosa detrás de otra). El de la librería usa el del navegador y, al volver
+// el móvil del segundo plano, podía quedarse cogido y dejar todas las consultas esperando sin fin. Este se suelta a los 25 s pase lo que pase.
+let colaSesion = Promise.resolve();
+function candadoSesion(nombre, espera, fn) {
+  const antes = colaSesion, r = antes.then(() => fn());
+  colaSesion = antes.then(() => Promise.race([r.catch(() => {}), new Promise((ok) => setTimeout(ok, 25000))]));
+  return r;
+}
 const sb = supabase.createClient(window.BS_CONFIG.url, window.BS_CONFIG.key, {
-  auth: { persistSession: true, autoRefreshToken: true }, global: { fetch: medirFetch }
+  auth: { persistSession: true, autoRefreshToken: true, lock: candadoSesion }, global: { fetch: medirFetch }
 });
 
 const $app = document.getElementById('app');
@@ -116,6 +129,7 @@ function traducirError(e) {
   if (/foreign key/i.test(m)) return 'No se puede: hay otros datos que dependen de este registro.';
   if (/PGRST205|Could not find the table|relation .* does not exist/i.test(m)) return 'Esta parte aún no está activada en la base de datos.';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'Sin conexión. Inténtalo de nuevo.';
+  if (/abort/i.test(m) || (e && e.name === 'AbortError')) return 'La conexión va muy lenta. Inténtalo de nuevo.';
   return m;
 }
 async function q(promesa) {
@@ -138,7 +152,7 @@ async function cargarSesion() {
   const [perfil, permisos, ps] = await Promise.all([
     q(sb.from('perfiles').select('*').eq('id', S.usuario.id).maybeSingle()),
     q(sb.from('permisos').select('*').eq('perfil_id', S.usuario.id)),
-    intentar(() => q(sb.from('perfiles').select('id,nombre')))
+    S.admin || !S.perfil ? intentar(() => q(sb.from('perfiles').select('id,nombre'))) : []
   ]);
   // Una persona borrada del equipo ya no puede entrar
   if (perfil && perfil.borrado_en) { await sb.auth.signOut(); S.usuario = null; S.perfil = null; S.permisos = {}; S.admin = false; return; }
@@ -201,6 +215,7 @@ const VISTAS = new Map();
 function pintar(html, nav = null, botonMas = null) {
   // Si mientras cargaba se ha tocado otra pantalla, esta ya no se pinta (si no, taparía la nueva)
   if (S.rutaActual != null && location.hash !== S.rutaActual) return;
+  $app.classList.remove('previa');
   $app.innerHTML = (VER_COMO ? `<div class="banda-vista">${ico('ojo', 18)}<span>Viendo como <b>${esc(VER_COMO.nombre)}</b> · solo mirar</span><button data-salir-ver-como>Salir</button></div>` : '') + html + (botonMas ? `<button class="mas-flotante" aria-label="Añadir" data-ir="${esc(botonMas)}">${ico('mas', 26)}</button>` : '') + (nav !== false ? navegacion(nav) : '');
   window.scrollTo(0, 0);
   if (/<form/.test(html)) FORMULARIOS.add(location.hash);
@@ -358,8 +373,9 @@ async function pantallaInicio(vista = null) {
     const yo = vista ? vista.profesora : await miProfesora();
     if (!yo) return null;
     const mes = mesDe();
-    const retos = await intentar(() => q(sb.from('logros_retos').select('id').eq('mes', mes)));
-    const hechos = retos.length ? await intentar(() => q(sb.from('logros_cumplidos').select('reto_id').eq('profesora_id', yo.id).in('reto_id', retos.map((r) => r.id)))) : [];
+    // Retos del mes con lo cumplido por ella, en una sola consulta
+    const retos = await intentar(() => q(sb.from('logros_retos').select('id,logros_cumplidos(reto_id)').eq('mes', mes).eq('logros_cumplidos.profesora_id', yo.id)));
+    const hechos = retos.flatMap((r) => r.logros_cumplidos || []);
     return { yo, mes, retos, hechos };
   })().catch(() => null) : null;
   const pDocs = vista ? null : intentar(async () => { const { count } = await sb.from('documentos').select('id', { count: 'exact', head: true }).eq('para_perfil', S.usuario.id).eq('estado', 'pendiente'); return count || 0; });
@@ -623,10 +639,15 @@ function pantallaVelocidad() {
   const l = TIEMPOS.filter((t) => !/notificaciones/.test(t.que)), ms = l.map((t) => t.ms).sort((a, b) => a - b);
   const media = ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : 0, mediana = ms.length ? ms[Math.floor(ms.length / 2)] : 0;
   const lentas = l.slice().sort((a, b) => b.ms - a.ms).slice(0, 12);
+  const pms = PANTALLAS.map((p) => p.ms).sort((a, b) => a - b), pMed = pms.length ? pms[Math.floor(pms.length / 2)] : 0;
+  const pLentas = PANTALLAS.slice().sort((a, b) => b.ms - a.ms).slice(0, 8);
   pintar(cabecera('Velocidad', { volver: '#/mas', sub: 'Últimas consultas a Supabase' }) + `<main class="cont">
+    <div class="mens-total"><span><small>Tiempo normal por pantalla</small><b>${pMed} ms</b><em>Desde que tocas hasta que se ve · ${pms.length} pantallas</em></span><b class="mens-eur">${(pMed / 1000).toFixed(2)} s</b></div>
     <div class="mens-total"><span><small>Tiempo normal por consulta</small><b>${mediana} ms</b><em>Media ${media} ms · ${ms.length} consultas</em></span><b class="mens-eur">${(mediana / 1000).toFixed(2)} s</b></div>
     <p class="nota">Usa la app un rato (Clases, Caja, Alumnas…) y vuelve aquí. Por debajo de 300 ms va bien; si pasa de 1000 ms, el freno está en Supabase o en la conexión.</p>
-    <div class="seccion">Las más lentas</div>
+    <div class="seccion">Pantallas más lentas</div>
+    <div class="tarjeta">${pLentas.map((t) => `<div class="mov"><span class="txt"><span class="tit">${esc(t.que)}</span><span class="det">${new Date(t.en).toLocaleTimeString('es-ES')}</span></span><b class="${t.ms > 2000 ? 'out' : t.ms > 700 ? '' : 'in'}">${t.ms} ms</b></div>`).join('') || vacio('Todavía no hay pantallas medidas.')}</div>
+    <div class="seccion">Consultas más lentas</div>
     <div class="tarjeta">${lentas.map((t) => `<div class="mov"><span class="txt"><span class="tit">${esc(t.que.split('?')[0])}</span><span class="det">${new Date(t.en).toLocaleTimeString('es-ES')}</span></span><b class="${t.ms > 1000 ? 'out' : t.ms > 300 ? '' : 'in'}">${t.ms} ms</b></div>`).join('') || vacio('Todavía no hay consultas. Muévete por la app y vuelve.')}</div>
   </main>`, 'mas');
 }
@@ -794,9 +815,11 @@ async function pantallaClase(id) {
   if (!puedeVer('clases')) return sinPermiso();
   // Una profesora solo ve la información de la clase: sus alumnas ya están en la pestaña Alumnas
   const soloInfo = !S.admin && esProfesora(S.permisos);
-  const c = await q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),inscripciones(count),' + SEL_HOR).eq('id', id).single());
+  // La clase y sus alumnas a la vez (si resulta ser privada, la lista se descarta y va en su bloque)
+  const [c, ins0] = await Promise.all([q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),inscripciones(count),' + SEL_HOR).eq('id', id).single()),
+    puedeVer('inscripciones') && !soloInfo ? intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : []]);
   const nAlumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
-  const ins = puedeVer('inscripciones') && !c.privada && !soloInfo ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : [];
+  const ins = c.privada ? [] : ins0;
   const privada = c.privada ? await bloquePrivada(c) : null;
   ins.sort((a, b) => (a.alumnas.nombre || '').localeCompare(b.alumnas.nombre || '', 'es'));
   pintar(cabecera(c.nombre, { volver: c.escuela_amiga_id ? `#/escuela/${c.escuela_amiga_id}` : '#/clases', sub: esc(textoHorario(c, true)) }) + `<main class="cont">
@@ -1044,9 +1067,11 @@ async function pantallaAlumnas(params) {
 }
 async function pantallaAlumna(id) {
   if (!puedeVer('alumnas')) return sinPermiso();
-  const a = await q(sb.from('alumnas').select('*').eq('id', id).single());
-  const ins = puedeVer('inscripciones') ? await intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,clases(id,nombre,' + SEL_HOR + ')').eq('alumna_id', id).order('fecha_alta', { ascending: false }))) : [];
-  const notas = await intentar(() => q(sb.from('alumnas_notas').select('*').eq('alumna_id', id).order('creado_en', { ascending: false })));
+  const [a, ins, notas] = await Promise.all([   // las tres a la vez
+    q(sb.from('alumnas').select('*').eq('id', id).single()),
+    puedeVer('inscripciones') ? intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,fecha_baja,clases(id,nombre,' + SEL_HOR + ')').eq('alumna_id', id).order('fecha_alta', { ascending: false }))) : [],
+    intentar(() => q(sb.from('alumnas_notas').select('*').eq('alumna_id', id).order('creado_en', { ascending: false })))
+  ]);
   const e = a.fecha_nacimiento ? edad(a.fecha_nacimiento) : a.edad ?? null;
   const tel = (t) => t ? `<a href="tel:${esc(t)}" style="color:var(--morado3)">${esc(t)}</a> · <a href="https://wa.me/${esc(t.replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1'))}" target="_blank" rel="noopener" style="color:#1FA855">WhatsApp</a>` : '—';
   pintar(cabecera(`${a.nombre} ${a.apellidos || ''}`, { volver: '#/alumnas', sub: (a.estado === 'activa' ? 'Activa desde ' + fechaCorta(a.fecha_alta) : 'De baja') + (a.cuota === 'media' ? ' · Medio mes' : '') }) + `<main class="cont">
@@ -2776,27 +2801,36 @@ function selectorMes(mes, base) {
   return `<div class="mes"><button data-ir="${base}mes=${mesCorto(otroMes(mes, -1))}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes)}</h2><button data-ir="${base}mes=${mesCorto(otroMes(mes, 1))}" aria-label="Mes siguiente">${ico('sig')}</button></div>`;
 }
 // Su ficha de profesora: id por la función del servidor (no necesita permiso de Profesoras)
+// Se pregunta una vez por sesión y se guarda (antes se preguntaba en cada pantalla)
 async function miProfesora() {
-  const id = await intentar(() => q(sb.rpc('mi_profesora')));
+  const uid = S.usuario && S.usuario.id;
+  if (!S.miProf || S.miProf.uid !== uid) S.miProf = { uid, id: intentar(() => q(sb.rpc('mi_profesora'))) };
+  const id = await S.miProf.id;
+  if (!(id && typeof id === 'string')) S.miProf = null;   // si falló, se vuelve a preguntar la próxima vez
   return id && typeof id === 'string' ? { id, nombre: S.perfil ? S.perfil.nombre : '', perfil_id: S.usuario.id } : null;
 }
 
 async function pantallaLogros(params) {
   if (!puedeVer('logros')) return sinPermiso();
   const mes = mesParam(params), gestiona = gestionaLogros();
-  const [retos, meses, yo] = await Promise.all([
-    q(sb.from('logros_retos').select('id,titulo').eq('mes', mes).order('creado_en')),
+  // Todo a la vez: retos (con lo cumplido), recompensa, profesoras, clases y estrellas del mes
+  const [retos, meses, yo, profes, clases, estrellas] = await Promise.all([
+    q(sb.from('logros_retos').select('id,titulo,logros_cumplidos(reto_id,profesora_id,semana,marcado_por)').eq('mes', mes).order('creado_en')),
     q(sb.from('logros_meses').select('recompensa').eq('mes', mes)),
-    gestiona ? null : miProfesora()
+    gestiona ? null : miProfesora(),
+    gestiona ? q(sb.from('profesoras').select('id,nombre').eq('activa', true).order('nombre')) : null,
+    // Clases para puntuar a las alumnas (a una profesora con "solo lo suyo" solo le llegan las suyas)
+    intentar(() => q(sb.from('clases').select('id,nombre,inscripciones(alumna_id,fecha_baja),' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null))),
+    intentar(() => q(sb.from('logros_estrellas').select('clase_id,esfuerzo,tareas,actitud').eq('mes', mes)))
   ]);
   const recompensa = meses[0] ? meses[0].recompensa || '' : '';
-  const cumplidos = retos.length ? await q(sb.from('logros_cumplidos').select('reto_id,profesora_id,semana,marcado_por').in('reto_id', retos.map((r) => r.id))) : [];
+  const cumplidos = retos.flatMap((r) => r.logros_cumplidos || []);
   // La profesora marca "Hecho" el reto de esta semana desde aquí (a la administración le llega el aviso)
   const marca = !gestiona && yo && puedeEditar('logros') && mes === mesDe(), sHoy = semanaHoy(mes);
   const hechoYo = (rid) => cumplidos.find((c) => c.reto_id === rid && c.profesora_id === (yo && yo.id) && c.semana === sHoy);
   const botonHecho = (r) => { const h = hechoYo(r.id), mio = h && h.marcado_por === S.usuario.id;
     return `<button class="btn-hecho ${h ? 'on' : ''}" data-hecho="${r.id}" ${h && !mio ? 'disabled' : ''} aria-pressed="${!!h}">${h ? '✓ Hecho' : 'Hecho'}</button>`; };
-  const profesoras = gestiona ? await q(sb.from('profesoras').select('id,nombre').eq('activa', true).order('nombre')) : (yo ? [yo] : []);
+  const profesoras = gestiona ? profes : (yo ? [yo] : []);
   const posibles = retos.length * SEMANAS;
   const tarjetaProfe = (p) => {
     const n = cumplidos.filter((c) => c.profesora_id === p.id).length, v = pct(n, posibles);
@@ -2804,10 +2838,7 @@ async function pantallaLogros(params) {
       <div class="tc-cab"><h2>${esc(p.nombre)}</h2><span class="contador ${v >= 100 ? 'oro' : ''}">${v}%</span></div>
       ${barra(v)}<div class="tc-pie"><span>${n} de ${posibles} conseguidos</span>${ico('sig', 18)}</div></a>`;
   };
-  // Clases para puntuar a las alumnas (a una profesora con "solo lo suyo" solo le llegan las suyas)
-  const clases = await intentar(() => q(sb.from('clases').select('id,nombre,inscripciones(alumna_id,fecha_baja),' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null)));
   clases.sort((a, b) => ordenClase(a) - ordenClase(b));
-  const estrellas = clases.length ? await intentar(() => q(sb.from('logros_estrellas').select('clase_id,esfuerzo,tareas,actitud').eq('mes', mes))) : [];
   const tarjetaClase = (c) => {
     const n = (c.inscripciones || []).filter((i) => !i.fecha_baja).length;
     const v = pct(estrellas.filter((e) => e.clase_id === c.id).reduce((a, e) => a + totalEstrellas(e), 0), n * MAX_ALUMNA);
@@ -2973,7 +3004,7 @@ async function router() {
   if (!S.usuario) return pantallaLogin();
   // Si la administración cambia los permisos, se notan al moverse por la app (sin cerrar sesión)
   // Se comprueba por detrás, sin hacer esperar a la pantalla
-  if (Date.now() - (S.cargadoEn || 0) > 15000) { S.cargadoEn = Date.now(); cargarSesion().then(() => { if (!S.usuario) pantallaLogin(); }).catch(console.error); }
+  if (Date.now() - (S.cargadoEn || 0) > 120000) { S.cargadoEn = Date.now(); cargarSesion().then(() => { if (!S.usuario) pantallaLogin(); }).catch(console.error); }
   if (!VER_COMO && S.usuario.user_metadata && S.usuario.user_metadata.cambiar_clave) return pantallaNuevaClave();
   const [ruta, query] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
   const params = new URLSearchParams(query || '');
@@ -3063,6 +3094,14 @@ async function router() {
   }
 }
 
+// Mientras se enseña la copia guardada de una pantalla, sus botones aún no funcionan: se avisa en vez de no hacer nada
+// (los enlaces, las pestañas y la flecha de volver sí funcionan)
+document.addEventListener('click', (ev) => {
+  if (!$app.classList.contains('previa')) return;
+  const b = ev.target.closest('button, input, select, textarea, summary, label');
+  if (!b || b.closest('[data-ir], [data-volver], [data-salir-ver-como]')) return;
+  ev.preventDefault(); ev.stopPropagation(); aviso('Un momento, se está poniendo al día…');
+}, true);
 /* Clics en botones con data-ir / data-volver */
 document.addEventListener('click', (ev) => {
   // Papelera de un movimiento en las listas de caja (va dentro del enlace: no debe abrirlo)
@@ -3075,7 +3114,7 @@ document.addEventListener('click', (ev) => {
   if (v) { ev.preventDefault(); atras(v.dataset.volver); }
 });
 // Al volver a la app (otra pestaña, móvil desbloqueado) se recargan los permisos por si han cambiado; la pantalla no se toca para no perder lo que se esté escribiendo
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.usuario && Date.now() - (S.cargadoEn || 0) > 15000) cargarSesion().catch(console.error); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.usuario && Date.now() - (S.cargadoEn || 0) > 120000) cargarSesion().catch(console.error); });
 // Si una pantalla tarda, una barrita arriba avisa de que el toque ha llegado
 /* ---------- atrás en escalera ----------
    Se apunta el camino de pantallas igual que el historial del móvil, para que atrás (la flecha de la app o la del móvil)
@@ -3131,9 +3170,12 @@ async function alNavegar() {
   if (seguir !== true) return;
   document.getElementById('aviso').className = '';
   const previa = S.usuario && VISTAS.get(location.hash);
-  if (previa) { $app.innerHTML = previa; window.scrollTo(0, 0); }
-  const t = setTimeout(() => document.body.classList.add('navegando'), 120);
-  try { await router(); } finally { clearTimeout(t); document.body.classList.remove('navegando'); }
+  if (previa) { $app.innerHTML = previa; $app.classList.add('previa'); window.scrollTo(0, 0); }
+  const t = setTimeout(() => document.body.classList.add('navegando'), 120), t0 = performance.now(), h = location.hash;
+  try { await router(); } finally {
+    clearTimeout(t); document.body.classList.remove('navegando');
+    if (location.hash === h) { PANTALLAS.push({ que: rutaDe(h).replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, '…'), ms: Math.round(performance.now() - t0), en: Date.now() }); if (PANTALLAS.length > 60) PANTALLAS.shift(); }
+  }
 }
 window.addEventListener('hashchange', alNavegar);
 window.addEventListener('popstate', alNavegar);
@@ -3147,10 +3189,10 @@ sb.auth.onAuthStateChange((evento) => {
   if (!history.state || typeof history.state.bsPaso !== 'number') CAMINO = [];   // pestaña nueva o recarga sin camino
   apuntarCamino();
   if (await sesionGuardada()) {
+    S.cargadoEn = Date.now();   // la comprobación de abajo es la única al abrir (el enrutador no lanza otra)
     router();
     // Si al comprobar han cambiado los permisos, se vuelve a pintar la pantalla
     const antes = JSON.stringify([S.perfil, S.permisos]);
-    S.cargadoEn = Date.now();
     cargarSesion().then(() => { if (!S.usuario || JSON.stringify([S.perfil, S.permisos]) !== antes) router(); }).catch(console.error);
     return;
   }

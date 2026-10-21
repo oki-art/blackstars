@@ -1,5 +1,5 @@
 // Guarda la app en el móvil para que abra rápido. Los datos siempre vienen de Supabase.
-const VERSION = 'bs-v57';
+const VERSION = 'bs-v58';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/logo.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ARCHIVOS))); self.skipWaiting(); });
@@ -14,9 +14,18 @@ self.addEventListener('fetch', (e) => {
   if (/\/guia(\/|$)/.test(url.pathname)) return;
   // Primero la red (para recibir mejoras), y si no hay conexión, lo guardado.
   // no-cache: pide siempre la versión nueva al servidor (si no ha cambiado, llega rápido)
-  e.respondWith(fetch(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => {
-    const copia = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copia)); return r;
-  }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))));
+  // Si la red tarda más de 3 s (mala cobertura), se abre con lo guardado y la versión nueva queda guardada para la próxima vez.
+  const red = fetch(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => {
+    if (r.ok) { const copia = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copia)); }
+    return r;
+  });
+  const guardado = () => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'));
+  e.respondWith(new Promise((ok) => {
+    let hecho = false;
+    const usar = (r) => { if (!hecho && r) { hecho = true; ok(r); } };
+    const reloj = setTimeout(() => guardado().then((r) => r ? usar(r) : red.then(usar)), 3000);
+    red.then((r) => { clearTimeout(reloj); usar(r); }).catch(() => { clearTimeout(reloj); guardado().then((r) => usar(r || Response.error())); });
+  }));
 });
 
 // Avisos al móvil (los manda el servicio "enviar-push" de Supabase)
