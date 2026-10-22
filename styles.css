@@ -495,3 +495,21 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 /* Copia guardada de una pantalla mientras llegan los datos: algo apagada, para que se note que aún se está poniendo al día */
 #app.previa main{animation:apagar .2s .35s forwards}
 @keyframes apagar{to{opacity:.72}}
+/* Clases de la profesora: la tarjeta se despliega en la misma pantalla */
+.clase-plegable>summary{list-style:none;cursor:pointer}
+.clase-plegable>summary::-webkit-details-marker{display:none}
+.clase-plegable .cp-flecha{display:grid;place-items:center;color:var(--morado3);transition:transform .2s}
+.clase-plegable[open]>summary{border-radius:20px 20px 0 0;box-shadow:none}
+.clase-plegable[open] .cp-flecha{transform:rotate(180deg)}
+.cp-cuerpo{display:flex;flex-direction:column;gap:14px;padding:4px 18px 18px;margin-top:-1px;background:#fff;border:1px solid var(--borde);border-top:0;border-left:5px solid var(--morado);border-radius:0 0 20px 20px;box-shadow:var(--sombra)}
+.cp-cuerpo .datos{margin:0;padding-top:12px;border-top:1px solid var(--borde)}
+.cp-bloque{display:flex;flex-direction:column;gap:8px}
+.cp-tit{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto2)}
+.cp-tit b{font-family:'Sora',sans-serif;font-size:15px;color:var(--morado3);letter-spacing:0}
+.cp-inc{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:rgba(209,47,59,0.06);font-size:14px}
+.cp-inc small{color:var(--texto2);font-size:12px}
+/* Botón Estrellas del Inicio de la profesora (cuadrado morado, junto a Documentos) */
+.mini-estrellas{position:relative;display:flex;flex-direction:column;gap:6px;min-height:92px;padding:14px;border-radius:16px;cursor:pointer;background:linear-gradient(135deg,#7650E0,#5A3BC4);color:#fff;box-shadow:0 10px 22px rgba(118,80,224,0.30)}
+.mini-estrellas .ico-caja{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,0.18)}
+.mini-estrellas b{font-family:'Sora',sans-serif;font-size:15px;color:#fff}
+.mini-estrellas span:not(.ico-caja){font-size:12px;opacity:.85}
