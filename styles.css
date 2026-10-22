@@ -104,10 +104,17 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .datos-ev .largo{padding-top:12px;border-top:1px solid var(--borde)}
 .datos-ev .largo dd{font-weight:500}
 .datos-ev dd b{font-weight:700}
-/* Botones B I U encima de un texto largo */
-.barra-formato{display:flex;gap:8px}
-.barra-formato button{min-width:48px;min-height:44px;border-radius:12px;border:1px solid var(--borde);background:#EEE8FC;color:var(--morado2);font-size:18px;cursor:pointer}
+/* Barra B I U flotante abajo, al seleccionar texto */
+.barra-formato{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:30;display:flex;align-items:center;gap:6px;padding:8px;border-radius:18px;background:#2A2540;color:#fff;box-shadow:0 10px 30px rgba(20,10,60,.35)}
+.barra-formato[hidden]{display:none}
+.barra-formato span{font-size:13px;padding:0 6px 0 8px;opacity:.8}
+.barra-formato button{min-width:52px;min-height:48px;border-radius:12px;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:19px;cursor:pointer}
 .barra-formato .b{font-weight:700}.barra-formato .i{font-style:italic;font-family:Georgia,serif}.barra-formato .u{text-decoration:underline}
+/* Coordinadoras en el formulario del evento */
+.coords-ev{display:flex;flex-direction:column;gap:8px}
+.coord-ev{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid rgba(70,55,140,0.18);border-radius:14px;background:#fff}
+.coord-ev b{flex:1;font-weight:600}
+.coord-ev button.chip{border:0;cursor:pointer;min-height:32px}
 .autor{font-size:12px;color:var(--texto2);text-align:center}
 
 /* Inicio */

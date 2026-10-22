@@ -248,9 +248,8 @@ function campoHtml(c, valor) {
   const id = 'f_' + c.k, v = valor ?? c.def ?? '';
   const req = c.req ? 'required' : '';
   let input;
-  if (c.tipo === 'textarea') input = (c.formato ? `<div class="barra-formato" role="toolbar" aria-label="Formato del texto">
-      <button type="button" class="b" data-formato="**" data-campo="${id}" title="Negrita">B</button><button type="button" class="i" data-formato="*" data-campo="${id}" title="Cursiva">I</button><button type="button" class="u" data-formato="__" data-campo="${id}" title="Subrayado">U</button></div>` : '')
-    + `<textarea id="${id}" name="${c.k}" ${req} placeholder="${esc(c.ph || '')}">${esc(v)}</textarea>`;
+  if (c.tipo === 'textarea') input = `<textarea id="${id}" name="${c.k}" ${req} ${c.formato ? 'data-con-formato' : ''} placeholder="${esc(c.ph || '')}">${esc(v)}</textarea>`
+    + (c.formato ? '<div class="ayuda">Para negrita, cursiva o subrayado: selecciona las palabras y usa los botones que salen abajo.</div>' : '');
   else if (c.tipo === 'select') input = `<select id="${id}" name="${c.k}" ${req}>${c.vacio !== false ? `<option value="">${esc(c.vacio || '—')}</option>` : ''}${(c.opciones || []).map(([val, txt]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(txt)}</option>`).join('')}</select>`;
   else if (c.tipo === 'bool') return `<label class="check"><input type="checkbox" name="${c.k}" ${v === true || v === 'true' ? 'checked' : ''}><span>${esc(c.label)}</span></label>`;
   else {
@@ -260,12 +259,26 @@ function campoHtml(c, valor) {
   }
   return `<div class="campo"><label for="${id}">${esc(c.label)}${c.req ? ' *' : ''}</label>${input}${c.ayuda ? `<div class="ayuda">${esc(c.ayuda)}</div>` : ''}</div>`;
 }
-document.addEventListener('click', (ev) => {
-  const b = ev.target.closest('[data-formato]'); if (!b) return;
-  const ta = document.getElementById(b.dataset.campo), m = b.dataset.formato; if (!ta) return;
-  const a = ta.selectionStart, z = ta.selectionEnd, sel = ta.value.slice(a, z) || 'texto';
+// Barra B I U abajo del todo: sale al seleccionar texto en un campo con formato (así no la tapa el menú de copiar y pegar)
+const barraFormato = document.createElement('div');
+barraFormato.className = 'barra-formato'; barraFormato.hidden = true; barraFormato.setAttribute('role', 'toolbar');
+barraFormato.innerHTML = '<span>Formato</span><button type="button" class="b" data-formato="**" title="Negrita">B</button><button type="button" class="i" data-formato="*" title="Cursiva">I</button><button type="button" class="u" data-formato="__" title="Subrayado">U</button>';
+document.body.appendChild(barraFormato);
+let campoFormato = null;
+const mirarFormato = () => {
+  const ta = document.activeElement;
+  if (ta && ta.matches && ta.matches('textarea[data-con-formato]')) campoFormato = ta;
+  barraFormato.hidden = !(ta === campoFormato && ta && ta.selectionEnd > ta.selectionStart);
+};
+document.addEventListener('selectionchange', mirarFormato);
+document.addEventListener('focusout', () => setTimeout(mirarFormato, 150));
+barraFormato.addEventListener('pointerdown', (ev) => ev.preventDefault());   // que no se pierda la selección
+barraFormato.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-formato]'), ta = campoFormato; if (!b || !ta) return;
+  const m = b.dataset.formato, a = ta.selectionStart, z = ta.selectionEnd; if (z <= a) return;
+  const sel = ta.value.slice(a, z);
   ta.setRangeText(m + sel + m, a, z);
-  ta.setSelectionRange(a + m.length, a + m.length + sel.length); ta.focus();
+  ta.focus(); ta.setSelectionRange(a + m.length, a + m.length + sel.length); mirarFormato();
 });
 function leerForm(form, campos) {
   const fd = new FormData(form), out = {};
@@ -2277,16 +2290,21 @@ function elegidaCoord(v, otra = null) {
   const n = String(otra != null ? otra : prompt('Nombre de la persona que coordina (por ejemplo, Adela o María):') || '').trim();
   return n ? { nombre: n } : null;
 }
-// Formulario del evento: guarda la principal (si cambia, la anterior deja de coordinar)
-async function guardarPrincipal(evento, quien) {
-  const l = await q(sb.from('evento_coordinadoras').select('id,profesora_id,nombre,principal').eq('evento_id', evento));
-  const misma = (c) => quien && (quien.profesora_id ? c.profesora_id === quien.profesora_id : !c.profesora_id && String(c.nombre || '').trim().toLowerCase() === quien.nombre.toLowerCase());
-  const actual = l.find((c) => c.principal), nueva = l.find(misma);
-  if (actual && actual === nueva) return;
-  if (actual) await q(sb.from('evento_coordinadoras').delete().eq('id', actual.id));
-  if (!quien) return;
-  if (nueva) await q(sb.from('evento_coordinadoras').update({ principal: true }).eq('id', nueva.id));
-  else await q(sb.from('evento_coordinadoras').insert({ evento_id: evento, ...quien, principal: true }));
+// Formulario del evento: deja en la tabla exactamente la lista del formulario (la primera es la principal)
+async function guardarCoordinadoras(evento, lista) {
+  const misma = (a, b) => a.profesora_id ? a.profesora_id === b.profesora_id : !b.profesora_id && String(a.nombre || '').trim().toLowerCase() === String(b.nombre || '').trim().toLowerCase();
+  const antes = await q(sb.from('evento_coordinadoras').select('id,profesora_id,nombre,principal').eq('evento_id', evento));
+  const sigue = (c) => lista.some((x) => misma(x, c));
+  const quitar = antes.filter((c) => !sigue(c)).map((c) => c.id);
+  if (quitar.length) await q(sb.from('evento_coordinadoras').delete().in('id', quitar));
+  // Solo puede haber una principal: primero se quita la marca a la que deja de serlo
+  const prin = antes.find((c) => c.principal && sigue(c) && !(lista[0] && misma(lista[0], c)));
+  if (prin) await q(sb.from('evento_coordinadoras').update({ principal: false }).eq('id', prin.id));
+  for (const [i, x] of lista.entries()) {
+    const ya = antes.find((c) => misma(x, c));
+    if (!ya) await q(sb.from('evento_coordinadoras').insert({ evento_id: evento, profesora_id: x.profesora_id, nombre: x.profesora_id ? null : x.nombre, principal: i === 0 }));
+    else if (i === 0 && !ya.principal) await q(sb.from('evento_coordinadoras').update({ principal: true }).eq('id', ya.id));
+  }
 }
 
 /* ---------- ventas y reservas de un evento (camisetas, entradas...) ----------
@@ -2488,19 +2506,20 @@ async function formReserva(params) {
 }
 async function formEvento(id, params) {
   // Al crear: si se va a vender algo (camisetas, entradas…), al guardar se pasa directo a poner qué se vende, precio y tallas
-  let vender = false, coordSel = undefined;
+  let vender = false, coords = null;
   const venta = !id && params && params.get('venta') === '1';
   const conTabla = await hayCoordinadoras();
   let campoCoord = { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] };
-  let selIni = '';
+  let opc = null;
   if (conTabla) {
-    const prin = id ? (await intentar(() => q(sb.from('evento_coordinadoras').select('profesora_id,nombre').eq('evento_id', id).eq('principal', true)))).find(Boolean) : null;
-    selIni = prin ? (prin.profesora_id ? 'p:' + prin.profesora_id : 'n:' + String(prin.nombre).trim()) : '';
-    const opc = await opcionesCoordinadoras();
-    if (selIni.startsWith('n:') && !opc.equipo.some((n) => 'n:' + n === selIni)) opc.equipo.push(selIni.slice(2));
-    campoCoord = { k: '_coord', label: 'Coordinadora principal', tipo: 'html', html: `<div class="campo"><label for="f__coord">Coordinadora principal</label><select id="f__coord" name="_coord">${opcionesCoordHtml(opc, selIni)}</select>
-      <input id="f__coord_otra" name="_coord_otra" type="text" placeholder="Escribe su nombre (Adela, María…)" style="display:none;margin-top:8px">
-      <div class="ayuda">Puede ser una profesora o alguien del equipo. Después, en el evento, puedes añadir más coordinadoras.</div></div>` };
+    // Todas las que coordinan, la principal la primera; se pueden añadir, quitar y cambiar la principal aquí mismo
+    // (sin intentar(): si no se pudiera leer, mejor no abrir que guardar la lista vacía y borrar a todas)
+    const [l, o] = await Promise.all([id ? q(sb.from('evento_coordinadoras').select('id,profesora_id,nombre,principal,profesoras(nombre)').eq('evento_id', id).order('principal', { ascending: false }).order('creado_en')) : [], opcionesCoordinadoras()]);
+    coords = l.map((c) => ({ id: c.id, profesora_id: c.profesora_id || null, nombre: nomCoord(c) }));
+    opc = o;
+    campoCoord = { k: '_coord', tipo: 'html', html: `<div class="campo"><label for="f__coord">Coordina</label><div id="coords-ev" class="coords-ev"></div>
+      <select id="f__coord"></select>
+      <div class="ayuda">La primera es la coordinadora principal y las demás ayudan. Puede ser una profesora o alguien del equipo (Adela, María…).</div></div>` };
   }
   await pantallaForm({
     titulo: id ? 'Editar evento' : venta ? 'Nueva venta' : 'Nuevo evento', tabla: 'eventos', modulo: 'eventos', id, volver: id ? `#/evento/${id}` : venta ? '#/caja?t=ingreso&s=eventos' : '#/eventos',
@@ -2509,13 +2528,10 @@ async function formEvento(id, params) {
       vender = !!d._vender; delete d._vender;
       if (conTabla) {
         d.coordinadora_id = null;   // la coordinación va ahora en evento_coordinadoras (la 018 ya copió la de antes)
-        const f = document.getElementById('frm'), v = f.elements._coord.value;
-        coordSel = v === selIni ? undefined : elegidaCoord(v, f.elements._coord_otra.value);
-        if (v === 'otra' && !coordSel) throw new Error('Escribe el nombre de la coordinadora');
       }
       return d;
     },
-    alGuardar: (r) => conTabla && coordSel !== undefined ? guardarPrincipal(r.id, coordSel) : null,
+    alGuardar: (r) => conTabla ? guardarCoordinadoras(r.id, coords) : null,
     campos: [
       { k: 'titulo', label: 'Título', req: true, ph: venta ? 'Camisetas Navidad, Entradas fin de curso…' : 'Halloween, Gala de Navidad…' },
       ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
@@ -2526,8 +2542,21 @@ async function formEvento(id, params) {
       { k: 'condiciones', label: 'Condiciones (plazos, vestuario…)', tipo: 'textarea', formato: true }
     ]
   });
-  const sc = document.getElementById('f__coord'), otra = document.getElementById('f__coord_otra');
-  if (sc) sc.onchange = () => { otra.style.display = sc.value === 'otra' ? '' : 'none'; if (sc.value === 'otra') otra.focus(); };
+  const caja = document.getElementById('coords-ev'), sc = document.getElementById('f__coord');
+  if (!caja) return;
+  const pintarCoords = () => {
+    caja.innerHTML = coords.map((c, i) => `<div class="coord-ev"><b>${esc(c.nombre)}</b>${i === 0 ? '<span class="chip oro">Principal</span>'
+      : `<button type="button" class="chip mor" data-pr="${i}">Hacer principal</button>`}<button type="button" class="chip no" data-q="${i}">Quitar</button></div>`).join('')
+      || '<div class="ayuda">Nadie coordina todavía.</div>';
+    sc.innerHTML = opcionesCoordHtml(opc, '', coords, coords.length ? '+ Añadir otra persona…' : '+ Elegir coordinadora principal…');
+  };
+  caja.onclick = (ev) => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.pr) coords.unshift(...coords.splice(+b.dataset.pr, 1)); else if (b.dataset.q) coords.splice(+b.dataset.q, 1);
+    pintarCoords();
+  };
+  sc.onchange = () => { const quien = elegidaCoord(sc.value); if (quien) coords.push({ profesora_id: quien.profesora_id || null, nombre: quien.nombre }); pintarCoords(); };
+  pintarCoords();
 }
 
 /* ---------- escuelas amigas ---------- */
