@@ -104,10 +104,9 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .datos-ev .largo{padding-top:12px;border-top:1px solid var(--borde)}
 .datos-ev .largo dd{font-weight:500}
 .datos-ev dd b{font-weight:700}
-/* Barra B I U flotante abajo, al seleccionar texto */
-.barra-formato{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:30;display:flex;align-items:center;gap:6px;padding:8px;border-radius:18px;background:#2A2540;color:#fff;box-shadow:0 10px 30px rgba(20,10,60,.35)}
+/* Barra B I U justo debajo del texto seleccionado */
+.barra-formato{position:absolute;left:0;top:0;z-index:30;display:flex;align-items:center;gap:6px;padding:8px;border-radius:18px;background:#2A2540;color:#fff;box-shadow:0 10px 30px rgba(20,10,60,.35)}
 .barra-formato[hidden]{display:none}
-.barra-formato span{font-size:13px;padding:0 6px 0 8px;opacity:.8}
 .barra-formato button{min-width:52px;min-height:48px;border-radius:12px;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:19px;cursor:pointer}
 .barra-formato .b{font-weight:700}.barra-formato .i{font-style:italic;font-family:Georgia,serif}.barra-formato .u{text-decoration:underline}
 /* Coordinadoras en el formulario del evento */
