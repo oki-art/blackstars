@@ -59,6 +59,8 @@ const METODOS = [['efectivo', 'Efectivo'], ['tarjeta', 'Tarjeta'], ['bizum', 'Bi
 
 /* ---------- utilidades ---------- */
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Texto con formato sencillo: **negrita**, *cursiva* y __subrayado__ (primero se escapa, así no cuela HTML)
+const conFormato = (v) => esc(v).replace(/\*\*([^\n]+?)\*\*/g, '<b>$1</b>').replace(/__([^\n]+?)__/g, '<u>$1</u>').replace(/\*([^\n*]+?)\*/g, '<i>$1</i>');
 const eur = (v) => (Number(v) || 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' €';
 const pad = (n) => String(n).padStart(2, '0');
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
@@ -246,7 +248,9 @@ function campoHtml(c, valor) {
   const id = 'f_' + c.k, v = valor ?? c.def ?? '';
   const req = c.req ? 'required' : '';
   let input;
-  if (c.tipo === 'textarea') input = `<textarea id="${id}" name="${c.k}" ${req} placeholder="${esc(c.ph || '')}">${esc(v)}</textarea>`;
+  if (c.tipo === 'textarea') input = (c.formato ? `<div class="barra-formato" role="toolbar" aria-label="Formato del texto">
+      <button type="button" class="b" data-formato="**" data-campo="${id}" title="Negrita">B</button><button type="button" class="i" data-formato="*" data-campo="${id}" title="Cursiva">I</button><button type="button" class="u" data-formato="__" data-campo="${id}" title="Subrayado">U</button></div>` : '')
+    + `<textarea id="${id}" name="${c.k}" ${req} placeholder="${esc(c.ph || '')}">${esc(v)}</textarea>`;
   else if (c.tipo === 'select') input = `<select id="${id}" name="${c.k}" ${req}>${c.vacio !== false ? `<option value="">${esc(c.vacio || '—')}</option>` : ''}${(c.opciones || []).map(([val, txt]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(txt)}</option>`).join('')}</select>`;
   else if (c.tipo === 'bool') return `<label class="check"><input type="checkbox" name="${c.k}" ${v === true || v === 'true' ? 'checked' : ''}><span>${esc(c.label)}</span></label>`;
   else {
@@ -256,6 +260,13 @@ function campoHtml(c, valor) {
   }
   return `<div class="campo"><label for="${id}">${esc(c.label)}${c.req ? ' *' : ''}</label>${input}${c.ayuda ? `<div class="ayuda">${esc(c.ayuda)}</div>` : ''}</div>`;
 }
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-formato]'); if (!b) return;
+  const ta = document.getElementById(b.dataset.campo), m = b.dataset.formato; if (!ta) return;
+  const a = ta.selectionStart, z = ta.selectionEnd, sel = ta.value.slice(a, z) || 'texto';
+  ta.setRangeText(m + sel + m, a, z);
+  ta.setSelectionRange(a + m.length, a + m.length + sel.length); ta.focus();
+});
 function leerForm(form, campos) {
   const fd = new FormData(form), out = {};
   campos.forEach((c) => {
@@ -2181,7 +2192,7 @@ async function pantallaEvento(id) {
     <div class="tarjeta"><dl class="datos-ev">
       <div><dt>Lugar</dt><dd>${esc(e.lugar || '—')}</dd></div><div><dt>Coordina</dt><dd>${esc(coords.length ? coords.map(nomCoord).join(', ') : '—')}</dd></div>
       ${e.precio_alumna != null ? `<div><dt>Precio</dt><dd>${eur(e.precio_alumna)}</dd></div>` : ''}${e.inscripcion_hasta ? `<div><dt>Inscripción hasta</dt><dd>${fechaCorta(e.inscripcion_hasta)}</dd></div>` : ''}
-      ${e.descripcion ? `<div class="largo"><dt>Descripción</dt><dd>${esc(e.descripcion)}</dd></div>` : ''}${e.normas ? `<div class="largo"><dt>Normas</dt><dd>${esc(e.normas)}</dd></div>` : ''}${e.condiciones ? `<div class="largo"><dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd></div>` : ''}
+      ${e.descripcion ? `<div class="largo"><dt>Descripción</dt><dd>${conFormato(e.descripcion)}</dd></div>` : ''}${e.normas ? `<div class="largo"><dt>Normas</dt><dd>${conFormato(e.normas)}</dd></div>` : ''}${e.condiciones ? `<div class="largo"><dt>Condiciones</dt><dd>${conFormato(e.condiciones)}</dd></div>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
     ${htmlCoord}
@@ -2510,9 +2521,9 @@ async function formEvento(id, params) {
       ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
       { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
       { k: 'lugar', label: 'Lugar' }, campoCoord,
-      { k: 'descripcion', label: 'Descripción', tipo: 'textarea' }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },
-      { k: 'inscripcion_hasta', label: 'Inscripción hasta', tipo: 'fecha' }, { k: 'normas', label: 'Normas del evento', tipo: 'textarea' },
-      { k: 'condiciones', label: 'Condiciones (plazos, vestuario…)', tipo: 'textarea' }
+      { k: 'descripcion', label: 'Descripción', tipo: 'textarea', formato: true }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },
+      { k: 'inscripcion_hasta', label: 'Inscripción hasta', tipo: 'fecha' }, { k: 'normas', label: 'Normas del evento', tipo: 'textarea', formato: true },
+      { k: 'condiciones', label: 'Condiciones (plazos, vestuario…)', tipo: 'textarea', formato: true }
     ]
   });
   const sc = document.getElementById('f__coord'), otra = document.getElementById('f__coord_otra');
