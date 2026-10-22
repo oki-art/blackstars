@@ -1890,25 +1890,45 @@ async function formDocumento() {
   if (!dest.length) { aviso('Ahora mismo no hay nadie a quien enviarlo', true); location.hash = '#/documentos'; return; }
   pintar(cabecera(ges ? 'Enviar documento' : 'Subir documento', { volver: '#/documentos', sub: 'PDF o foto, máx. 10 MB' }) + `<main class="cont"><form class="form tarjeta" id="frm">
     ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: ges ? 'Ej.: Acuerdo de colaboración 2026' : 'Ej.: Justificante médico' })}
-    ${campoHtml({ k: 'para', label: ges ? 'Para' : 'Para (administración)', tipo: 'select', req: true, opciones: dest.map((d) => [d.id, d.nombre]) }, ges ? '' : dest[0].id)}
+    ${ges ? `<div class="campo"><label>Para (una, varias o todas)</label><label class="check"><input type="checkbox" id="todas"><span><b>Todas</b></span></label>
+      ${dest.map((d) => `<label class="check"><input type="checkbox" name="para" value="${d.id}"><span>${esc(d.nombre)}</span></label>`).join('')}</div>`
+    : campoHtml({ k: 'para', label: 'Para (administración)', tipo: 'select', req: true, opciones: dest.map((d) => [d.id, d.nombre]) }, dest[0].id)}
     ${campoHtml({ k: 'nota', label: 'Nota', tipo: 'textarea', ph: ges ? 'Opcional: qué tiene que hacer con él' : 'Opcional: de qué se trata' })}
     <div class="campo"><label for="f_archivo">Archivo *</label><label class="subir-archivo">${ico('subir', 20)}<span id="nom-archivo">Elegir PDF o foto</span><input id="f_archivo" type="file" accept="application/pdf,image/*" required hidden></label></div>
     ${ges ? '<label class="check"><input type="checkbox" name="pide_firma" checked><span>Tiene que devolverlo firmado</span></label>' : ''}
     <button class="btn pri ancho" type="submit">Enviar</button></form></main>`, false);
   const form = document.getElementById('frm'), inp = document.getElementById('f_archivo');
   inp.onchange = () => { document.getElementById('nom-archivo').textContent = inp.files[0] ? inp.files[0].name : 'Elegir PDF o foto'; };
+  const todas = document.getElementById('todas'), marcas = [...form.querySelectorAll('[name=para]')];
+  if (todas) {
+    todas.onchange = () => marcas.forEach((c) => { c.checked = todas.checked; });
+    marcas.forEach((c) => { c.onchange = () => { todas.checked = marcas.every((m) => m.checked); }; });
+  }
   form.onsubmit = async (ev) => {
     ev.preventDefault();
+    const para = ges ? marcas.filter((c) => c.checked).map((c) => c.value) : [form.para.value];
+    if (!para.length) { aviso('Elige al menos una persona', true); return; }
     const file = inp.files[0]; if (!file) { aviso('Elige el archivo', true); return; }
     if (file.size > 10485760) { aviso('El archivo pasa de 10 MB', true); return; }
     const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Subiendo…';
+    // Una ficha por persona (cada una lo lee o lo firma por su cuenta), con su copia del archivo en su carpeta
+    const filas = para.map((p) => { const id = crypto.randomUUID(); return { id, titulo: form.titulo.value.trim(), para_perfil: p, nota: form.nota.value.trim() || null, archivo: `${id}/original.${extDe(file)}`, pide_firma: ges ? form.pide_firma.checked : false }; });
+    const subidas = [];
     try {
-      const id = crypto.randomUUID(), ruta = `${id}/original.${extDe(file)}`;
-      const { error } = await sb.storage.from('documentos').upload(ruta, file, { contentType: file.type });
+      const { error } = await sb.storage.from('documentos').upload(filas[0].archivo, file, { contentType: file.type });
       if (error) throw error;
-      await q(sb.from('documentos').insert({ id, titulo: form.titulo.value.trim(), para_perfil: form.para.value, nota: form.nota.value.trim() || null, archivo: ruta, pide_firma: ges ? form.pide_firma.checked : false }));
-      aviso('Documento enviado'); location.hash = '#/documentos?f=todos';
-    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; btn.textContent = 'Enviar'; }
+      subidas.push(filas[0].archivo);
+      for (const f of filas.slice(1)) {
+        const { error: e2 } = await sb.storage.from('documentos').copy(filas[0].archivo, f.archivo);
+        if (e2) throw e2;
+        subidas.push(f.archivo);
+      }
+      await q(sb.from('documentos').insert(filas));
+      aviso(filas.length > 1 ? `Documento enviado a ${filas.length} personas` : 'Documento enviado'); location.hash = '#/documentos?f=todos';
+    } catch (e) {
+      if (subidas.length) sb.storage.from('documentos').remove(subidas).catch(() => {});
+      aviso(traducirError(e), true); btn.disabled = false; btn.textContent = 'Enviar';
+    }
   };
 }
 async function pantallaDocumento(id) {
