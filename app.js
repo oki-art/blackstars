@@ -2178,10 +2178,10 @@ async function pantallaEvento(id) {
       ${puedeEditar('caja') ? `<a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=evento&evento=${id}">${ico('mas')} Apuntar un gasto del evento</a>` : ''}`;
   }
   pintar(cabecera(e.titulo, { volver: '#/eventos', sub: capital(fechaLarga(e.fecha)) + (e.hora ? ' · ' + hora(e.hora) : '') }) + `<main class="cont">
-    <div class="tarjeta"><dl class="datos">
-      <dt>Lugar</dt><dd>${esc(e.lugar || '—')}</dd><dt>Coordina</dt><dd>${esc(coords.length ? coords.map(nomCoord).join(', ') : '—')}</dd>
-      ${e.precio_alumna != null ? `<dt>Precio</dt><dd>${eur(e.precio_alumna)}</dd>` : ''}${e.inscripcion_hasta ? `<dt>Inscripción hasta</dt><dd>${fechaCorta(e.inscripcion_hasta)}</dd>` : ''}
-      ${e.descripcion ? `<dt>Descripción</dt><dd>${esc(e.descripcion)}</dd>` : ''}${e.normas ? `<dt>Normas</dt><dd>${esc(e.normas)}</dd>` : ''}${e.condiciones ? `<dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd>` : ''}
+    <div class="tarjeta"><dl class="datos-ev">
+      <div><dt>Lugar</dt><dd>${esc(e.lugar || '—')}</dd></div><div><dt>Coordina</dt><dd>${esc(coords.length ? coords.map(nomCoord).join(', ') : '—')}</dd></div>
+      ${e.precio_alumna != null ? `<div><dt>Precio</dt><dd>${eur(e.precio_alumna)}</dd></div>` : ''}${e.inscripcion_hasta ? `<div><dt>Inscripción hasta</dt><dd>${fechaCorta(e.inscripcion_hasta)}</dd></div>` : ''}
+      ${e.descripcion ? `<div class="largo"><dt>Descripción</dt><dd>${esc(e.descripcion)}</dd></div>` : ''}${e.normas ? `<div class="largo"><dt>Normas</dt><dd>${esc(e.normas)}</dd></div>` : ''}${e.condiciones ? `<div class="largo"><dt>Condiciones</dt><dd>${esc(e.condiciones)}</dd></div>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
     ${htmlCoord}
