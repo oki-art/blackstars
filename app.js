@@ -397,7 +397,7 @@ async function pantallaInicio(vista = null) {
     const alumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
     const dias = [...new Set(horariosDe(c).map((h) => h.dia_semana))];
     const textoDias = dias.length ? (dias.length === 1 ? DIAS[dias[0]] : dias.slice(0, -1).map((d) => DIAS[d]).join(', ') + ' y ' + DIAS[dias[dias.length - 1]]) : 'Sin horario';
-    return `<a class="clase-hero" href="#/clase/${c.id}">
+    return `<a class="clase-hero" href="${profesora && !vista ? `#/clases?abrir=${c.id}` : `#/clase/${c.id}`}">
     <div class="k"><span>${i === 0 ? 'Próxima clase · ' : ''}${cuando(c)}</span><span class="hora">${c._h ? hora(c._h.hora_inicio) : ''}</span></div>
     <h2>${esc(c.nombre)}</h2>
     <div class="ch-pie"><div class="ch-izq"><div class="ch-dias">${esc(textoDias)}</div><div class="ch-prof">Profesora ${esc(c.profesoras ? c.profesoras.nombre : 'sin asignar')}</div></div>
@@ -421,6 +421,8 @@ async function pantallaInicio(vista = null) {
     const pend = await pDocs;
     tarjetaDocs = `<a class="mini-docs" href="#/documentos"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>${pend ? `${pend} pendiente${pend === 1 ? '' : 's'}` : 'Subir y firmar'}</span>${pend ? `<span class="nv-n">${pend}</span>` : ''}</a>`;
   } else tarjetaDocs = `<span class="mini-docs"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>Subir y firmar</span></span>`;
+  // Estrellas: la profesora puntúa a sus alumnas desde el Inicio, sin pasar por la clase
+  const tarjetaEstrellas = profesora && ver('logros') && editar('logros') ? `<${vista ? 'span' : 'a href="#/estrellas"'} class="mini-estrellas"><span class="ico-caja">${ico('evento', 22)}</span><b>Estrellas</b><span>Puntuar alumnas</span></${vista ? 'span' : 'a'}>` : '';
   const tarjetaCaja = ver('caja') ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>Caja</b><span>Ingresos y gastos</span></a>` : '';
   const accesos = (profesora ? [
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
@@ -445,7 +447,7 @@ async function pantallaInicio(vista = null) {
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
     ${barraLogros}
-    <div class="minis">${tarjetaCaja}${tarjetaDocs}</div>
+    <div class="minis">${tarjetaCaja}${tarjetaEstrellas}${tarjetaDocs}</div>
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
@@ -778,6 +780,7 @@ async function guardarHorarios(claseId, horarios) {
 
 async function pantallaClases(params) {
   if (!puedeVer('clases')) return sinPermiso();
+  if (!S.admin && esProfesora(S.permisos)) return pantallaMisClases(params);
   const f = params.get('f') || 'propias';
   // Horas de este mes de cada clase (quien lleva la caja): las da su profesora, salvo faltas y cambios. Todo a la vez.
   const mesH = hoyISO().slice(0, 7), [ym, mm] = mesH.split('-').map(Number), finH = `${mm === 12 ? ym + 1 : ym}-${pad(mm === 12 ? 1 : mm + 1)}-01`;
@@ -811,13 +814,55 @@ async function pantallaClases(params) {
     <div class="lista">${tarjetas || vacio(titulo === 'Mis clases' ? 'Todavía no tienes clases asignadas.' : 'No hay clases todavía.' + (puedeEditar('clases') ? ' Pulsa + para crear la primera.' : ''))}</div></main>`,
     'clases', puedeEditar('clases') && f === 'propias' ? '#/clase/nueva' : null);
 }
+// Una profesora ve sus clases desplegadas en la misma pantalla de Clases (sin pantalla aparte)
+async function pantallaMisClases(params) {
+  const abrir = params.get('abrir'), mes = mesDe();
+  const [clases, est, inc] = await Promise.all([
+    q(sb.from('clases').select('id,nombre,nivel,sala,activa,escuela_amiga_id,privada,profesoras(nombre),inscripciones(count),' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null)),
+    puedeVer('logros') ? intentar(() => q(sb.from('logros_estrellas').select('clase_id,esfuerzo,tareas,actitud').eq('mes', mes))) : [],
+    puedeVer('incidencias') ? intentar(() => q(sb.from('incidencias').select('id,fecha,descripcion,clase_id,alumnas(nombre,apellidos)').not('clase_id', 'is', null).order('fecha', { ascending: false }).limit(60))) : []
+  ]);
+  clases.sort((a, b) => ordenClase(a) - ordenClase(b));
+  // Pilates (clase privada) tiene su propia pantalla, con los cobros
+  if (abrir && clases.some((c) => c.id === abrir && c.privada)) return cambiarSinApilar(`#/clase/${abrir}`);
+  const tarjeta = (c) => {
+    const n = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
+    if (c.privada) return `<a class="tarjeta-clase" href="#/clase/${c.id}"><div class="tc-cab"><h2>${esc(c.nombre)} <span class="candado">${ico('candado', 16)}</span></h2><span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span></div>
+      <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div><div class="tc-pie"><span>Alumnas y cobros</span>${ico('sig', 18)}</div></a>`;
+    const media = pct(est.filter((e) => e.clase_id === c.id).reduce((t, e) => t + totalEstrellas(e), 0), n * MAX_ALUMNA);
+    const suyas = inc.filter((x) => x.clase_id === c.id).slice(0, 3);
+    return `<details class="clase-plegable" id="cl-${c.id}"${abrir === c.id || clases.length === 1 ? ' open' : ''}><summary class="tarjeta-clase">
+      <div class="tc-cab"><h2>${esc(c.nombre)}</h2><span class="chip mor">${n} ${n === 1 ? 'alumna' : 'alumnas'}</span></div>
+      <div class="tc-hor">${ico('clases', 16)} ${esc(textoHorario(c))}</div>
+      <div class="tc-pie"><span>${c.profesoras ? 'Prof. ' + esc(c.profesoras.nombre) : 'Sin profesora'}</span><span class="cp-flecha">${ico('abajo', 18)}</span></div></summary>
+      <div class="cp-cuerpo">
+        <dl class="datos">
+          <dt>Horario</dt><dd>${horariosDe(c).map((h) => `${DIAS[h.dia_semana]} ${hora(h.hora_inicio)}–${hora(h.hora_fin)}`).join('<br>') || '—'}</dd>
+          <dt>Nivel</dt><dd>${esc(c.nivel || '—')}</dd>${c.sala ? `<dt>Sala</dt><dd>${esc(c.sala)}</dd>` : ''}
+          <dt>Alumnas</dt><dd>${n}</dd>
+        </dl>
+        ${puedeVer('logros') ? `<div class="cp-bloque"><div class="cp-tit"><span>Estrellas de ${esc(nombreMes(mes))}</span><b>${media}%</b></div>${barra(media)}</div>` : ''}
+        ${puedeVer('incidencias') ? `<div class="cp-bloque"><div class="cp-tit"><span>Últimas incidencias</span></div>
+          ${suyas.map((x) => `<div class="cp-inc"><small>${fechaCorta(x.fecha)}${x.alumnas ? ' · ' + esc(x.alumnas.nombre + ' ' + (x.alumnas.apellidos || '')) : ''}</small>${esc(x.descripcion)}</div>`).join('') || '<div class="nota">Ninguna apuntada.</div>'}</div>` : ''}
+      </div></details>`;
+  };
+  pintar(cabecera('Mis clases', { sub: `${clases.length} ${clases.length === 1 ? 'clase' : 'clases'} · toca una para ver su información` }) + `<main class="cont">
+    <div class="lista">${clases.map(tarjeta).join('') || vacio('Todavía no tienes clases asignadas.')}</div></main>`, 'clases');
+  // Al abrir una, se cierran las demás
+  $app.querySelectorAll('details.clase-plegable').forEach((d) => d.addEventListener('toggle', () => {
+    if (d.open) $app.querySelectorAll('details.clase-plegable[open]').forEach((o) => { if (o !== d) o.open = false; });
+  }));
+  if (abrir) { const d = document.getElementById('cl-' + abrir); if (d) d.scrollIntoView({ block: 'start' }); }
+}
 async function pantallaClase(id) {
   if (!puedeVer('clases')) return sinPermiso();
+
   // Una profesora solo ve la información de la clase: sus alumnas ya están en la pestaña Alumnas
   const soloInfo = !S.admin && esProfesora(S.permisos);
   // La clase y sus alumnas a la vez (si resulta ser privada, la lista se descarta y va en su bloque)
   const [c, ins0] = await Promise.all([q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),inscripciones(count),' + SEL_HOR).eq('id', id).single()),
     puedeVer('inscripciones') && !soloInfo ? intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : []]);
+  if (soloInfo && !c.privada) return cambiarSinApilar(`#/clases?abrir=${id}`);   // la profesora la ve desplegada en Clases
   const nAlumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
   const ins = c.privada ? [] : ins0;
   const privada = c.privada ? await bloquePrivada(c) : null;
@@ -2963,7 +3008,15 @@ async function pantallaLogrosProfesora(id, params) {
   });
 }
 
-async function pantallaLogrosClase(id, params) {
+async function pantallaEstrellas(params) {
+  if (!puedeVer('logros')) return sinPermiso();
+  const clases = await intentar(() => q(sb.from('clases').select('id,nombre,privada,' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null)));
+  const mias = clases.filter((c) => !c.privada).sort((a, b) => ordenClase(a) - ordenClase(b));
+  if (!mias.length) return pintar(cabecera('Estrellas', { volver: '#/inicio' }) + `<main class="cont">${vacio('Todavía no tienes clases para dar estrellas.')}</main>`, 'inicio');
+  const id = mias.some((c) => c.id === params.get('c')) ? params.get('c') : mias[0].id;
+  return pantallaLogrosClase(id, params, { clases: mias, base: '#/estrellas?' });
+}
+async function pantallaLogrosClase(id, params, desdeInicio = null) {
   if (!puedeVer('logros')) return sinPermiso();
   const mes = mesParam(params), semana = Math.min(SEMANAS, Math.max(1, +params.get('s') || semanaHoy(mes)));
   const puede = puedeEditar('logros');
@@ -2975,11 +3028,12 @@ async function pantallaLogrosClase(id, params) {
     .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
   const de = (aid, s) => est.find((e) => e.alumna_id === aid && +e.semana === s) || { alumna_id: aid, semana: s, esfuerzo: 0, tareas: 0, actitud: 0 };
   const totalMes = (aid) => est.filter((e) => e.alumna_id === aid).reduce((a, e) => a + totalEstrellas(e), 0);
-  const base = `#/logros/clase/${id}?mes=${mesCorto(mes)}&`;
+  const base = desdeInicio ? `#/estrellas?c=${id}&mes=${mesCorto(mes)}&` : `#/logros/clase/${id}?mes=${mesCorto(mes)}&`;
   const ranking = alumnas.map((a) => ({ a, t: totalMes(a.id) })).sort((x, y) => y.t - x.t).filter((x) => x.t > 0).slice(0, 3);
   const estrellasHtml = (a, k) => { const v = +de(a.id, semana)[k] || 0;
     return [1, 2, 3].map((n) => `<button class="est ${n <= v ? 'on' : ''}" data-a="${a.id}" data-k="${k}" data-n="${n}" ${puede ? '' : 'disabled'} aria-label="${n} estrella${n > 1 ? 's' : ''}"><svg width="26" height="26" viewBox="0 0 24 24"><polygon points="12,2 14.9,8.6 22,9.3 16.6,14 18.2,21 12,17.3 5.8,21 7.4,14 2,9.3 9.1,8.6"/></svg></button>`).join(''); };
-  pintar(cabecera(c.nombre, { volver: `#/logros?mes=${mesCorto(mes)}`, sub: 'Estrellas · ' + nombreMes(mes) }) + `<main class="cont">
+  pintar(cabecera(desdeInicio ? 'Estrellas' : c.nombre, { volver: desdeInicio ? '#/inicio' : `#/logros?mes=${mesCorto(mes)}`, sub: (desdeInicio ? esc(c.nombre) + ' · ' : 'Estrellas · ') + nombreMes(mes) }) + `<main class="cont">
+    ${desdeInicio && desdeInicio.clases.length > 1 ? `<div class="filtros">${desdeInicio.clases.map((x) => `<button data-ir="#/estrellas?c=${x.id}&mes=${mesCorto(mes)}" class="${x.id === id ? 'on' : ''}">${esc(x.nombre)}</button>`).join('')}</div>` : ''}
     <div class="filtros">${[1, 2, 3, 4].map((s) => `<button data-ir="${base}s=${s}" class="${s === semana ? 'on' : ''}">Sem. ${s}</button>`).join('')}</div>
     <p class="nota" style="margin:-4px 2px 0">Semana ${semana}: ${textoSemana(mes, semana)} de ${aFecha(mes).toLocaleDateString('es-ES', { month: 'long' })}. De 1 a 3 estrellas en cada apartado.</p>
     ${ranking.length ? `<div class="tarjeta"><h3>Las que más brillan este mes</h3><div class="podio">${ranking.map((x, i) => `<div><span class="medalla m${i + 1}">${i + 1}</span><b>${esc(x.a.nombre)}</b><span>${pct(x.t, MAX_ALUMNA)}%</span></div>`).join('')}</div></div>` : ''}
@@ -2987,7 +3041,7 @@ async function pantallaLogrosClase(id, params) {
       <div class="p-cab"><b>${esc(a.nombre)} ${esc(a.apellidos || '')}</b><span class="chip mor" data-pct="${a.id}">${pct(totalMes(a.id), MAX_ALUMNA)}% del mes</span></div>
       ${CATEG.map(([k, t]) => `<div class="p-fila"><span>${t}</span><div class="estrellas">${estrellasHtml(a, k)}</div></div>`).join('')}
     </div>`).join('') || vacio('No hay alumnas inscritas en esta clase.')}
-  </main>`, 'mas');
+  </main>`, desdeInicio ? 'inicio' : 'mas');
   $app.querySelectorAll('.est').forEach((b) => b.onclick = async () => {
     const aid = b.dataset.a, k = b.dataset.k, n = +b.dataset.n;
     const fila = de(aid, semana), nuevo = +fila[k] === n ? n - 1 : n;   // tocar la última estrella encendida la apaga
@@ -3088,6 +3142,7 @@ async function router() {
       case 'acceso': return await formAcceso(params);
       case 'permisos': return await pantallaPermisos(params);
       case 'vista': return await pantallaVista(p[1]);
+      case 'estrellas': return await pantallaEstrellas(params);
       case 'logros':
         if (p[1] === 'reto') return await formReto(params);
         if (p[1] === 'profesora') return await pantallaLogrosProfesora(p[2], params);
