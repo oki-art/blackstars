@@ -249,7 +249,7 @@ function campoHtml(c, valor) {
   const req = c.req ? 'required' : '';
   let input;
   if (c.tipo === 'textarea') input = `<textarea id="${id}" name="${c.k}" ${req} ${c.formato ? 'data-con-formato' : ''} placeholder="${esc(c.ph || '')}">${esc(v)}</textarea>`
-    + (c.formato ? '<div class="ayuda">Para negrita, cursiva o subrayado: selecciona las palabras y usa los botones que salen abajo.</div>' : '');
+    + (c.formato ? '<div class="ayuda">Para negrita, cursiva o subrayado: selecciona las palabras y usa los botones que salen debajo.</div>' : '');
   else if (c.tipo === 'select') input = `<select id="${id}" name="${c.k}" ${req}>${c.vacio !== false ? `<option value="">${esc(c.vacio || '—')}</option>` : ''}${(c.opciones || []).map(([val, txt]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(txt)}</option>`).join('')}</select>`;
   else if (c.tipo === 'bool') return `<label class="check"><input type="checkbox" name="${c.k}" ${v === true || v === 'true' ? 'checked' : ''}><span>${esc(c.label)}</span></label>`;
   else {
@@ -259,18 +259,38 @@ function campoHtml(c, valor) {
   }
   return `<div class="campo"><label for="${id}">${esc(c.label)}${c.req ? ' *' : ''}</label>${input}${c.ayuda ? `<div class="ayuda">${esc(c.ayuda)}</div>` : ''}</div>`;
 }
-// Barra B I U abajo del todo: sale al seleccionar texto en un campo con formato (así no la tapa el menú de copiar y pegar)
+// Barra B I U justo debajo de lo seleccionado en un campo con formato (el menú de copiar y pegar del móvil sale encima)
 const barraFormato = document.createElement('div');
 barraFormato.className = 'barra-formato'; barraFormato.hidden = true; barraFormato.setAttribute('role', 'toolbar');
-barraFormato.innerHTML = '<span>Formato</span><button type="button" class="b" data-formato="**" title="Negrita">B</button><button type="button" class="i" data-formato="*" title="Cursiva">I</button><button type="button" class="u" data-formato="__" title="Subrayado">U</button>';
+barraFormato.innerHTML = '<button type="button" class="b" data-formato="**" title="Negrita">B</button><button type="button" class="i" data-formato="*" title="Cursiva">I</button><button type="button" class="u" data-formato="__" title="Subrayado">U</button>';
 document.body.appendChild(barraFormato);
 let campoFormato = null;
+// Dónde acaba la selección dentro del cuadro: se copia el texto en una caja invisible igual y se mide
+function finSeleccion(ta) {
+  const cs = getComputedStyle(ta), espejo = document.createElement('div');
+  ['boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textIndent'].forEach((k) => { espejo.style[k] = cs[k]; });
+  Object.assign(espejo.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', top: '0', left: '-9999px' });
+  espejo.textContent = ta.value.slice(0, ta.selectionEnd);
+  const marca = document.createElement('span'); marca.textContent = '\u200b'; espejo.appendChild(marca);
+  document.body.appendChild(espejo);
+  const r = { top: marca.offsetTop + marca.offsetHeight - ta.scrollTop, left: marca.offsetLeft };
+  espejo.remove(); return r;
+}
 const mirarFormato = () => {
   const ta = document.activeElement;
   if (ta && ta.matches && ta.matches('textarea[data-con-formato]')) campoFormato = ta;
-  barraFormato.hidden = !(ta === campoFormato && ta && ta.selectionEnd > ta.selectionStart);
+  const hay = ta === campoFormato && ta && ta.selectionEnd > ta.selectionStart;
+  barraFormato.hidden = !hay; if (!hay) return;
+  const caja = ta.getBoundingClientRect(), p = finSeleccion(ta);
+  const y = Math.min(Math.max(p.top, 0), caja.height) + 30;   // un poco más abajo, para dejar sitio a los tiradores azules
+  const x = Math.max(caja.left, Math.min(caja.left + p.left - 80, caja.right - barraFormato.offsetWidth));
+  barraFormato.style.top = (caja.top + window.scrollY + y) + 'px';
+  barraFormato.style.left = (x + window.scrollX) + 'px';
 };
 document.addEventListener('selectionchange', mirarFormato);
+document.addEventListener('scroll', (ev) => { if (ev.target === campoFormato) mirarFormato(); }, true);
+window.addEventListener('resize', mirarFormato);
 document.addEventListener('focusout', () => setTimeout(mirarFormato, 150));
 barraFormato.addEventListener('pointerdown', (ev) => ev.preventDefault());   // que no se pierda la selección
 barraFormato.addEventListener('click', (ev) => {
