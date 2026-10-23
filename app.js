@@ -2188,7 +2188,7 @@ async function pantallaEvento(id) {
   if (!puedeVer('eventos')) return sinPermiso();
   const ed = puedeEditar('eventos'), ventas = {};
   // Todo a la vez (antes iba una cosa detrás de otra y el evento tardaba más de 2 s)
-  const [e, ins, profs, coords0, optCoord, htmlVentas, movs, optProfs, optAlus] = await Promise.all([
+  const [e, ins, profs, coords0, optCoord, htmlVentas, movs, optProfs, optAlus, nombres] = await Promise.all([
     q(sb.from(S.admin ? 'eventos_con_autor' : 'eventos').select('*').eq('id', id).maybeSingle()),
     q(sb.from('inscripciones_evento').select('id,estado,alumnas(id,nombre,apellidos)').eq('evento_id', id)),
     q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id)),
@@ -2197,11 +2197,15 @@ async function pantallaEvento(id) {
     bloqueVentas(id, ventas),
     puedeVer('caja') ? intentar(() => leerCaja((r) => r.eq('evento_id', id).order('fecha').order('creado_en'))) : [],
     ed && puedeVer('profesoras') ? intentar(opcionesProfesoras) : [],
-    ed && puedeVer('alumnas') ? intentar(opcionesAlumnas) : []
+    ed && puedeVer('alumnas') ? intentar(opcionesAlumnas) : [],
+    // Nombres de sus profesoras para quien no puede leer las fichas (migración 025)
+    puedeVer('profesoras') ? [] : intentar(() => q(sb.rpc('nombres_evento', { p_evento: id })))
   ]);
   // Una profesora solo abre los eventos en los que está (como profesora o coordinadora)
   if (!e) return pintar(cabecera('Evento', { volver: '#/eventos' }) + `<main class="cont">${vacio('Este evento no es tuyo: solo lo ven quienes lo coordinan o dan clase en él, y la administración.')}</main>`, 'mas');
   const coords = coords0 || await leerCoordinadoras(e), conTabla = await hayCoordinadoras();
+  const nomProf = new Map((nombres || []).map((n) => [n.profesora_id, n.nombre]));
+  [...coords, ...profs].forEach((x) => { if (!x.profesoras && nomProf.has(x.profesora_id)) x.profesoras = { nombre: nomProf.get(x.profesora_id) }; });
   const htmlCoord = `<div class="seccion">Coordinación${coords.length > 1 ? ` (${coords.length})` : ''}</div>
     <div class="lista">${coords.map((c) => fila({ href: `#/evento/${id}`, tit: nomCoord(c), det: c.principal ? 'Coordinadora principal' : 'También coordina',
       der: `<span class="chips">${c.principal ? '<span class="chip oro">Principal</span>' : ''}${ed && conTabla && !c.principal ? `<button class="chip mor" data-principal="${c.id}" style="border:0;cursor:pointer;min-height:32px">Hacer principal</button>` : ''}${ed && conTabla ? `<button class="chip no" data-quitar-coord="${c.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : ''}</span>` })).join('') || vacio('Nadie coordina este evento todavía.')}</div>
