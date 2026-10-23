@@ -410,7 +410,7 @@ async function pantallaInicio(vista = null) {
   // Todas las clases activas propias (a una profesora con "solo lo suyo" la base de datos solo le da las suyas).
   let consulta = sb.from('clases')
     .select('id,nombre,profesoras(nombre),inscripciones(count),' + SEL_HOR)
-    .eq('activa', true).is('escuela_amiga_id', null);
+    .eq('activa', true).is('escuela_amiga_id', null).is('inscripciones.fecha_baja', null);   // solo cuenta las alumnas sin baja, igual que la lista de la clase
   if (vista && profesora) consulta = consulta.eq('profesora_id', vista.profesora.id);
   // Clases, Logros y Documentos se piden a la vez (antes iban una detrás de otra)
   const pLogros = profesora && ver('logros') ? (async () => {
@@ -828,7 +828,7 @@ async function pantallaClases(params) {
   const f = params.get('f') || 'propias';
   // Horas de este mes de cada clase (quien lleva la caja): las da su profesora, salvo faltas y cambios. Todo a la vez.
   const mesH = hoyISO().slice(0, 7), [ym, mm] = mesH.split('-').map(Number), finH = `${mm === 12 ? ym + 1 : ym}-${pad(mm === 12 ? 1 : mm + 1)}-01`;
-  const [clases, privadas, horas, cobros] = await Promise.all([q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR)), clasesPrivadas(),
+  const [clases, privadas, horas, cobros] = await Promise.all([q(sb.from('clases').select('id,nombre,activa,escuela_amiga_id,profesora_externa,profesoras(nombre),escuelas_amigas(nombre),inscripciones(count),' + SEL_HOR).is('inscripciones.fecha_baja', null)), clasesPrivadas(),
     f === 'propias' && puedeVer('caja') ? intentar(async () => horasPorClase(calcularHoras(mesH, await datosHoras(mesH)))) : {},
     // Lo cobrado este mes en las clases privadas (Pilates); la base de datos solo deja verlo a quien le toca
     f === 'propias' ? intentar(() => q(sb.from('caja').select('clase_id,importe').eq('tipo', 'ingreso').gte('fecha', mesH + '-01').lt('fecha', finH).not('clase_id', 'is', null))) : []]);
@@ -862,7 +862,7 @@ async function pantallaClases(params) {
 async function pantallaMisClases(params) {
   const abrir = params.get('abrir'), mes = mesDe();
   const [clases, est, inc] = await Promise.all([
-    q(sb.from('clases').select('id,nombre,nivel,sala,activa,escuela_amiga_id,privada,profesoras(nombre),inscripciones(count),' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null)),
+    q(sb.from('clases').select('id,nombre,nivel,sala,activa,escuela_amiga_id,privada,profesoras(nombre),inscripciones(count),' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null).is('inscripciones.fecha_baja', null)),
     puedeVer('logros') ? intentar(() => q(sb.from('logros_estrellas').select('clase_id,esfuerzo,tareas,actitud').eq('mes', mes))) : [],
     puedeVer('incidencias') ? intentar(() => q(sb.from('incidencias').select('id,fecha,descripcion,clase_id,alumnas(nombre,apellidos)').not('clase_id', 'is', null).order('fecha', { ascending: false }).limit(60))) : []
   ]);
@@ -904,7 +904,7 @@ async function pantallaClase(id) {
   // Una profesora solo ve la información de la clase: sus alumnas ya están en la pestaña Alumnas
   const soloInfo = !S.admin && esProfesora(S.permisos);
   // La clase y sus alumnas a la vez (si resulta ser privada, la lista se descarta y va en su bloque)
-  const [c, ins0] = await Promise.all([q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),inscripciones(count),' + SEL_HOR).eq('id', id).single()),
+  const [c, ins0] = await Promise.all([q(sb.from('clases').select('*,profesoras(nombre),escuelas_amigas(id,nombre),inscripciones(count),' + SEL_HOR).eq('id', id).is('inscripciones.fecha_baja', null).single()),
     puedeVer('inscripciones') && !soloInfo ? intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,alumnas(id,nombre,apellidos,telefono,cuota)').eq('clase_id', id).is('fecha_baja', null))) : []]);
   if (soloInfo && !c.privada) return cambiarSinApilar(`#/clases?abrir=${id}`);   // la profesora la ve desplegada en Clases
   const nAlumnas = c.inscripciones && c.inscripciones[0] ? c.inscripciones[0].count : 0;
