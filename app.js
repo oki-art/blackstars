@@ -1451,6 +1451,7 @@ async function pantallaCaja(params) {
   const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = subCaja(params, t);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
+  // Ojo: una profesora no ve las fichas de alumnas de otras clases, así que i.alumnas / r.alumnas pueden venir vacías
   // Todo a la vez (antes iba una consulta detrás de otra)
   // Cambio: el de este mes y el que siga fuera de meses anteriores
   // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
@@ -2235,8 +2236,8 @@ async function pantallaEvento(id) {
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
     ${ed && puedeVer('profesoras') ? `<div class="campo"><select id="addProf"><option value="">+ Añadir profesora…</option>${optProfs.filter(([pid]) => !profs.some((p) => p.profesora_id === pid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     <div class="seccion">Alumnas inscritas (${ins.filter((i) => i.estado === 'inscrita').length})</div>
-    <div class="lista">${ins.map((i) => fila({ href: `#/alumna/${i.alumnas.id}`, tit: `${i.alumnas.nombre} ${i.alumnas.apellidos || ''}`, der: i.estado === 'inscrita' ? (ed ? `<button class="chip ok" data-cancelar="${i.id}" style="border:0;cursor:pointer;min-height:32px">Inscrita</button>` : '<span class="chip ok">Inscrita</span>') : '<span class="chip gris">Cancelada</span>' })).join('') || vacio('Nadie inscrita todavía.')}</div>
-    ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${optAlus.filter(([aid]) => !ins.some((i) => i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
+    <div class="lista">${ins.map((i) => fila({ href: i.alumnas ? `#/alumna/${i.alumnas.id}` : `#/evento/${id}`, tit: i.alumnas ? nomAlumna(i.alumnas) : 'Alumna de otra clase', der: i.estado === 'inscrita' ? (ed ? `<button class="chip ok" data-cancelar="${i.id}" style="border:0;cursor:pointer;min-height:32px">Inscrita</button>` : '<span class="chip ok">Inscrita</span>') : '<span class="chip gris">Cancelada</span>' })).join('') || vacio('Nadie inscrita todavía.')}</div>
+    ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${optAlus.filter(([aid]) => !ins.some((i) => i.alumnas && i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
   activarCobros();
