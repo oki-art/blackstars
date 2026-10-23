@@ -8,7 +8,7 @@ let VER_COMO = null;
 try { VER_COMO = JSON.parse(localStorage.getItem('bs-ver-como') || 'null'); } catch (e) { /* sin almacenamiento */ }
 const guardarVerComo = (vc) => { VER_COMO = vc; try { if (vc) localStorage.setItem('bs-ver-como', JSON.stringify(vc)); else localStorage.removeItem('bs-ver-como'); } catch (e) { /* sin almacenamiento */ } };
 // Lo único que se deja pasar mientras tanto, además de leer: la sesión, abrir documentos y consultas que no cambian nada
-const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/;
+const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento)/;
 
 // Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
 const TIEMPOS = [], PANTALLAS = [];   // consultas sueltas y pantallas completas (desde el toque hasta que se ve)
@@ -17,7 +17,7 @@ const medirFetch = async (url, opts) => {
   if (VER_COMO && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !VER_COMO_PASA.test(String(url)))
     return new Response(JSON.stringify({ message: `Estás viendo la app como ${VER_COMO.nombre}: solo para mirar, no se puede cambiar nada.` }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
-  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora)/.test(String(url))) VISTAS.clear();
+  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento)/.test(String(url))) VISTAS.clear();
   // Ninguna consulta se queda esperando sin fin: a los 20 s se corta y sale "La conexión va muy lenta" (las subidas de archivos, no)
   const subida = /\/storage\/v1\/object\/(?!sign\/)/.test(String(url)) && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method);
   const corte = subida ? null : new AbortController(), reloj = corte && setTimeout(() => corte.abort(), 20000);
@@ -2198,8 +2198,8 @@ async function pantallaEvento(id) {
     puedeVer('caja') ? intentar(() => leerCaja((r) => r.eq('evento_id', id).order('fecha').order('creado_en'))) : [],
     ed && puedeVer('profesoras') ? intentar(opcionesProfesoras) : [],
     ed && puedeVer('alumnas') ? intentar(opcionesAlumnas) : [],
-    // Nombres de sus profesoras para quien no puede leer las fichas (migración 025)
-    puedeVer('profesoras') ? [] : intentar(() => q(sb.rpc('nombres_evento', { p_evento: id })))
+    // Nombres de sus profesoras para quien no puede leer todas las fichas (migración 025; también en "Ver como")
+    S.admin ? [] : intentar(() => q(sb.rpc('nombres_evento', { p_evento: id })))
   ]);
   // Una profesora solo abre los eventos en los que está (como profesora o coordinadora)
   if (!e) return pintar(cabecera('Evento', { volver: '#/eventos' }) + `<main class="cont">${vacio('Este evento no es tuyo: solo lo ven quienes lo coordinan o dan clase en él, y la administración.')}</main>`, 'mas');
