@@ -1907,6 +1907,51 @@ async function abrirArchivo(ruta) {
   try { const { data, error } = await sb.storage.from('documentos').createSignedUrl(ruta, 300); if (error) throw error; if (v) v.location = data.signedUrl; else location.href = data.signedUrl; }
   catch (e) { if (v) v.close(); aviso(traducirError(e), true); }
 }
+// Visor dentro de la app: descarga el archivo (privado) y lo enseña a pantalla completa. El lector de PDF solo se carga la primera vez.
+let cargaPdf = null;
+const cargarPdf = () => cargaPdf || (cargaPdf = new Promise((ok, mal) => {
+  const s = document.createElement('script'); s.src = 'vendor/pdf.min.js';
+  s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js'; ok(window.pdfjsLib); };
+  s.onerror = () => { cargaPdf = null; mal(new Error('No se pudo abrir el visor. Revisa la conexión.')); };
+  document.head.appendChild(s);
+}));
+async function verArchivo(ruta, titulo) {
+  const capa = document.createElement('div'); capa.className = 'visor';
+  capa.innerHTML = `<div class="visor-barra"><b></b><button class="btn sec" data-bajar>${ico('bajar', 18)}</button><button class="btn sec" data-cerrar>Cerrar</button></div><div class="visor-hojas"><div class="visor-msg">Abriendo…</div></div>`;
+  capa.querySelector('b').textContent = titulo;
+  document.body.appendChild(capa); document.body.classList.add('sin-scroll');
+  let url = null;
+  const cerrar = () => { capa.remove(); document.body.classList.remove('sin-scroll'); if (url) URL.revokeObjectURL(url); removeEventListener('hashchange', cerrar); };
+  addEventListener('hashchange', cerrar);
+  capa.querySelector('[data-cerrar]').onclick = cerrar;
+  capa.querySelector('[data-bajar]').onclick = () => abrirArchivo(ruta);
+  const hojas = capa.querySelector('.visor-hojas');
+  const fallo = (t) => { hojas.innerHTML = `<div class="visor-msg">${esc(t)}<br><button class="btn sec" data-bajar2>${ico('bajar', 18)} Descargar documento</button></div>`; hojas.querySelector('[data-bajar2]').onclick = () => abrirArchivo(ruta); };
+  try {
+    const { data: blob, error } = await sb.storage.from('documentos').download(ruta);
+    if (error) throw error;
+    const ext = ruta.split('.').pop().toLowerCase();
+    if (blob.type === 'application/pdf' || ext === 'pdf') {
+      const pdfjs = await cargarPdf();
+      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+      hojas.innerHTML = '';
+      const ancho = Math.min(hojas.clientWidth - 20, 900) * Math.min(devicePixelRatio || 1, 2);
+      for (let n = 1; n <= pdf.numPages && capa.isConnected; n++) {
+        const pag = await pdf.getPage(n), vp = pag.getViewport({ scale: ancho / pag.getViewport({ scale: 1 }).width });
+        const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+        hojas.appendChild(c);
+        await pag.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      }
+    } else {
+      url = URL.createObjectURL(blob);
+      const img = new Image(); img.alt = titulo;
+      await new Promise((ok, mal) => { img.onload = ok; img.onerror = mal; img.src = url; });
+      hojas.innerHTML = ''; hojas.appendChild(img);
+    }
+  } catch (e) {
+    if (capa.isConnected) fallo(e && e.message && !/^\[object/.test(e.message) && !(e instanceof Event) ? traducirError(e) : 'Este archivo no se puede ver en este móvil.');
+  }
+}
 async function pantallaDocumentos(params) {
   const ges = gestionaDocs(), yo = S.usuario.id;
   const tabs = ges ? [['pendiente', 'Pendientes'], ['firmado', 'Devueltos'], ['todos', 'Todos']] : [['pendiente', 'Pendientes'], ['todos', 'Historial']];
@@ -1987,16 +2032,18 @@ async function pantallaDocumento(id) {
       <h2 style="margin-top:10px">${esc(d.titulo)}</h2>
       ${d.nota ? `<p style="margin:8px 0 0;white-space:pre-wrap;color:var(--texto2)">${esc(d.nota)}</p>` : ''}
       <div class="nota" style="margin-top:10px">${[d.registrado_por ? 'Enviado por ' + esc(d.registrado_por) : '', para ? 'para ' + esc(para) : '', fechaCorta(d.creado_en)].filter(Boolean).join(' · ')}</div></div>
-    <button class="btn sec ancho" id="ver-original">${ico('bajar')} Descargar documento</button>
-    ${d.archivo_firmado ? `<div class="tarjeta doc-firmado"><b>${ico('doc', 18)} Devuelto firmado</b><div class="nota">${fechaCorta(d.devuelto_en)}</div><button class="btn sec ancho" id="ver-firmado">${ico('bajar')} Ver el firmado</button></div>` : ''}
+    <div class="doc-botones"><button class="btn pri" id="ver-original">${ico('ojo')} Ver documento</button><button class="btn sec" id="bajar-original">${ico('bajar')} Descargar</button></div>
+    ${d.archivo_firmado ? `<div class="tarjeta doc-firmado"><b>${ico('doc', 18)} Devuelto firmado</b><div class="nota">${fechaCorta(d.devuelto_en)}</div><div class="doc-botones"><button class="btn pri" id="ver-firmado">${ico('ojo')} Ver firmado</button><button class="btn sec" id="bajar-firmado">${ico('bajar')} Descargar</button></div></div>` : ''}
     ${mio && d.pide_firma ? `<div class="tarjeta"><h3>${d.archivo_firmado ? '¿Te has equivocado?' : 'Devolverlo firmado'}</h3>
       <p class="nota" style="margin:6px 0 12px">1. Descárgalo. 2. Fírmalo en el móvil (en el iPhone: Archivos › Marcación; en Android: con tu app de PDF) o imprímelo, fírmalo y hazle una foto. 3. Súbelo aquí.</p>
       <label class="subir-archivo">${ico('subir', 20)}<span>${d.archivo_firmado ? 'Subir otra vez' : 'Subir firmado'}</span><input id="subir-firmado" type="file" accept="application/pdf,image/*" hidden></label></div>` : ''}
     ${mio && !d.pide_firma && d.estado === 'pendiente' ? '<button class="btn pri ancho" id="visto">Ya lo he leído</button>' : ''}
     ${S.admin ? '<button class="btn peligro ancho" id="borrar">Borrar definitivamente</button>' : ''}
   </main>`, ges ? 'mas' : 'inicio');
-  document.getElementById('ver-original').onclick = () => abrirArchivo(d.archivo);
-  const vf = document.getElementById('ver-firmado'); if (vf) vf.onclick = () => abrirArchivo(d.archivo_firmado);
+  document.getElementById('ver-original').onclick = () => verArchivo(d.archivo, d.titulo);
+  document.getElementById('bajar-original').onclick = () => abrirArchivo(d.archivo);
+  const vf = document.getElementById('ver-firmado'); if (vf) vf.onclick = () => verArchivo(d.archivo_firmado, d.titulo + ' (firmado)');
+  const bf = document.getElementById('bajar-firmado'); if (bf) bf.onclick = () => abrirArchivo(d.archivo_firmado);
   const sf = document.getElementById('subir-firmado');
   if (sf) sf.onchange = async () => {
     const file = sf.files[0]; if (!file) return;
