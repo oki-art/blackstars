@@ -261,7 +261,17 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .aviso-fila .punto{width:10px;height:10px;border-radius:50%;background:var(--gasto);flex:none}
 .subir-archivo{display:flex;align-items:center;justify-content:center;gap:10px;min-height:52px;padding:0 16px;border-radius:14px;border:1.5px dashed rgba(118,80,224,0.4);background:rgba(118,80,224,0.05);color:var(--morado3);font-weight:700;cursor:pointer}
 .doc-firmado b{display:flex;align-items:center;gap:8px;color:var(--ingreso)}
-.doc-firmado .btn{margin-top:10px}
+.doc-firmado .doc-botones{margin-top:10px}
+.doc-botones{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.doc-botones .btn{padding:0 12px;min-width:0}
+body.sin-scroll{overflow:hidden}
+.visor{position:fixed;inset:0;z-index:60;background:#1F1D2B;display:flex;flex-direction:column}
+.visor-barra{display:flex;align-items:center;gap:8px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px 16px;color:#fff}
+.visor-barra b{flex:1;min-width:0;font-family:'Sora',sans-serif;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.visor-barra .btn{min-height:44px;padding:0 14px;flex:none}
+.visor-hojas{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;align-items:center;gap:12px;padding:4px 10px calc(20px + env(safe-area-inset-bottom,0px))}
+.visor-hojas canvas,.visor-hojas img{width:100%;max-width:900px;height:auto;background:#fff;border-radius:6px}
+.visor-msg{color:#fff;text-align:center;padding:60px 16px;display:flex;flex-direction:column;align-items:center;gap:16px;line-height:1.5}
 .caja-todas{padding:4px 0}
 .tipo{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tipo button{min-height:48px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-weight:700;cursor:pointer}
