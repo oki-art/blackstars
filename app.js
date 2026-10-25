@@ -926,7 +926,7 @@ async function pantallaClase(id) {
       ${puedeEditar('inscripciones') ? `<a class="btn pri" href="#/inscripcion/nueva?clase=${id}">${ico('mas')} Inscribir alumna</a>` : ''}` : ''}
     ${S.admin ? `<a class="btn peligro" href="#/clase/${id}/borrar">${ico('papelera', 18)} Borrar clase</a>` : ''}
     ${autorDe(c)}
-  </main>`, 'clases');
+  </main>`, 'clases', c.privada && gestionaPrivada() ? `#/clase/${id}/apuntar` : null);
   if (privada) privada.activar();
 }
 
@@ -940,23 +940,23 @@ async function clasesPrivadas() {   // ids de las clases privadas que se ven; si
   return new Set(error ? [] : data.map((c) => c.id));
 }
 const gestionaPrivada = () => S.admin || puedeEditar('pilates');
-// "Nueva alumna" con clases de Pilates a la vista (la administración aparte): la ficha corta de su clase.
-// La profesora que solo da Pilates va directa (si tiene varias clases, elige cuál); quien también apunta alumnas de baile elige entre las dos fichas.
+// "Nueva alumna" con clases de Pilates a la vista: la ficha corta de su clase.
+// La profesora que solo da Pilates va directa (si tiene varias clases, elige cuál); quien también apunta alumnas de baile (la administración incluida) elige entre las dos fichas.
 async function pantallaNuevaAlumna(params) {
   const completa = () => pantallaForm({ titulo: 'Nueva alumna', tabla: 'alumnas', modulo: 'alumnas', campos: CAMPOS_ALUMNA, volver: '#/alumnas', despues: (r) => `#/alumna/${r.id}` });
-  if (S.admin || params.get('completa')) return await completa();
+  if (params.get('completa')) return await completa();
   const pil = await intentar(() => q(sb.from('clases').select('id,nombre').eq('privada', true).eq('activa', true).order('nombre'))) || [];
   if (!pil.length) return await completa();
   let baile = puedeEditar('alumnas');
-  if (baile && esProfesora(S.permisos)) {   // profesora: solo si da alguna clase que no sea de Pilates
+  if (baile && !S.admin && esProfesora(S.permisos)) {   // profesora: solo si da alguna clase que no sea de Pilates
     const yo = await intentar(async () => q(sb.rpc('mi_profesora')));
     const suyas = yo ? await intentar(() => q(sb.from('clases').select('id').eq('profesora_id', yo).eq('activa', true).eq('privada', false).is('escuela_amiga_id', null))) : null;
     baile = !!(suyas && suyas.length);
   }
   if (!baile && pil.length === 1) { location.replace(`#/clase/${pil[0].id}/apuntar`); return; }
   pintar(cabecera('Nueva alumna', { volver: '#/alumnas', sub: '¿Dónde la apuntas?' }) + `<main class="cont"><div class="lista">
-    ${pil.map((c) => fila({ href: `#/clase/${c.id}/apuntar`, tit: c.nombre, det: 'Pilates · nombre, apellidos, email, teléfono y edad', der: ico('sig') })).join('')}
-    ${baile ? fila({ href: '#/alumna/nueva?completa=1', tit: 'Alumna de baile', det: 'Ficha completa, con tutor si es menor', der: ico('sig') }) : ''}</div></main>`, 'alumnas');
+    ${baile ? fila({ href: '#/alumna/nueva?completa=1', tit: 'Alumna de baile', det: 'Ficha completa, con tutor si es menor', der: ico('sig') }) : ''}
+    ${pil.map((c) => fila({ href: `#/clase/${c.id}/apuntar`, tit: c.nombre, det: 'Pilates · adulta: nombre, apellidos, email, teléfono y edad', der: ico('sig') })).join('')}</div></main>`, 'alumnas');
 }
 async function bloquePrivada(c) {
   const qs = new URLSearchParams(location.hash.split('?')[1] || ''), hoy = hoyISO();
