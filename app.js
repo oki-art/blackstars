@@ -940,6 +940,23 @@ async function clasesPrivadas() {   // ids de las clases privadas que se ven; si
   return new Set(error ? [] : data.map((c) => c.id));
 }
 const gestionaPrivada = () => S.admin || puedeEditar('pilates');
+// Profesora cuyas clases son todas privadas (Pilates): "Nueva alumna" le lleva a la ficha corta, no a la ficha completa con tutor y mensualidad.
+// Devuelve sus clases privadas activas, o null si no es su caso (la administración, o quien también da clases normales).
+async function soloPilatesMias() {
+  if (S.admin || !gestionaPrivada()) return null;
+  const yo = await intentar(async () => q(sb.rpc('mi_profesora')));
+  if (!yo) return null;
+  const mias = await intentar(() => q(sb.from('clases').select('id,nombre,privada').eq('profesora_id', yo).eq('activa', true).is('escuela_amiga_id', null).order('nombre')));
+  return mias && mias.length && mias.every((c) => c.privada) ? mias : null;
+}
+// "Nueva alumna": ficha completa, salvo para la profesora de Pilates (ficha corta en su clase; si tiene varias, elige cuál)
+async function pantallaNuevaAlumna() {
+  const pil = await soloPilatesMias();
+  if (!pil) return await pantallaForm({ titulo: 'Nueva alumna', tabla: 'alumnas', modulo: 'alumnas', campos: CAMPOS_ALUMNA, volver: '#/alumnas', despues: (r) => `#/alumna/${r.id}` });
+  if (pil.length === 1) { location.replace(`#/clase/${pil[0].id}/apuntar`); return; }
+  pintar(cabecera('Nueva alumna', { volver: '#/alumnas', sub: '¿En qué clase la apuntas?' }) + `<main class="cont"><div class="lista">
+    ${pil.map((c) => fila({ href: `#/clase/${c.id}/apuntar`, tit: c.nombre, det: 'Ficha corta: nombre, apellidos, email, teléfono y edad', der: ico('sig') })).join('')}</div></main>`, 'alumnas');
+}
 async function bloquePrivada(c) {
   const qs = new URLSearchParams(location.hash.split('?')[1] || ''), hoy = hoyISO();
   const mes = /^\d{4}-\d{2}$/.test(qs.get('mes') || '') ? qs.get('mes') : hoy.slice(0, 7);
@@ -1103,6 +1120,8 @@ async function pantallaAlumnas(params) {
   const unica = !claseSel && f !== 'todas' && clases.filter((c) => c.activa).length === 1 && !deClase('sin').length ? clases.find((c) => c.activa) : null;
   if (unica) claseSel = unica.id;
   const claseObj = clases.find((c) => c.id === claseSel);
+  // Dentro de una clase de Pilates, el botón + abre su ficha corta
+  const privadaSel = claseSel && claseSel !== 'sin' && gestionaPrivada() && (await clasesPrivadas()).has(claseSel);
   // Estrellas del mes de cada alumna de la clase (barra de progreso) y orden de la lista
   const enUnaClase = claseSel && claseSel !== 'sin';
   const est = enUnaClase && puedeVer('logros') ? await intentar(() => q(sb.from('logros_estrellas').select('alumna_id,esfuerzo,tareas,actitud').eq('clase_id', claseSel).eq('mes', mesDe()))) : null;
@@ -1115,7 +1134,7 @@ async function pantallaAlumnas(params) {
     <div class="buscar">${ico('buscar')}<input id="buscar" type="search" placeholder="${claseSel && !unica ? 'Buscar en esta clase' : 'Buscar alumna'}" autocomplete="off"></div>
     ${est ? `<div class="filtros" id="orden">${[['az', 'A–Z'], ['nota', 'Más estrellas']].map(([k, t]) => `<button type="button" data-orden="${k}" class="${orden === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
     ${claseSel && !unica ? '' : `<div class="filtros">${[['activa', 'Activas'], ['baja', 'Bajas'], ['todas', 'Todas']].map(([k, t]) => `<button data-ir="#/alumnas?f=${k}" class="${f === k ? 'on' : ''}">${t}</button>`).join('')}</div>`}
-    <div class="lista" id="lista"></div></main>`, 'alumnas', puedeEditar('alumnas') ? '#/alumna/nueva' : null);
+    <div class="lista" id="lista"></div></main>`, 'alumnas', privadaSel ? `#/clase/${claseSel}/apuntar` : puedeEditar('alumnas') || gestionaPrivada() ? '#/alumna/nueva' : null);
   const quitarTildes = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const filaAlumna = (a) => {
     const cls = (a.inscripciones || []).filter((i) => !i.fecha_baja && i.clases).map((i) => i.clases.nombre).join(' · ');
@@ -3227,7 +3246,7 @@ async function router() {
         return await pantallaClase(p[1]);
       case 'alumnas': return await pantallaAlumnas(params);
       case 'alumna':
-        if (p[1] === 'nueva') return await pantallaForm({ titulo: 'Nueva alumna', tabla: 'alumnas', modulo: 'alumnas', campos: CAMPOS_ALUMNA, volver: '#/alumnas', despues: (r) => `#/alumna/${r.id}` });
+        if (p[1] === 'nueva') return await pantallaNuevaAlumna();
         if (p[2] === 'editar') return await pantallaForm({ titulo: 'Editar alumna', tabla: 'alumnas', modulo: 'alumnas', id: p[1], campos: CAMPOS_ALUMNA, volver: `#/alumna/${p[1]}` });
         return await pantallaAlumna(p[1]);
       case 'inscripciones': return await pantallaInscripciones();
