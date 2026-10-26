@@ -2068,7 +2068,7 @@ async function formDocumento() {
   const ges = gestionaDocs();
   const dest = (await q(sb.rpc('destinatarias'))).filter((d) => d.id !== S.usuario.id);
   if (!dest.length) { aviso('Ahora mismo no hay nadie a quien enviarlo', true); location.hash = '#/documentos'; return; }
-  pintar(cabecera(ges ? 'Enviar documento' : 'Subir documento', { volver: '#/documentos', sub: 'PDF o foto, máx. 10 MB' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+  pintar(cabecera(ges ? 'Enviar documento' : 'Subir documento', { volver: '#/documentos', sub: 'PDF o foto, máx. 50 MB' }) + `<main class="cont"><form class="form tarjeta" id="frm">
     ${campoHtml({ k: 'titulo', label: 'Título', req: true, ph: ges ? 'Ej.: Acuerdo de colaboración 2026' : 'Ej.: Justificante médico' })}
     ${ges ? `<div class="campo"><label>Para (una, varias o todas)</label><label class="check"><input type="checkbox" id="todas"><span><b>Todas</b></span></label>
       ${dest.map((d) => `<label class="check"><input type="checkbox" name="para" value="${d.id}"><span>${esc(d.nombre)}</span></label>`).join('')}</div>`
@@ -2089,7 +2089,7 @@ async function formDocumento() {
     const para = ges ? marcas.filter((c) => c.checked).map((c) => c.value) : [form.para.value];
     if (!para.length) { aviso('Elige al menos una persona', true); return; }
     const file = inp.files[0]; if (!file) { aviso('Elige el archivo', true); return; }
-    if (file.size > 10485760) { aviso('El archivo pasa de 10 MB', true); return; }
+    if (file.size > 52428800) { aviso('El archivo pasa de 50 MB', true); return; }
     const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Subiendo…';
     // Una ficha por persona (cada una lo lee o lo firma por su cuenta), con su copia del archivo en su carpeta
     const filas = para.map((p) => { const id = crypto.randomUUID(); return { id, titulo: form.titulo.value.trim(), para_perfil: p, nota: form.nota.value.trim() || null, archivo: `${id}/original.${extDe(file)}`, pide_firma: ges ? form.pide_firma.checked : false }; });
@@ -2137,7 +2137,7 @@ async function pantallaDocumento(id) {
   const sf = document.getElementById('subir-firmado');
   if (sf) sf.onchange = async () => {
     const file = sf.files[0]; if (!file) return;
-    if (file.size > 10485760) { aviso('El archivo pasa de 10 MB', true); return; }
+    if (file.size > 52428800) { aviso('El archivo pasa de 50 MB', true); return; }
     aviso('Subiendo…');
     try {
       const ruta = `${d.id}/firmado.${extDe(file)}`;
