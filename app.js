@@ -8,7 +8,7 @@ let VER_COMO = null;
 try { VER_COMO = JSON.parse(localStorage.getItem('bs-ver-como') || 'null'); } catch (e) { /* sin almacenamiento */ }
 const guardarVerComo = (vc) => { VER_COMO = vc; try { if (vc) localStorage.setItem('bs-ver-como', JSON.stringify(vc)); else localStorage.removeItem('bs-ver-como'); } catch (e) { /* sin almacenamiento */ } };
 // Lo único que se deja pasar mientras tanto, además de leer: la sesión, abrir documentos y consultas que no cambian nada
-const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento)/;
+const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates)/;
 
 // Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
 const TIEMPOS = [], PANTALLAS = [];   // consultas sueltas y pantallas completas (desde el toque hasta que se ve)
@@ -17,7 +17,7 @@ const medirFetch = async (url, opts) => {
   if (VER_COMO && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !VER_COMO_PASA.test(String(url)))
     return new Response(JSON.stringify({ message: `Estás viendo la app como ${VER_COMO.nombre}: solo para mirar, no se puede cambiar nada.` }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
-  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento)/.test(String(url))) VISTAS.clear();
+  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates)/.test(String(url))) VISTAS.clear();
   // Ninguna consulta se queda esperando sin fin: a los 20 s se corta y sale "La conexión va muy lenta" (las subidas de archivos, no)
   const subida = /\/storage\/v1\/object\/(?!sign\/)/.test(String(url)) && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method);
   const corte = subida ? null : new AbortController(), reloj = corte && setTimeout(() => corte.abort(), 20000);
@@ -141,9 +141,16 @@ async function q(promesa) {
 }
 
 /* ---------- permisos ---------- */
-const puedeVer = (m) => S.admin || !!(S.permisos[m] && S.permisos[m].puede_ver);
+// La profesora de Pilates solo ve la caja de Pilates, aunque tenga encendido el permiso Caja (la base de datos tampoco le da la otra)
+const soloCajaPilates = () => !S.admin && !!(S.permisos.pilates && S.permisos.pilates.puede_ver)
+  && (S.cajaPilates === true || esProfesora(S.permisos) || !!S.permisos.pilates.solo_propias);
+const puedeVer = (m) => S.admin || (!(m === 'caja' && soloCajaPilates()) && !!(S.permisos[m] && S.permisos[m].puede_ver));
 // Las profesoras nunca dan altas ni bajas en clases (eso es de recepción y administración), aunque se les marque por error
-const puedeEditar = (m) => S.admin || (!(m === 'inscripciones' && esProfesora(S.permisos)) && !!(S.permisos[m] && S.permisos[m].puede_escribir));
+const puedeEditar = (m) => S.admin || (!(m === 'inscripciones' && esProfesora(S.permisos)) && !(m === 'caja' && soloCajaPilates()) && !!(S.permisos[m] && S.permisos[m].puede_escribir));
+// Dos cajas: la general (permiso Caja) y la de Pilates (permiso Pilates); la administración ve las dos
+const veCajaPilates = () => S.admin || puedeVer('pilates');
+const escribeCajaPilates = () => S.admin || puedeEditar('pilates');
+const veAlgunaCaja = () => puedeVer('caja') || veCajaPilates();
 
 async function cargarSesion() {
   const { data } = await sb.auth.getSession();
@@ -151,19 +158,21 @@ async function cargarSesion() {
   if (VER_COMO && (!S.usuario || S.usuario.id !== VER_COMO.perfil)) guardarVerComo(null);
   if (!S.usuario) return;
   // Las tres consultas a la vez (los nombres del equipo solo se usan si es la administración)
-  const [perfil, permisos, ps] = await Promise.all([
+  const [perfil, permisos, ps, cajaPil] = await Promise.all([
     q(sb.from('perfiles').select('*').eq('id', S.usuario.id).maybeSingle()),
     q(sb.from('permisos').select('*').eq('perfil_id', S.usuario.id)),
-    S.admin || !S.perfil ? intentar(() => q(sb.from('perfiles').select('id,nombre'))) : []
+    S.admin || !S.perfil ? intentar(() => q(sb.from('perfiles').select('id,nombre'))) : [],
+    S.admin ? false : intentar(() => q(sb.rpc('es_caja_pilates')))   // ¿es la profesora de Pilates? (sin la 026, se deduce de sus permisos)
   ]);
   // Una persona borrada del equipo ya no puede entrar
   if (perfil && perfil.borrado_en) { await sb.auth.signOut(); S.usuario = null; S.perfil = null; S.permisos = {}; S.admin = false; return; }
   S.perfil = perfil; S.admin = !!(perfil && perfil.rol === 'admin' && perfil.activo);
   S.permisos = {}; (permisos || []).forEach((p) => { S.permisos[p.modulo] = p; });
+  S.cajaPilates = cajaPil === true;
   S.cargadoEn = Date.now();
   S.nombres = {}; if (S.admin) ps.forEach((p) => { S.nombres[p.id] = p.nombre; });
   // Se guarda en el móvil para que la próxima vez la app abra sin esperar a Supabase
-  try { localStorage.setItem('bs-sesion', JSON.stringify({ uid: S.usuario.id, perfil: S.perfil, permisos: S.permisos, nombres: S.nombres })); } catch (e) { /* sin almacenamiento */ }
+  try { localStorage.setItem('bs-sesion', JSON.stringify({ uid: S.usuario.id, perfil: S.perfil, permisos: S.permisos, nombres: S.nombres, cajaPilates: S.cajaPilates })); } catch (e) { /* sin almacenamiento */ }
 }
 // Abrir la app con lo guardado la última vez (permisos, nombre…); luego se comprueba por detrás
 async function sesionGuardada() {
@@ -171,7 +180,7 @@ async function sesionGuardada() {
     const g = JSON.parse(localStorage.getItem('bs-sesion') || 'null'), { data } = await sb.auth.getSession();
     if (!g || !data.session || data.session.user.id !== g.uid || !g.perfil) return false;
     if (VER_COMO && data.session.user.id !== VER_COMO.perfil) guardarVerComo(null);
-    S.usuario = data.session.user; S.perfil = g.perfil; S.permisos = g.permisos || {}; S.nombres = g.nombres || {};
+    S.usuario = data.session.user; S.perfil = g.perfil; S.permisos = g.permisos || {}; S.nombres = g.nombres || {}; S.cajaPilates = g.cajaPilates === true;
     S.admin = !!(g.perfil.rol === 'admin' && g.perfil.activo);
     return true;
   } catch (e) { return false; }
@@ -193,7 +202,7 @@ function cabecera(titulo, { sub = '', volver = null, insignia = null } = {}) {
 }
 function navegacion(activa, ver = puedeVer) {
   const items = [['inicio', 'Inicio', 'casa', null], ['clases', 'Clases', 'clases', 'clases'], ['alumnas', 'Alumnas', 'alumnas', 'alumnas'], ['caja', 'Caja', 'caja', 'caja'], ['mas', 'Más', 'puntos', null]];
-  return `<nav class="nav" aria-label="Navegación">${items.filter((i) => !i[3] || ver(i[3])).map((i) => `<a href="#/${i[0]}" class="${activa === i[0] ? 'on' : ''}">${ico(i[2], 22)}${i[1]}</a>`).join('')}</nav>`;
+  return `<nav class="nav" aria-label="Navegación">${items.filter((i) => !i[3] || (i[0] === 'caja' && ver === puedeVer ? veAlgunaCaja() : ver(i[3]))).map((i) => `<a href="#/${i[0]}" class="${activa === i[0] ? 'on' : ''}">${ico(i[2], 22)}${i[1]}</a>`).join('')}</nav>`;
 }
 // Ojito en las contraseñas: mientras se mantiene pulsado se ve lo escrito; al soltar se oculta otra vez
 function ojoClaves() {
@@ -467,7 +476,8 @@ async function pantallaInicio(vista = null) {
   } else tarjetaDocs = `<span class="mini-docs"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>Subir y firmar</span></span>`;
   // Estrellas: la profesora puntúa a sus alumnas desde el Inicio, sin pasar por la clase
   const tarjetaEstrellas = profesora && ver('logros') && editar('logros') ? `<${vista ? 'span' : 'a href="#/estrellas"'} class="mini-estrellas"><span class="ico-caja">${ico('evento', 22)}</span><b>Estrellas</b><span>Puntuar alumnas</span></${vista ? 'span' : 'a'}>` : '';
-  const tarjetaCaja = ver('caja') ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>Caja</b><span>Ingresos y gastos</span></a>` : '';
+  const soloPil = !vista && !puedeVer('caja') && veCajaPilates();
+  const tarjetaCaja = (vista ? ver('caja') : veAlgunaCaja()) ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>${soloPil ? 'Caja de Pilates' : 'Caja'}</b><span>${soloPil ? 'Cobros y gastos' : 'Ingresos y gastos'}</span></a>` : '';
   const accesos = (profesora ? [
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Propón una idea', false],
     ['alumnas', '#/alumnas', 'alumnas', 'Mis alumnas', 'Fichas y contacto', false],
@@ -1339,7 +1349,7 @@ const grupoIngreso = (x) => { const a = apartadoDe(x); return a === 'mensualidad
 const TIPOS_CAJA = ['ingreso', 'gasto', 'todo'];
 const tipoCaja = (params) => TIPOS_CAJA.includes(params.get('t')) ? params.get('t') : 'todo';
 const filtrarTipo = (movs, t) => t === 'todo' ? movs : movs.filter((x) => x.tipo === t);
-const totalesCaja = (i, o, base, t) => `<div class="totales filtro">${[['ingreso', 'Ingresos', 'in', i], ['gasto', 'Gastos', 'out', o], ['todo', 'Balance', '', i - o]]
+const totalesCaja = (i, o, base, t, ingresos = 'Ingresos') => `<div class="totales filtro">${[['ingreso', ingresos, 'in', i], ['gasto', 'Gastos', 'out', o], ['todo', 'Balance', '', i - o]]
   .map(([k, txt, c, v]) => `<button type="button" data-ir="${base}t=${k}" class="${t === k ? 'on' : ''}" aria-pressed="${t === k}"><small>${txt}</small><b class="${c}">${eur(v)}</b></button>`).join('')}</div>`;
 const ordenRegistro = (a, b) => a.fecha.localeCompare(b.fecha) || String(a.creado_en || '').localeCompare(String(b.creado_en || ''));
 // Un movimiento dentro de una tarjeta (o suelto en "Todas")
@@ -1347,17 +1357,17 @@ function movCaja(x, { conFecha = false, conClase = false, volver }) {
   const met = Object.fromEntries(METODOS), d = aFecha(x.fecha);
   const det = [conClase ? (x.clases ? x.clases.nombre : x.escuelas_amigas ? x.escuelas_amigas.nombre : '') : '', x.alumnas ? `${x.alumnas.nombre} ${x.alumnas.apellidos || ''}`.trim() : '',
     x.metodo ? met[x.metodo] : '', x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · ');
-  const href = puedeEditar('caja') ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : volver;
+  const href = editaMov(x) ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : volver;
   return `<a class="mov" href="${esc(href)}">${conFecha ? `<span class="mov-dia"><b>${d.getDate()}</b>${DIAS_ABR[diaISO(d)]}</span>` : `<span class="mov-tipo ${x.tipo === 'ingreso' ? 'bg-in' : 'bg-out'}"></span>`}
     <span class="txt"><span class="tit">${esc(x.concepto)}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
     <b class="${x.tipo === 'ingreso' ? 'in' : 'out'}">${x.tipo === 'ingreso' ? '+' : '−'}${eur(x.importe)}</b>${S.admin ? `<span class="vt-borrar mov-borrar" role="button" data-borrar-mov="${x.id}" data-concepto="${esc(x.concepto)}" data-importe="${x.importe}" aria-label="Borrar este movimiento">${ico('papelera', 16)}</span>` : ''}</a>`;
 }
 // Tarjetas por apartado: cada clase (mensualidades), cada evento, ventas, limpieza…; lo que no encaja va en "Otros"
-function cajaPorClase(movs, { conFecha, volver }) {
+function cajaPorClase(movs, { conFecha, volver, juntarPilates = true }) {
   const grupos = new Map();
   movs.slice().sort(ordenRegistro).forEach((x) => {
     const a = apartadoDe(x);
-    const [k, nombre, orden, estilo] = a === 'mensualidad' && x.clase_id && esPrivada(x.clase_id) ? ['pilates', 'Pilates', 0, '']
+    const [k, nombre, orden, estilo] = juntarPilates && esPilatesMov(x) ? ['pilates', 'Pilates', 0, '']
       : a === 'mensualidad' && x.clase_id ? ['c' + x.clase_id, x.clases ? x.clases.nombre : 'Clase', 0, '']
       : a === 'evento' && x.evento_id ? ['v' + x.evento_id, 'Evento · ' + (x.eventos ? x.eventos.titulo : ''), 1, 'externa']
       : a === 'escuela_amiga' && x.escuela_amiga_id ? ['e' + x.escuela_amiga_id, x.escuelas_amigas ? x.escuelas_amigas.nombre : 'Escuela amiga', 2, 'externa']
@@ -1375,16 +1385,26 @@ function cajaPorClase(movs, { conFecha, volver }) {
 // Un pago de mensualidad: abre el movimiento; la administración tiene la papelera al lado
 function movMens(x, titulo, clase, volver) {
   const met = Object.fromEntries(METODOS), det = [x.metodo ? met[x.metodo] : '', x.registrado_por ? 'por ' + x.registrado_por : ''].filter(Boolean).join(' · ');
-  const href = puedeEditar('caja') ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : '';
+  const href = editaMov(x) ? `#/caja/${x.id}/editar${volver ? '?volver=' + encodeURIComponent(volver) : ''}` : '';
   return `<${href ? `a href="${esc(href)}"` : 'div'} class="mov ${clase}"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${titulo}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</span>
     <b class="in">${eur(x.importe)}</b>${S.admin ? `<span class="vt-borrar mov-borrar" role="button" data-borrar-mov="${x.id}" data-concepto="${esc(x.concepto)}" data-importe="${x.importe}" aria-label="Borrar este pago">${ico('papelera', 16)}</span>` : ''}</${href ? 'a' : 'div'}>`;
 }
 // Clases privadas (Pilates) en la caja: salen con candado (María no las ve: se lo impide la base de datos)
 const esPrivada = (claseId) => !!(S.privadas && S.privadas.has(claseId));
+// ¿Es de la caja de Pilates? Con la 026 lo dice el propio movimiento; sin ella, los cobros de las clases privadas
+const esPilatesMov = (x) => x.pilates === true || (x.pilates === undefined && !!x.clase_id && esPrivada(x.clase_id));
+const editaMov = (x) => esPilatesMov(x) ? escribeCajaPilates() : puedeEditar('caja');
+// Qué caja se ve: quien ve las dos (la administración, Adela) elige Todo, General o Pilates; el resto ve la suya
+const eligeCaja = () => puedeVer('caja') && veCajaPilates();
+const vistaCaja = (params) => !puedeVer('caja') ? 'pilates' : !veCajaPilates() ? 'general'
+  : ['general', 'pilates'].includes(params.get('c')) ? params.get('c') : 'todo';
+const deVistaCaja = (movs, c) => c === 'todo' ? movs : movs.filter((x) => esPilatesMov(x) === (c === 'pilates'));
+const botonesCaja = (c, ir) => eligeCaja() ? `<div class="filtros cajas">${[['todo', 'Todo'], ['general', 'General'], ['pilates', 'Pilates']]
+  .map(([k, txt]) => `<button data-ir="${ir(k)}" class="${c === k ? 'on' : ''}" aria-pressed="${c === k}">${txt}</button>`).join('')}</div>` : '';
 const candadoCaja = ` <span class="candado" title="Clase privada: solo la ven la administración, quien tenga el permiso Pilates y su profesora">${ico('candado', 14)}</span>`;
 // Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
 const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
-function cajaMensualidad(movs, ins, volver) {
+function cajaMensualidad(movs, ins, volver, { juntarPilates = true, titulo = 'Total mensualidades' } = {}) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
   const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, privada: esPrivada(id), al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
   movs.filter(esCuota).forEach((x) => {
@@ -1408,11 +1428,11 @@ function cajaMensualidad(movs, ins, volver) {
       <div class="cc-movs">${pagadas}${faltan}</div></details>`;
   };
   // Las clases privadas (Pilates) van juntas en una sola tarjeta con la suma de todas; dentro, cada clase con lo suyo
-  const privadas = lista.filter((g) => g.privada), pn = privadas.reduce((t, g) => t + g.al.size, 0), pf = privadas.reduce((t, g) => t + g.faltan.size, 0);
-  const tarjetas = lista.filter((g) => !g.privada).map(tarjeta).join('') + (privadas.length ? `<details class="caja-clase privada cc-grupo"><summary class="cc-cab"><span><h3>Pilates${candadoCaja}</h3><small>${privadas.length} clase${privadas.length === 1 ? '' : 's'} · ${pn}${ins ? ` de ${pn + pf}` : ''} pagada${pn === 1 && !ins ? '' : 's'}${pf ? ` · faltan ${pf}` : ''}</small></span>
+  const privadas = juntarPilates ? lista.filter((g) => g.privada) : [], pn = privadas.reduce((t, g) => t + g.al.size, 0), pf = privadas.reduce((t, g) => t + g.faltan.size, 0);
+  const tarjetas = lista.filter((g) => !privadas.includes(g)).map(tarjeta).join('') + (privadas.length ? `<details class="caja-clase privada cc-grupo"><summary class="cc-cab"><span><h3>Pilates${candadoCaja}</h3><small>${privadas.length} clase${privadas.length === 1 ? '' : 's'} · ${pn}${ins ? ` de ${pn + pf}` : ''} pagada${pn === 1 && !ins ? '' : 's'}${pf ? ` · faltan ${pf}` : ''}</small></span>
       <span class="cc-tot"><b class="in">${eur(privadas.reduce((t, g) => t + g.total, 0))}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-sub">${privadas.map(tarjeta).join('')}</div></details>` : '');
-  return totalCaja('', 'Total mensualidades', `${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}`, ins && nFal ? `Faltan ${nFal}` : '', total) + tarjetas;
+  return totalCaja('', titulo, `${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}`, ins && nFal ? `Faltan ${nFal}` : '', total) + tarjetas;
 }
 const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small>${linea ? `<b>${linea}</b>` : ''}${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
 // Movimientos del mes según la tarjeta pulsada arriba (Ingresos, Gastos o Balance), agrupados por clase
@@ -1438,7 +1458,7 @@ function cajaVentas(movs, pendientes, { conFecha, volver } = {}) {
 // Lo que se ve debajo del calendario según la tarjeta de arriba y el botón elegido
 const SUBCAJA = { ingreso: [['mensualidad', 'Mensualidad'], ['eventos', 'Eventos'], ['total', 'Total']], gasto: [['extras', 'Extras'], ['cambio', 'Cambio']] };
 const subCaja = (params, t) => { const l = SUBCAJA[t] || [], s = params.get('s'); return l.some(([k]) => k === s) ? s : l.length ? l[0][0] : ''; };
-const filtrosCaja = (mes, t, s) => SUBCAJA[t] ? `<div class="filtros">${SUBCAJA[t].map(([k, txt]) => `<button data-ir="#/caja?mes=${mes}&t=${t}&s=${k}" class="${s === k ? 'on' : ''}">${txt}</button>`).join('')}</div>` : '';
+const filtrosCaja = (base, t, s) => SUBCAJA[t] ? `<div class="filtros">${SUBCAJA[t].map(([k, txt]) => `<button data-ir="${base}&t=${t}&s=${k}" class="${s === k ? 'on' : ''}">${txt}</button>`).join('')}</div>` : '';
 // Resumen en filas: Mensualidades 400 € ›, Eventos 90 € ›…
 const filaResumen = (txt, det, imp, href, clase = 'in') => `<a class="mov" href="${href}"><span class="txt"><span class="tit">${txt}</span>${det ? `<span class="det">${det}</span>` : ''}</span><b class="${clase}">${imp}</b>${ico('sig', 16)}</a>`;
 function cajaCambio(cambios, editar) {
@@ -1450,44 +1470,68 @@ function cajaCambio(cambios, editar) {
   return totalCaja('cambio', 'Cambio fuera de la caja', fuera.length ? `${fuera.length} sin devolver` : 'Todo devuelto', 'No cuenta como gasto', tf)
     + (filas ? `<div class="tarjeta reservas">${filas}</div>` : vacio('No se ha sacado cambio este mes.'));
 }
-function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], cambios = [], mes }) {
+function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], cambios = [], base, c }) {
   const [i, o] = sumaCaja(movs), ing = movs.filter((x) => x.tipo === 'ingreso'), gas = movs.filter((x) => x.tipo === 'gasto' && !esCambio(x));
-  const por = (g) => ing.filter((x) => grupoIngreso(x) === g), suma = (l) => sumaCaja(l)[0];
+  // En "Todo", el resumen enseña la caja general por apartados y Pilates en una fila aparte
+  const pil = c === 'todo' ? movs.filter(esPilatesMov) : [], gen = c === 'todo' ? movs.filter((x) => !esPilatesMov(x)) : movs;
+  const por = (g) => gen.filter((x) => x.tipo === 'ingreso' && grupoIngreso(x) === g), suma = (l) => sumaCaja(l)[0];
   const [men, evs, ext] = ['mensualidad', 'eventos', 'extras'].map(por), fuera = cambios.filter((x) => !x.devuelto_en).reduce((t, x) => t + +x.importe, 0);
-  const ir = (tt, ss) => `#/caja?mes=${mes}&t=${tt}&s=${ss}`;
+  const ir = (tt, ss) => `${base}&t=${tt}&s=${ss}`;
   if (t === 'ingreso' && s === 'mensualidad') {
-    const sueltas = men.filter((x) => !esCuota(x));
+    const men = ing.filter((x) => grupoIngreso(x) === 'mensualidad'), sueltas = men.filter((x) => !esCuota(x));
     return `<div class="lista">${cajaMensualidad(men, ins, volver)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
-  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(evs, pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo?venta=1">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
-  if (t === 'ingreso') return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', '', '', i)}
-    <div class="tarjeta reservas">${filaResumen('Mensualidades', `${men.length} cobro${men.length === 1 ? '' : 's'}`, eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${evs.length} cobro${evs.length === 1 ? '' : 's'}`, eur(suma(evs)), ir('ingreso', 'eventos'))}</div>
-    ${ext.length ? `<div class="seccion">Extras · ${eur(suma(ext))}</div>${cajaPorClase(ext, { conFecha, volver })}` : ''}</div>`;
+  if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(ing.filter((x) => grupoIngreso(x) === 'eventos'), pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo?venta=1">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
+  if (t === 'ingreso') {
+    const [mt, et, xt] = ['mensualidad', 'eventos', 'extras'].map((g) => ing.filter((x) => grupoIngreso(x) === g));
+    return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', '', '', i)}
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', `${mt.length} cobro${mt.length === 1 ? '' : 's'}`, eur(suma(mt)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${et.length} cobro${et.length === 1 ? '' : 's'}`, eur(suma(et)), ir('ingreso', 'eventos'))}</div>
+    ${xt.length ? `<div class="seccion">Extras · ${eur(suma(xt))}</div>${cajaPorClase(xt, { conFecha, volver })}` : ''}</div>`;
+  }
   if (t === 'gasto' && s === 'cambio') return `<div class="lista">${cajaCambio(cambios, puedeEditar('caja'))}</div>`;
   if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${gas.length} gasto${gas.length === 1 ? '' : 's'}`, '', o)}${gas.length ? cajaPorClase(gas, { conFecha, volver }) : vacio('Sin gastos este mes.')}</div>`;
   // Balance: todo junto
-  return `<div class="lista">${totalCaja('balance', 'Balance del mes', `Ingresos ${eur(i)} · Gastos ${eur(o)}`, fuera ? `Cambio fuera: ${eur(fuera)} (no cuenta)` : '', i - o)}
-    <div class="tarjeta reservas">${filaResumen('Mensualidades', '', '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', '', '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', 'Escuela amiga y otros', '+' + eur(suma(ext)), ir('ingreso', 'total'))}${filaResumen('Gastos', 'Limpieza, papelería, decoración…', '−' + eur(o), ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
+  const [gi, go] = sumaCaja(gen), [pi, po] = sumaCaja(pil), neto = (v) => (v < 0 ? '−' : '+') + eur(Math.abs(v));
+  return `<div class="lista">${totalCaja('balance', 'Balance del mes', c === 'todo' ? `General ${eur(gi - go)} · Pilates ${eur(pi - po)}` : `Ingresos ${eur(i)} · Gastos ${eur(o)}`, fuera ? `Cambio fuera: ${eur(fuera)} (no cuenta)` : '', i - o)}
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', '', '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', '', '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', 'Escuela amiga y otros', '+' + eur(suma(ext)), ir('ingreso', 'total'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${filaResumen('Gastos', c === 'todo' ? 'Caja general' : 'Limpieza, papelería, decoración…', '−' + eur(go), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
 }
+// Caja de Pilates: lo cobrado en sus clases y sus gastos, sin nada de la caja general
+function cajaMesPilates(movs, t, ins, { conFecha = true, volver, base }) {
+  const [i, o] = sumaCaja(movs), ing = movs.filter((x) => x.tipo === 'ingreso'), gas = movs.filter((x) => x.tipo === 'gasto');
+  const cuotas = ing.filter(esCuota), otros = ing.filter((x) => !esCuota(x));
+  const pagadas = new Set(cuotas.map((x) => x.clase_id + '|' + x.alumna_id)), faltan = ins ? ins.filter((x) => !pagadas.has(x.clase_id + '|' + x.alumna_id)).length : 0;
+  const gastos = gas.length ? cajaPorClase(gas, { conFecha, volver, juntarPilates: false }) : vacio('Sin gastos de Pilates este mes.');
+  if (t === 'ingreso') return `<div class="lista">${cajaMensualidad(cuotas, ins, volver, { juntarPilates: false, titulo: 'Mensualidades de Pilates' })}${otros.length ? `<div class="seccion">Otros ingresos</div>${cajaPorClase(otros, { conFecha, volver, juntarPilates: false })}` : ''}</div>`;
+  if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Gastos de Pilates', `${gas.length} gasto${gas.length === 1 ? '' : 's'}`, '', o)}${gastos}</div>`;
+  const nPag = pagadas.size;
+  return `<div class="lista">${totalCaja('balance pilates', 'Balance de Pilates', `Cobrado ${eur(i)} · Gastos ${eur(o)}`, '', i - o)}
+    <div class="tarjeta reservas">${filaResumen('Mensualidades de Pilates', `${nPag} pagada${nPag === 1 ? '' : 's'}${faltan ? ` · faltan ${faltan}` : ''}`, '+' + eur(suma0(cuotas)), `${base}&t=ingreso`)}${otros.length ? filaResumen('Otros ingresos', '', '+' + eur(suma0(otros)), `${base}&t=ingreso`) : ''}${filaResumen('Gastos de Pilates', `${gas.length} gasto${gas.length === 1 ? '' : 's'}`, '−' + eur(o), `${base}&t=gasto`, 'out')}</div></div>`;
+}
+const suma0 = (l) => sumaCaja(l)[0];
 async function pantallaCaja(params) {
-  if (!puedeVer('caja')) return sinPermiso();
+  if (!veAlgunaCaja()) return sinPermiso();
   if (params.get('v') === 'horas') return await pantallaHoras(params);
   const hoy = hoyISO();
-  const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = subCaja(params, t);
+  const c = vistaCaja(params), pilates = c === 'pilates';
+  const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = pilates ? '' : subCaja(params, t);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
+  // Las direcciones llevan la caja elegida (Todo, General o Pilates) para no perderla al cambiar de mes o de pestaña
+  const conC = (mm) => `#/caja?mes=${mm}${eligeCaja() ? '&c=' + c : ''}`, base = conC(mes);
+  const necesitaIns = (pilates ? t !== 'gasto' : t === 'ingreso' && sc === 'mensualidad') && puedeVer('inscripciones');
   // Ojo: una profesora no ve las fichas de alumnas de otras clases, así que i.alumnas / r.alumnas pueden venir vacías
   // Todo a la vez (antes iba una consulta detrás de otra)
   // Cambio: el de este mes y el que siga fuera de meses anteriores
   // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
-  const [movs, privadas, cambios, pendientes, ins] = await Promise.all([
+  const [todos, privadas, cambios, pendientes, ins0] = await Promise.all([
     leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en')), clasesPrivadas(),
-    t !== 'ingreso' && !cajaSinApartados ? intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [],
-    t === 'ingreso' && sc === 'eventos' ? intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [],
-    t === 'ingreso' && sc === 'mensualidad' && puedeVer('inscripciones')
-      ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null]);
+    !pilates && t !== 'ingreso' && !cajaSinApartados ? intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [],
+    !pilates && t === 'ingreso' && sc === 'eventos' ? intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [],
+    necesitaIns ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null]);
   S.privadas = privadas;
+  const movs = deVistaCaja(todos, c);
+  const ins = ins0 && c !== 'todo' ? ins0.filter((x) => privadas.has(x.clase_id) === pilates) : ins0;
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
   const [tIn, tOut] = sumaCaja(movs);
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
@@ -1499,18 +1543,23 @@ async function pantallaCaja(params) {
   for (let d = 1; d <= nDias; d++) {
     const f = `${mes}-${pad(d)}`, l = porDia[f] || [];
     const pi = t !== 'gasto' && l.some((x) => x.tipo === 'ingreso'), po = t !== 'ingreso' && l.some((x) => x.tipo === 'gasto');
-    cal += `<button data-ir="#/caja/dia/${f}?t=${t}" class="${f === hoy ? 'hoy' : ''} ${pi || po ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
+    cal += `<button data-ir="#/caja/dia/${f}?t=${t}${eligeCaja() ? '&c=' + c : ''}" class="${f === hoy ? 'hoy' : ''} ${pi || po ? 'con' : ''} ${filaDe(d) === semana ? 'sem' : ''}">${d}<span class="puntos">${pi ? '<i class="bg-in"></i>' : ''}${po ? '<i class="bg-out"></i>' : ''}</span></button>`;
   }
   const titulo = capital(new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }));
-  pintar(cabecera('Caja', { volver: '#/inicio', sub: 'Ingresos y gastos del mes' }) + `<main class="cont">
-    <div class="mes"><button data-ir="#/caja?mes=${prev}&t=${t}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="#/caja?mes=${next}&t=${t}" aria-label="Mes siguiente">${ico('sig')}</button></div>
-    ${totalesCaja(tIn, tOut, `#/caja?mes=${mes}&`, t)}
+  const volver = `${base}&t=${t}${sc ? '&s=' + sc : ''}`;
+  // El + apunta en la caja que se está viendo: en la de Pilates, un gasto de Pilates
+  const mas = pilates ? (escribeCajaPilates() ? `#/caja/nuevo?caja=pilates&tipo=${t === 'ingreso' && S.admin ? 'ingreso' : 'gasto'}&fecha=${mes === hoy.slice(0, 7) ? hoy : ini}&volver=${encodeURIComponent(volver)}` : null)
+    : puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}${sc === 'cambio' ? '&apartado=cambio' : sc === 'eventos' ? '&apartado=evento' : ''}&volver=${encodeURIComponent(volver)}` : null;
+  pintar(cabecera(pilates && !eligeCaja() ? 'Caja de Pilates' : 'Caja', { volver: '#/inicio', sub: pilates ? 'Cobros y gastos de Pilates' : 'Ingresos y gastos del mes' }) + `<main class="cont">
+    ${botonesCaja(c, (k) => `#/caja?mes=${mes}&c=${k}`)}
+    <div class="mes"><button data-ir="${conC(prev)}&t=${t}" aria-label="Mes anterior">${ico('volver')}</button><h2>${titulo}</h2><button data-ir="${conC(next)}&t=${t}" aria-label="Mes siguiente">${ico('sig')}</button></div>
+    ${totalesCaja(tIn, tOut, `${base}&`, t, pilates ? 'Cobrado' : 'Ingresos')}
     <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
       <button class="cal-mas" id="cal-mas" type="button" aria-expanded="false"><span>Ver el mes entero</span>${ico('abajo', 18)}</button></div>
     <div class="seccion">Movimientos del mes</div>
-    ${filtrosCaja(mes, t, sc)}
-    ${cajaMes(movs, t, sc, ins, { volver: `#/caja?mes=${mes}&t=${t}&s=${sc}`, pendientes, cambios, mes })}
-  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${mes === hoy.slice(0, 7) ? hoy : ini}${t !== 'todo' ? '&tipo=' + t : ''}${sc === 'cambio' ? '&apartado=cambio' : sc === 'eventos' ? '&apartado=evento' : ''}&volver=${encodeURIComponent(`#/caja?mes=${mes}&t=${t}&s=${sc}`)}` : null);
+    ${pilates ? cajaMesPilates(movs, t, ins, { volver, base })
+    : `${filtrosCaja(base, t, sc)}${cajaMes(movs, t, sc, ins, { volver, pendientes, cambios, base, c })}`}
+  </main>`, 'caja', mas);
   $app.querySelectorAll('[data-devuelto]').forEach((b) => b.onclick = async () => {
     b.disabled = true;
     try { await q(sb.from('caja').update({ devuelto_en: hoy }).eq('id', b.dataset.devuelto)); aviso('Apuntado: el cambio ya está devuelto'); router(); }
@@ -1685,20 +1734,27 @@ async function formFestivo(params) {
   if (bb) bb.onclick = async () => { try { await q(sb.from('dias_sin_clase').delete().eq('fecha', reg.fecha)); aviso('Quitado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); } };
 }
 async function pantallaCajaDia(fecha, params) {
-  if (!puedeVer('caja')) return sinPermiso();
-  const t = tipoCaja(params);
-  const movs = await leerCaja((r) => r.eq('fecha', fecha).order('creado_en'));
-  const [i, o] = sumaCaja(movs), l = filtrarTipo(movs, t);
-  pintar(cabecera(capital(fechaLarga(fecha)), { volver: `#/caja?mes=${fecha.slice(0, 7)}&t=${t}`, sub: 'Caja del día' }) + `<main class="cont">
-    ${totalesCaja(i, o, `#/caja/dia/${fecha}?`, t)}
-    ${l.length ? `<div class="lista">${cajaPorClase(l, { conFecha: false, volver: `#/caja/dia/${fecha}?t=${t}` })}</div>` : vacio(t === 'ingreso' ? 'No hay ingresos este día.' : t === 'gasto' ? 'No hay gastos este día.' : 'No hay movimientos este día.')}
-  </main>`, 'caja', puedeEditar('caja') ? `#/caja/nuevo?fecha=${fecha}${t !== 'todo' ? '&tipo=' + t : ''}` : null);
+  if (!veAlgunaCaja()) return sinPermiso();
+  const t = tipoCaja(params), c = vistaCaja(params), pilates = c === 'pilates', cc = eligeCaja() ? '&c=' + c : '';
+  const [todos, privadas] = await Promise.all([leerCaja((r) => r.eq('fecha', fecha).order('creado_en')), clasesPrivadas()]);
+  S.privadas = privadas;
+  const movs = deVistaCaja(todos, c), [i, o] = sumaCaja(movs), l = filtrarTipo(movs, t), volver = `#/caja/dia/${fecha}?t=${t}${cc}`;
+  const mas = pilates ? (escribeCajaPilates() ? `#/caja/nuevo?caja=pilates&fecha=${fecha}&tipo=${t === 'ingreso' && S.admin ? 'ingreso' : 'gasto'}&volver=${encodeURIComponent(volver)}` : null)
+    : puedeEditar('caja') ? `#/caja/nuevo?fecha=${fecha}${t !== 'todo' ? '&tipo=' + t : ''}` : null;
+  pintar(cabecera(capital(fechaLarga(fecha)), { volver: `#/caja?mes=${fecha.slice(0, 7)}&t=${t}${cc}`, sub: pilates ? 'Caja de Pilates del día' : 'Caja del día' }) + `<main class="cont">
+    ${totalesCaja(i, o, `#/caja/dia/${fecha}?${cc.slice(1)}&`, t, pilates ? 'Cobrado' : 'Ingresos')}
+    ${l.length ? `<div class="lista">${cajaPorClase(l, { conFecha: false, volver, juntarPilates: !pilates })}</div>` : vacio(t === 'ingreso' ? 'No hay ingresos este día.' : t === 'gasto' ? 'No hay gastos este día.' : 'No hay movimientos este día.')}
+  </main>`, 'caja', mas);
 }
 async function formCaja(params, id = null) {
-  if (!puedeEditar('caja')) return sinPermiso();
+  if (!puedeEditar('caja') && !escribeCajaPilates()) return sinPermiso();
   const reg = id ? await q(sb.from('caja').select('*').eq('id', id).single()) : null;
+  // ¿En qué caja va? Quien puede apuntar en las dos lo elige; María, siempre en la general; la profesora de Pilates, en la de Pilates
+  const soloPil = !puedeEditar('caja'), ambas = !soloPil && escribeCajaPilates();
+  let caja = soloPil ? 'pilates' : !ambas ? 'general' : reg ? (reg.pilates === true || (reg.pilates === undefined && reg.clase_id && esPrivada(reg.clase_id)) ? 'pilates' : 'general') : params.get('caja') === 'pilates' ? 'pilates' : 'general';
   const ini = reg || { fecha: params.get('fecha') || hoyISO(), tipo: params.get('tipo') || 'ingreso', importe: params.get('importe'), concepto: params.get('concepto'),
     escuela_amiga_id: params.get('escuela'), evento_id: params.get('evento'), apartado: params.get('apartado') || (params.get('escuela') ? 'escuela_amiga' : null) };
+  if (soloPil && !reg) ini.tipo = 'gasto';   // la profesora de Pilates cobra con "Ha pagado" en la clase; aquí apunta gastos
   let tipo = ini.tipo, apartado = reg ? apartadoDe(reg) : ini.apartado || (tipo === 'ingreso' ? 'mensualidad' : 'limpieza');
   const [clases, alumnas, escuelas, eventos] = await Promise.all([
     puedeVer('clases') ? intentar(() => opcionesClases(true)) : [], puedeVer('alumnas') ? intentar(opcionesAlumnas) : [], puedeVer('escuelas_amigas') ? intentar(opcionesEscuelas) : [],
@@ -1719,8 +1775,9 @@ async function formCaja(params, id = null) {
   const desdeEvento = params.get('evento');
   // Al volver o guardar se regresa a la pantalla desde la que se abrió (la Caja del mes, el día, el evento…)
   const origen = params.get('volver'), volver = origen && origen.startsWith('#/') ? origen : desdeEvento ? `#/evento/${desdeEvento}` : `#/caja/dia/${ini.fecha}`;
-  pintar(cabecera(id ? 'Editar movimiento' : 'Nuevo movimiento', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
-    <div class="tipo"><button type="button" data-t="ingreso" class="in">Ingreso</button><button type="button" data-t="gasto" class="out">Gasto</button></div>
+  pintar(cabecera(id ? 'Editar movimiento' : soloPil ? 'Gasto de Pilates' : 'Nuevo movimiento', { volver, sub: soloPil ? 'Caja de Pilates' : '' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="tipo"${soloPil ? ' hidden' : ''}><button type="button" data-t="ingreso" class="in">Ingreso</button><button type="button" data-t="gasto" class="out">Gasto</button></div>
+    ${ambas ? `<div class="campo"><label>¿De qué caja?</label><div class="filtros tipos-ini" id="cajas"><button type="button" data-caja="general">General</button><button type="button" data-caja="pilates">Pilates ${ico('candado', 14)}</button></div></div>` : ''}
     <div class="campo"><label>¿De qué es?</label><div class="filtros tipos-ini" id="apartados"></div></div>
     ${campos.map((c) => c.solo ? `<div data-solo="${c.solo.join(' ')}">${campoHtml(c, ini[c.k])}</div>` : campoHtml(c, ini[c.k])).join('')}
     <button class="btn pri ancho" type="submit">Guardar</button>
@@ -1728,13 +1785,18 @@ async function formCaja(params, id = null) {
   </form>${autorDe(reg)}</main>`, false);
   const pintarApartados = () => {
     // Las camisetas y entradas se venden desde el evento; "Ventas" solo sale al editar un movimiento antiguo
-    const opciones = APARTADOS[tipo].filter(([k]) => k !== 'ventas' || (reg && apartadoDe(reg) === 'ventas'));
+    // En la caja de Pilates no hay eventos, escuela amiga ni cambio
+    const dePilates = { ingreso: ['mensualidad', 'otro'], gasto: ['limpieza', 'papeleria', 'decoracion', 'material', 'local', 'otro'] };
+    const opciones = APARTADOS[tipo].filter(([k]) => (k !== 'ventas' || (reg && apartadoDe(reg) === 'ventas'))
+      && (caja !== 'pilates' || dePilates[tipo].includes(k) || (reg && apartadoDe(reg) === k)));
     if (!opciones.some(([k]) => k === apartado)) apartado = opciones[0][0];
     document.getElementById('apartados').innerHTML = opciones.map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
     $app.querySelectorAll('[data-solo]').forEach((d) => { d.hidden = !d.dataset.solo.split(' ').includes(apartado); });
     document.getElementById('f_concepto').placeholder = PH[apartado] || '';
   };
-  const marcar = () => { $app.querySelectorAll('[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === tipo)); pintarApartados(); };
+  const marcar = () => { $app.querySelectorAll('[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === tipo));
+    $app.querySelectorAll('[data-caja]').forEach((b) => b.classList.toggle('on', b.dataset.caja === caja)); pintarApartados(); };
+  $app.querySelectorAll('[data-caja]').forEach((b) => b.onclick = () => { caja = b.dataset.caja; marcar(); });
   $app.querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { tipo = b.dataset.t; marcar(); }); marcar();
   document.getElementById('apartados').onclick = (ev) => { const b = ev.target.closest('[data-ap]'); if (b) { apartado = b.dataset.ap; pintarApartados(); } };
   const form = document.getElementById('frm');
@@ -1744,17 +1806,20 @@ async function formCaja(params, id = null) {
     campos.filter((c) => c.solo && !c.solo.includes(apartado)).forEach((c) => { datos[c.k] = null; });
     if (!(datos.importe > 0)) { aviso('El importe tiene que ser mayor que 0', true); return; }
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
+    // Sin la 026 no existe la columna: solo se manda cuando hace falta
+    if (caja === 'pilates' || (reg && 'pilates' in reg)) datos.pilates = caja === 'pilates';
     if (!datos.concepto) datos.concepto = apartado === 'evento' ? 'Evento · ' + ((eventos.find(([v]) => v === datos.evento_id) || [0, ''])[1].split(' · ')[0]) : nombreApartado(tipo, apartado);
     // Se bloquea Guardar mientras guarda: un doble toque apuntaba el mismo cobro dos veces
     const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
     try {
       const guardar = (d) => id ? q(sb.from('caja').update(d).eq('id', id)) : q(sb.from('caja').insert(d));
       try { await guardar(datos); } catch (e) {
+        if ('pilates' in datos && /pilates/i.test((e && (e.message || e.details || e.hint)) || '')) throw new Error('Falta un paso en Supabase (026) para la caja de Pilates. Avisa a la administración.');
         if (!faltaApartado(e)) throw e;
         if (apartado === 'cambio' || apartado === 'decoracion') throw new Error('Esta parte aún no está activada en la base de datos.');
         const { apartado: _a, evento_id: _e, ...sinApartado } = datos; await guardar(sinApartado);
       }
-      aviso('Guardado'); location.hash = origen || desdeEvento ? volver : `#/caja/dia/${datos.fecha}`;
+      aviso('Guardado'); location.hash = origen || desdeEvento ? volver : `#/caja/dia/${datos.fecha}${caja === 'pilates' && eligeCaja() ? '?c=pilates' : ''}`;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
   };
   const b = document.getElementById('borrar');
