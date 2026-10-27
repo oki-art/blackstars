@@ -948,8 +948,10 @@ const PRECIOS_PRIVADA = [['completo', 'Completo', 30], ['medio', 'Medio', 20]];
 const tipoCobroPrivada = (p) => /medio mes/i.test(p.concepto) ? 'Medio' : +p.importe === PRECIOS_PRIVADA[0][2] ? 'Completo' : 'Otra cantidad';
 const importeValido = (txt) => { const n = +String(txt).replace(',', '.'); return txt !== '' && n > 0 && n < 10000 ? Math.round(n * 100) / 100 : null; };
 async function clasesPrivadas() {   // ids de las clases privadas que se ven; sin la 020, ninguna
-  const { data, error } = await sb.from('clases').select('id').eq('privada', true);
+  const { data, error } = await sb.from('clases').select('id,' + SEL_HOR).eq('privada', true);
   S.privadasOk = !error;
+  // Su orden por horario (como en Clases), para que en la caja salgan Pilates 1, 2, 3
+  S.ordenPrivadas = new Map(error ? [] : data.map((c) => [c.id, ordenClase(c)]));
   return new Set(error ? [] : data.map((c) => c.id));
 }
 const gestionaPrivada = () => S.admin || puedeEditar('pilates');
@@ -1417,13 +1419,16 @@ const candadoCaja = ` <span class="candado" title="Clase privada: solo la ven la
 const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
 function cajaMensualidad(movs, ins, volver, { juntarPilates = true, titulo = 'Total mensualidades' } = {}) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
-  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, privada: esPrivada(id), al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
+  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { id, nombre, privada: esPrivada(id), al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
   movs.filter(esCuota).forEach((x) => {
     const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0, movs: [] };
     a.importe += +x.importe; a.n++; a.movs.push(x); g.al.set(x.alumna_id, a); g.total += +x.importe;
   });
   (ins || []).forEach((x) => { const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'); if (!g.al.has(x.alumna_id)) g.faltan.set(x.alumna_id, nom(x.alumnas)); });
-  const lista = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  // Las de Pilates por horario, como en Clases; el resto por nombre
+  const ordenP = (g) => (S.ordenPrivadas && S.ordenPrivadas.get(g.id)) ?? 99999;
+  const todas = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const lista = todas.filter((g) => !g.privada).concat(todas.filter((g) => g.privada).sort((a, b) => ordenP(a) - ordenP(b)));
   const nAl = lista.reduce((t, g) => t + g.al.size, 0), nFal = lista.reduce((t, g) => t + g.faltan.size, 0), total = lista.reduce((t, g) => t + g.total, 0);
   const porNombre = (a, b) => a.localeCompare(b, 'es');
   const tarjeta = (g) => {
