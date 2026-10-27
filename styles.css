@@ -454,6 +454,13 @@ body.sin-scroll{overflow:hidden}
 .vt-ok{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:999px;background:rgba(31,138,92,0.12);color:var(--ingreso);font-weight:700;font-size:13px}
 .vt-metodos{flex-basis:100%;display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .vt-metodos[hidden]{display:none}
+.vt-metodos.pv-precios{grid-template-columns:repeat(3,1fr)}
+.pv-precios button small{display:block;font-size:13px;font-weight:600;opacity:0.8}
+.vt-metodos button.activo{background:var(--morado3);color:#fff}
+.pv-otro{grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:8px}
+.pv-otro[hidden]{display:none}
+.pv-otro input{min-height:44px;border-radius:12px;border:1px solid rgba(118,80,224,0.30);padding:0 12px;font:inherit;font-size:16px}
+.pv-otro button{padding:0 18px;background:var(--morado3)!important;color:#fff!important}
 .vt-metodos button{min-height:44px;border-radius:12px;border:1px solid rgba(118,80,224,0.30);background:#fff;color:var(--morado3);font-weight:700;cursor:pointer}
 .contador-ud{display:flex;align-items:center;gap:16px}
 .contador-ud button{width:48px;height:48px;border-radius:50%;border:1px solid rgba(118,80,224,0.30);background:#fff;color:var(--morado3);font-size:24px;font-weight:700;cursor:pointer}
