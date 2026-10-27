@@ -943,7 +943,10 @@ async function pantallaClase(id) {
 /* ---------- clase privada (Pilates) ---------- */
 // Su profesora (con el permiso Pilates) apunta alumnas con ficha corta y cobra el mes en efectivo; el cobro entra en la caja.
 // La clase, sus alumnas y sus cobros solo los ven la administración, quien tenga el permiso Pilates y su profesora (migración 020).
-const PRECIOS_PRIVADA = [['completo', 'Mes completo', 30], ['medio', 'Medio mes', 20]];
+const PRECIOS_PRIVADA = [['completo', 'Completo', 30], ['medio', 'Medio', 20]];
+// "Otro": la profesora escribe a mano lo que ha cobrado si no es ninguna de las dos tarifas
+const tipoCobroPrivada = (p) => /medio mes/i.test(p.concepto) ? 'Medio' : +p.importe === PRECIOS_PRIVADA[0][2] ? 'Completo' : 'Otra cantidad';
+const importeValido = (txt) => { const n = +String(txt).replace(',', '.'); return txt !== '' && n > 0 && n < 10000 ? Math.round(n * 100) / 100 : null; };
 async function clasesPrivadas() {   // ids de las clases privadas que se ven; sin la 020, ninguna
   const { data, error } = await sb.from('clases').select('id').eq('privada', true);
   S.privadasOk = !error;
@@ -984,11 +987,12 @@ async function bloquePrivada(c) {
   const nPag = lista.filter((i) => pago[i.alumna_id]).length, total = cobros.reduce((t, x) => t + +x.importe, 0);
   const fila = (i) => {
     const a = i.alumnas, p = pago[a.id];
-    const det = [a.edad ? a.edad + ' años' : '', verCobros ? (p ? (/medio mes/i.test(p.concepto) ? 'Medio mes' : 'Mes completo') : 'Pendiente') : ''].filter(Boolean).join(' · ');
+    const det = [a.edad ? a.edad + ' años' : '', verCobros ? (p ? tipoCobroPrivada(p) : 'Pendiente') : ''].filter(Boolean).join(' · ');
     const der = !verCobros ? '' : p ? `<b class="in">${eur(p.importe)}</b>${gest ? `<button class="vt-borrar" data-pv-deshacer="${p.id}" data-quien="${esc(nom(a))}" data-importe="${p.importe}" aria-label="Borrar el cobro">${ico('papelera', 18)}</button>` : ''}`
       : gest ? `<button class="vt-cobrar" data-pv-cobrar="${a.id}">Cobrar</button>` : '<span class="chip gris">Pendiente</span>';
     return `<div class="reserva ${p ? 'pagada' : ''}"><button type="button" class="txt pv-abrir" data-pv="${a.id}" aria-expanded="false"><span class="tit">${esc(nom(a))}</span>${det ? `<span class="det">${esc(det)}</span>` : ''}</button>${der}
-      ${!p && gest ? `<div class="vt-metodos" id="m-${a.id}" hidden>${PRECIOS_PRIVADA.map(([k, t, imp]) => `<button data-pv-pagar="${a.id}" data-medio="${k === 'medio'}" data-imp="${imp}">${t} · ${imp} €</button>`).join('')}</div>` : ''}
+      ${!p && gest ? `<div class="vt-metodos pv-precios" id="m-${a.id}" hidden>${PRECIOS_PRIVADA.map(([k, t, imp]) => `<button data-pv-pagar="${a.id}" data-medio="${k === 'medio'}" data-imp="${imp}">${t}<small>${imp} €</small></button>`).join('')}<button data-pv-otro="${a.id}">Otro</button>
+        <div class="pv-otro" id="o-${a.id}" hidden><input type="text" inputmode="decimal" placeholder="Cantidad en €" aria-label="Otra cantidad en euros"><button data-pv-pagar="${a.id}" data-medio="false" data-imp="">Cobrar</button></div></div>` : ''}
       <div class="pv-mas" id="pv-${a.id}" hidden><span>${esc([a.telefono, a.email].filter(Boolean).join(' · ') || 'Sin teléfono ni email')}</span>
         ${gest ? `<a class="btn sec" href="#/clase/${c.id}/alumna/${a.id}">${ico('lapiz', 18)} Editar sus datos</a><button class="btn peligro" data-pv-borrar="${a.id}" data-quien="${esc(nom(a))}">${ico('papelera', 18)} Borrar alumna</button>` : ''}</div></div>`;
   };
@@ -1001,9 +1005,12 @@ async function bloquePrivada(c) {
   const activar = () => {
     $app.querySelectorAll('[data-pv]').forEach((b) => b.onclick = () => { const d = document.getElementById('pv-' + b.dataset.pv); d.hidden = !d.hidden; b.setAttribute('aria-expanded', String(!d.hidden)); });
     $app.querySelectorAll('[data-pv-cobrar]').forEach((b) => b.onclick = () => { const d = document.getElementById('m-' + b.dataset.pvCobrar); d.hidden = !d.hidden; });
+    $app.querySelectorAll('[data-pv-otro]').forEach((b) => b.onclick = () => { const d = document.getElementById('o-' + b.dataset.pvOtro); d.hidden = !d.hidden; b.classList.toggle('activo', !d.hidden); if (!d.hidden) d.querySelector('input').focus(); });
     $app.querySelectorAll('[data-pv-pagar]').forEach((b) => b.onclick = async () => {
-      const grupo = b.parentElement.querySelectorAll('button'); grupo.forEach((x) => { x.disabled = true; });
-      try { await q(sb.rpc('cobrar_privada', { p_clase: c.id, p_alumna: b.dataset.pvPagar, p_importe: +b.dataset.imp, p_medio: b.dataset.medio === 'true', p_mes: ini })); aviso('Cobrado: ya está en la caja'); router(); }
+      const otro = b.closest('.pv-otro'), imp = otro ? importeValido(otro.querySelector('input').value.trim()) : +b.dataset.imp;
+      if (!imp) { aviso('Escribe la cantidad que ha pagado, en euros', true); otro.querySelector('input').focus(); return; }
+      const grupo = b.closest('.vt-metodos').querySelectorAll('button'); grupo.forEach((x) => { x.disabled = true; });
+      try { await q(sb.rpc('cobrar_privada', { p_clase: c.id, p_alumna: b.dataset.pvPagar, p_importe: imp, p_medio: b.dataset.medio === 'true', p_mes: ini })); aviso('Cobrado: ya está en la caja'); router(); }
       catch (e) { aviso(traducirError(e), true); grupo.forEach((x) => { x.disabled = false; }); }
     });
     $app.querySelectorAll('[data-pv-deshacer]').forEach((b) => b.onclick = async () => {
@@ -1037,10 +1044,12 @@ async function formApuntarPrivada(id, aid) {
     <div class="dos-campos">${campoHtml({ k: 'telefono', label: 'Teléfono', tipo: 'tel' }, al.telefono)}
       <div class="campo"><label for="f_edad">Edad</label><input id="f_edad" name="edad" type="number" min="1" max="120" step="1" inputmode="numeric" value="${esc(al.edad ?? '')}"></div></div>
     ${aid ? '' : `<label class="check"><input type="checkbox" id="pagado"><span>Ha pagado este mes (en efectivo)</span></label>
-    <div class="campo" id="campo-cuota" hidden><label for="f_cuota">¿Cuánto ha pagado?</label><select id="f_cuota">${PRECIOS_PRIVADA.map(([k, t, imp]) => `<option value="${k}">${t} · ${imp} €</option>`).join('')}</select></div>`}
+    <div class="campo" id="campo-cuota" hidden><label for="f_cuota">¿Cuánto ha pagado?</label><select id="f_cuota">${PRECIOS_PRIVADA.map(([k, t, imp]) => `<option value="${k}">${t} · ${imp} €</option>`).join('')}<option value="otro">Otro</option></select></div>
+    <div class="campo" id="campo-otro" hidden><label for="f_otro">Cantidad (€)</label><input id="f_otro" type="text" inputmode="decimal" placeholder="Por ejemplo 25"></div>`}
     <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
   const $ = (x) => document.getElementById(x), form = $('frm');
-  if (!aid) $('pagado').onchange = () => { $('campo-cuota').hidden = !$('pagado').checked; };
+  const verOtro = () => { $('campo-otro').hidden = !$('pagado').checked || $('f_cuota').value !== 'otro'; };
+  if (!aid) { $('pagado').onchange = () => { $('campo-cuota').hidden = !$('pagado').checked; verOtro(); }; $('f_cuota').onchange = verOtro; }
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const v = (k) => (form.elements[k].value || '').trim(), edadTxt = v('edad');
@@ -1053,7 +1062,9 @@ async function formApuntarPrivada(id, aid) {
       } catch (e) { aviso(/editar_alumna_privada/.test(e.message || '') ? 'Falta un paso en Supabase (023). Avisa a la administración.' : traducirError(e), true); btn.disabled = false; }
       return;
     }
-    const precio = PRECIOS_PRIVADA.find(([k]) => k === $('f_cuota').value) || PRECIOS_PRIVADA[0], pagado = $('pagado').checked;
+    const pagado = $('pagado').checked, otro = $('f_cuota').value === 'otro';
+    const precio = otro ? ['otro', 'Otro', importeValido($('f_otro').value.trim())] : PRECIOS_PRIVADA.find(([k]) => k === $('f_cuota').value) || PRECIOS_PRIVADA[0];
+    if (pagado && !precio[2]) { aviso('Escribe la cantidad que ha pagado, en euros', true); $('f_otro').focus(); return; }
     const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
     try {
       await q(sb.rpc('apuntar_alumna_privada', { p_clase: id, p_nombre: v('nombre'), p_apellidos: v('apellidos'), p_email: v('email'), p_telefono: v('telefono'),
