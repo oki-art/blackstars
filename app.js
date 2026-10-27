@@ -1443,11 +1443,16 @@ function cajaMensualidad(movs, ins, volver, { juntarPilates = true, titulo = 'To
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
       <div class="cc-movs">${pagadas}${faltan}</div></details>`;
   };
-  // Las clases privadas (Pilates) van juntas en una sola tarjeta con la suma de todas; dentro, cada clase con lo suyo
-  const privadas = juntarPilates ? lista.filter((g) => g.privada) : [], pn = privadas.reduce((t, g) => t + g.al.size, 0), pf = privadas.reduce((t, g) => t + g.faltan.size, 0);
-  const tarjetas = lista.filter((g) => !privadas.includes(g)).map(tarjeta).join('') + (privadas.length ? `<details class="caja-clase privada cc-grupo"><summary class="cc-cab"><span><h3>Pilates${candadoCaja}</h3><small>${privadas.length} clase${privadas.length === 1 ? '' : 's'} · ${pn}${ins ? ` de ${pn + pf}` : ''} pagada${pn === 1 && !ins ? '' : 's'}${pf ? ` · faltan ${pf}` : ''}</small></span>
-      <span class="cc-tot"><b class="in">${eur(privadas.reduce((t, g) => t + g.total, 0))}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
-      <div class="cc-sub">${privadas.map(tarjeta).join('')}</div></details>` : '');
+  // Las clases de niñas van juntas en una tarjeta y las privadas (Pilates) en otra, cada una con su suma; dentro, cada clase con lo suyo
+  const junta = (gs, nombre, clase, candado) => {
+    const n = gs.reduce((t, g) => t + g.al.size, 0), f = gs.reduce((t, g) => t + g.faltan.size, 0);
+    return `<details class="caja-clase ${clase} cc-grupo"><summary class="cc-cab"><span><h3>${nombre}${candado ? candadoCaja : ''}</h3><small>${gs.length} clase${gs.length === 1 ? '' : 's'} · ${n}${ins ? ` de ${n + f}` : ''} pagada${n === 1 && !ins ? '' : 's'}${f ? ` · faltan ${f}` : ''}</small></span>
+      <span class="cc-tot"><b class="in">${eur(gs.reduce((t, g) => t + g.total, 0))}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-sub">${gs.map(tarjeta).join('')}</div></details>`;
+  };
+  const privadas = lista.filter((g) => g.privada), ninas = lista.filter((g) => !g.privada);
+  const tarjetas = !juntarPilates ? lista.map(tarjeta).join('')
+    : (ninas.length ? junta(ninas, 'Niñas', 'cc-ninas', false) : '') + (privadas.length ? junta(privadas, 'Pilates', 'privada', true) : '');
   return totalCaja('', titulo, `${nAl} alumna${nAl === 1 ? '' : 's'} pagada${nAl === 1 ? '' : 's'}`, ins && nFal ? `Faltan ${nFal}` : '', total) + tarjetas;
 }
 const totalCaja = (clase, titulo, linea, extra, importe) => `<div class="mens-total ${clase}"><span><small>${titulo}</small>${linea ? `<b>${linea}</b>` : ''}${extra ? `<em>${extra}</em>` : ''}</span><b class="mens-eur">${eur(importe)}</b></div>`;
