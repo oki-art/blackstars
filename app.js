@@ -943,6 +943,7 @@ async function pantallaClase(id) {
 /* ---------- clase privada (Pilates) ---------- */
 // Su profesora (con el permiso Pilates) apunta alumnas con ficha corta y cobra el mes en efectivo; el cobro entra en la caja.
 // La clase, sus alumnas y sus cobros solo los ven la administración, quien tenga el permiso Pilates y su profesora (migración 020).
+const CUOTA_MES = 30;   // mensualidad de baile, mes completo (para el cupón del objetivo extra)
 const PRECIOS_PRIVADA = [['completo', 'Completo', 30], ['medio', 'Medio', 20]];
 // "Otro": la profesora escribe a mano lo que ha cobrado si no es ninguna de las dos tarifas
 const tipoCobroPrivada = (p) => /medio mes/i.test(p.concepto) ? 'Medio' : +p.importe === PRECIOS_PRIVADA[0][2] ? 'Completo' : 'Otra cantidad';
@@ -1335,7 +1336,7 @@ async function formInscripcion(params) {
       if (cod.value.trim() !== c) return;
       const x = r && r[0];
       ok.hidden = false; ok.classList.toggle('mal', !x);
-      ok.innerHTML = x ? `${ico('check', 18)} Cuenta para ${esc(x.profesora)} (+${eur(x.euros)}) · ${esc(x.evento)}` : `${ico('alerta', 18)} Ese código no es de ninguna profesora`;
+      ok.innerHTML = x ? `${ico('check', 18)} <span>Cuenta para ${esc(x.profesora)} (+${eur(x.euros)}) · ${esc(x.evento)}${+x.cupon_euros > 0 && x.cupon_mes ? `<br>Cupón para la niña: ${eur(x.cupon_euros)} de descuento en la cuota de ${mesCupon(x)} si empieza en ${mesCupon(x)}.` : ''}</span>` : `${ico('alerta', 18)} <span>Ese código no es de ninguna profesora</span>`;
     }, 350);
   };
 }
@@ -1805,6 +1806,7 @@ async function formCaja(params, id = null) {
     { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true },
     ...(clases.length ? [{ k: 'clase_id', label: 'Clase', tipo: 'select', opciones: clases, solo: ['mensualidad'] }] : []),
     ...(alumnas.length ? [{ k: 'alumna_id', label: 'Alumna', tipo: 'select', opciones: alumnas, solo: ['mensualidad'] }] : []),
+    ...(alumnas.length && !id ? [{ k: '_cupon', tipo: 'html', html: '<div id="cupon-caja" class="obj-cupon" hidden></div>', solo: ['mensualidad'] }] : []),
     ...(eventos.length ? [{ k: 'evento_id', label: 'Evento', tipo: 'select', opciones: eventos, solo: ['evento'] }] : []),
     ...(escuelas.length ? [{ k: 'escuela_amiga_id', label: 'Escuela amiga', tipo: 'select', opciones: escuelas, solo: ['escuela_amiga'] }] : []),
     { k: 'concepto', label: 'Concepto', ph: 'Lo que quieras apuntar' },
@@ -1823,6 +1825,21 @@ async function formCaja(params, id = null) {
     <button class="btn pri ancho" type="submit">Guardar</button>
     ${id && S.admin ? `<button class="btn peligro ancho" type="button" id="borrar">${ico('papelera', 18)} Borrar este movimiento</button>` : ''}
   </form>${autorDe(reg)}</main>`, false);
+  // Cupón del objetivo extra (migración 029): si la alumna lo tiene para la cuota de este mes, se resta solo
+  let cupon = null;
+  const mirarCupon = async () => {
+    const box = document.getElementById('cupon-caja'), f = document.getElementById('frm'); if (!box || !f) return;
+    const alu = f.elements.alumna_id ? f.elements.alumna_id.value : '', fecha = f.elements.fecha.value;
+    cupon = null; box.hidden = true;
+    if (tipo !== 'ingreso' || apartado !== 'mensualidad' || caja === 'pilates' || !alu || !fecha) return;
+    const r = await intentar(async () => q(sb.rpc('cupon_alumna', { p_alumna: alu, p_fecha: fecha })));
+    const x = r && r[0];
+    if (!x || f.elements.alumna_id.value !== alu || f.elements.fecha.value !== fecha) return;
+    cupon = { ...x, alumna: alu };
+    if (!f.elements.importe.value) f.elements.importe.value = Math.max(0, CUOTA_MES - x.euros);
+    box.innerHTML = `<div class="obj-et">${ico('euro', 16)} Tiene cupón ${esc(x.codigo || '')}</div><b>−${eur(x.euros)} en esta cuota</b><span>Por apuntarse con el código de ${esc(String(x.profesora).split(' ')[0])} (${esc(x.evento)}). Mes completo: ${eur(CUOTA_MES)} − ${eur(x.euros)} = ${eur(CUOTA_MES - x.euros)}.</span>`;
+    box.hidden = false;
+  };
   const pintarApartados = () => {
     // Las camisetas y entradas se venden desde el evento; "Ventas" solo sale al editar un movimiento antiguo
     // En la caja de Pilates no hay eventos, escuela amiga ni cambio
@@ -1833,6 +1850,7 @@ async function formCaja(params, id = null) {
     document.getElementById('apartados').innerHTML = opciones.map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
     $app.querySelectorAll('[data-solo]').forEach((d) => { d.hidden = !d.dataset.solo.split(' ').includes(apartado); });
     document.getElementById('f_concepto').placeholder = PH[apartado] || '';
+    mirarCupon();
   };
   const marcar = () => { $app.querySelectorAll('[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === tipo));
     $app.querySelectorAll('[data-caja]').forEach((b) => b.classList.toggle('on', b.dataset.caja === caja)); pintarApartados(); };
@@ -1840,25 +1858,32 @@ async function formCaja(params, id = null) {
   $app.querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { tipo = b.dataset.t; marcar(); }); marcar();
   document.getElementById('apartados').onclick = (ev) => { const b = ev.target.closest('[data-ap]'); if (b) { apartado = b.dataset.ap; pintarApartados(); } };
   const form = document.getElementById('frm');
+  ['f_alumna_id', 'f_fecha'].forEach((k) => { const el = document.getElementById(k); if (el) el.addEventListener('change', mirarCupon); });
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const datos = Object.assign(leerForm(form, campos), { tipo, apartado });
     campos.filter((c) => c.solo && !c.solo.includes(apartado)).forEach((c) => { datos[c.k] = null; });
+    delete datos._cupon;
+    const conCupon = cupon && !id && apartado === 'mensualidad' && datos.alumna_id === cupon.alumna;
     if (!(datos.importe > 0)) { aviso('El importe tiene que ser mayor que 0', true); return; }
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
     // Sin la 026 no existe la columna: solo se manda cuando hace falta
     if (caja === 'pilates' || (reg && 'pilates' in reg)) datos.pilates = caja === 'pilates';
     if (!datos.concepto) datos.concepto = apartado === 'evento' ? 'Evento · ' + ((eventos.find(([v]) => v === datos.evento_id) || [0, ''])[1].split(' · ')[0]) : nombreApartado(tipo, apartado);
+    if (conCupon) datos.concepto += ` (cupón ${cupon.codigo || ''} −${eur(cupon.euros)})`;
     // Se bloquea Guardar mientras guarda: un doble toque apuntaba el mismo cobro dos veces
     const btn = form.querySelector('[type=submit]'); if (btn.disabled) return; btn.disabled = true;
     try {
-      const guardar = (d) => id ? q(sb.from('caja').update(d).eq('id', id)) : q(sb.from('caja').insert(d));
-      try { await guardar(datos); } catch (e) {
+      const guardar = (d) => id ? q(sb.from('caja').update(d).eq('id', id)) : q(sb.from('caja').insert(d).select('id').single());
+      let nuevo = null;
+      try { nuevo = await guardar(datos); } catch (e) {
         if ('pilates' in datos && /pilates/i.test((e && (e.message || e.details || e.hint)) || '')) throw new Error('Falta un paso en Supabase (026) para la caja de Pilates. Avisa a la administración.');
         if (!faltaApartado(e)) throw e;
         if (apartado === 'cambio' || apartado === 'decoracion') throw new Error('Esta parte aún no está activada en la base de datos.');
-        const { apartado: _a, evento_id: _e, ...sinApartado } = datos; await guardar(sinApartado);
+        const { apartado: _a, evento_id: _e, ...sinApartado } = datos; nuevo = await guardar(sinApartado);
       }
+      // El cupón queda usado en este cobro (si luego se borra el cobro, el cupón vuelve a quedar libre)
+      if (conCupon && nuevo && nuevo.id) { try { await q(sb.rpc('usar_cupon', { p_interesada: cupon.interesada_id, p_caja: nuevo.id })); } catch (e) { aviso('Cobrado, pero no se pudo marcar el cupón como usado', true); } }
       aviso('Guardado'); location.hash = origen || desdeEvento ? volver : `#/caja/dia/${datos.fecha}${caja === 'pilates' && eligeCaja() ? '?c=pilates' : ''}`;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; }
   };
@@ -2461,6 +2486,9 @@ async function hayObjetivo() {   // ¿está pegada la migración 028?
   if (S.objetivoOk == null) { const { error } = await sb.from('evento_codigos').select('evento_id').limit(1); S.objetivoOk = !error; }
   return S.objetivoOk;
 }
+// Cupón de la familia (migración 029): «5 € de descuento en la cuota de noviembre»
+const mesCupon = (e) => e.cupon_mes ? aFecha(e.cupon_mes).toLocaleDateString('es-ES', { month: 'long' }) : '';
+const hayCupon = (e) => +e.cupon_euros > 0 && !!e.cupon_mes;
 const gestionaObjetivo = () => S.admin || (puedeEditar('eventos') && !(S.permisos.eventos && S.permisos.eventos.solo_propias));
 // Código a partir del nombre de pila: CONCHY, ANA… (sin tildes ni espacios)
 const codigoDe = (nombre) => String(nombre || '').trim().split(/\s+/)[0].normalize('NFD').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16) || 'PROFE';
@@ -2468,7 +2496,7 @@ async function leerObjetivo(id) {
   if (!(await hayObjetivo())) return null;
   const [codigos, ints, yo] = await Promise.all([
     intentar(() => q(sb.from('evento_codigos').select('profesora_id,codigo').eq('evento_id', id))),
-    intentar(() => q(sb.from('evento_interesadas').select('id,profesora_id,nombre,tutor_nombre,telefono,nota,validada_en,caja_id,creado_en').eq('evento_id', id).order('creado_en'))),
+    intentar(() => q(sb.from('evento_interesadas').select('*').eq('evento_id', id).order('creado_en'))),
     S.admin ? null : miProfesora()
   ]);
   return { codigos, ints, yo: yo && yo.id };
@@ -2482,15 +2510,18 @@ function bloqueObjetivo(e, ob, nomProf) {
   const enClase = (l) => l.filter((i) => i.validada_en);
   const tel = (i) => [i.tutor_nombre, i.telefono].filter(Boolean).join(' · ');
   const chip = (i) => i.caja_id ? `<span class="chip ok">Pagado · ${eur(euros)}</span>` : i.validada_en ? `<span class="chip ok">En clase · +${eur(euros)}</span>` : '<span class="chip gris">Pendiente</span>';
-  const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '')), der: chip(i) });
+  const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '') + (i.cupon_caja_id ? ` · cupón usado (−${eur(e.cupon_euros)})` : '')), der: chip(i) });
   const mio = ob.yo && ob.codigos.find((c) => c.profesora_id === ob.yo);
   // La profesora: su código, lo que lleva y sus interesadas
   if (mio && !gest) {
     const l = deProf(ob.yo), v = enClase(l);
-    const msg = `¡Hola! Soy ${nom(ob.yo).split(' ')[0]}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${mio.codigo}`;
+    const msg = hayCupon(e)
+      ? `¡Hola! Soy ${nom(ob.yo).split(' ')[0]}, profesora de la Academia Blackstars. Si tu peque se apunta a clase en ${mesCupon(e)}, di este código en la escuela y tendrá ${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}: ${mio.codigo}`
+      : `¡Hola! Soy ${nom(ob.yo).split(' ')[0]}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${mio.codigo}`;
     return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} Tu objetivo extra</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
       <p>Apunta a las niñas interesadas. Cuando una se inscriba en una clase de la escuela, se valida sola y ganas ${eur(euros)}.</p>
       <div class="obj-codigo"><small>Tu código</small><b>${esc(mio.codigo)}</b></div>
+      ${hayCupon(e) ? `<div class="obj-cupon"><div class="obj-et">${ico('euro', 16)} Regalo para la familia</div><b>${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}</b><span>Si la niña se apunta a clase en ${mesCupon(e)} diciendo tu código.</span></div>` : ''}
       <a class="btn verde ancho" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">${ico('wa')} Enviar mi código por WhatsApp</a>
       <div class="totales"><div><small>Interesadas</small><b>${l.length}</b></div><div><small>En clase</small><b>${v.length}</b></div><div><small>Ganado</small><b class="in">${eur(v.length * euros)}</b></div></div></div>
       <a class="btn pri" href="#/interesada/nueva?evento=${id}">${ico('mas')} Apuntar niña interesada</a>
@@ -2512,6 +2543,7 @@ function bloqueObjetivo(e, ob, nomProf) {
   }).join('');
   return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} Objetivo extra</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
       <p>Cuentan las niñas interesadas que apuntan las profesoras en el evento y que luego se inscriben en una clase.</p>
+      ${hayCupon(e) ? (() => { const usados = ob.ints.filter((i) => i.cupon_caja_id).length; return `<div class="obj-cupon"><div class="obj-et">${ico('euro', 16)} Cupón para la familia</div><b>${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}</b><span>Usados: ${usados} · descontado: ${eur(usados * e.cupon_euros)}</span></div>`; })() : ''}
       <div class="totales"><div><small>Interesadas</small><b>${ob.ints.length}</b></div><div><small>En clase</small><b>${v.length}</b></div><div><small>Por pagar</small><b class="${porPagar ? 'out' : ''}">${eur(porPagar * euros)}</b></div></div></div>
     <div class="lista">${tarjetas || vacio('Ninguna profesora tiene código todavía.')}</div>
     ${gest ? `<a class="btn sec" href="#/interesada/nueva?evento=${id}">${ico('mas')} Apuntar niña interesada</a><a class="btn sec" href="#/evento/${id}/objetivo">${ico('lapiz')} Cambiar objetivo o códigos</a>` : ''}`;
@@ -2529,7 +2561,7 @@ async function formObjetivo(id) {
   if (!gestionaObjetivo()) return sinPermiso();
   if (!(await hayObjetivo())) return pintar(cabecera('Objetivo extra', { volver: `#/evento/${id}` }) + `<main class="cont">${vacio('Falta pegar en Supabase el paso 028 (objetivo extra). Cuando esté, ya se puede usar.')}</main>`, 'mas');
   const [e, profs, coords, codigos] = await Promise.all([
-    q(sb.from('eventos').select('id,titulo,objetivo_euros').eq('id', id).single()),
+    q(sb.from('eventos').select('*').eq('id', id).single()),
     q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id)),
     hayCoordinadoras().then((ok) => ok ? intentar(() => q(sb.from('evento_coordinadoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id).not('profesora_id', 'is', null))) : []),
     q(sb.from('evento_codigos').select('profesora_id,codigo').eq('evento_id', id))
@@ -2548,10 +2580,17 @@ async function formObjetivo(id) {
     <label class="check"><input type="checkbox" id="activo" ${e.objetivo_euros || !codigos.length ? 'checked' : ''}><span>Este evento tiene objetivo extra para las profesoras</span></label>
     <div class="campo"><label for="f_euros">Cuánto gana por cada alumna conseguida (€)</label><input id="f_euros" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(e.objetivo_euros != null ? +e.objetivo_euros : 10)}">
       <div class="ayuda">Por cada niña interesada que apunte en el evento y que luego se inscriba en una clase de la escuela.</div></div>
+    ${'cupon_euros' in e ? `<div class="seccion">Descuento para la familia</div>
+    <label class="check"><input type="checkbox" id="cupon" ${hayCupon(e) || !e.objetivo_euros ? 'checked' : ''}><span>El código también es un cupón de descuento para la niña</span></label>
+    <div id="campos-cupon"><div class="campo"><label for="f_cupon">Descuento (€)</label><input id="f_cupon" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(e.cupon_euros != null ? +e.cupon_euros : 5)}"></div>
+    <div class="campo"><label for="f_mes">En la cuota de</label><select id="f_mes">${[1, 2, 3, 4, 5, 6, 0].map((n) => otroMes(e.fecha, n)).map((m) => `<option value="${m}" ${m === (e.cupon_mes || otroMes(e.fecha, 1)) ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}</select>
+      <div class="ayuda">Solo si la niña se apunta a una clase en ese mes. Se descuenta una vez, al cobrar esa cuota en Caja.</div></div></div>` : ''}
     <div class="campo"><label>Código de cada profesora del evento</label>
       ${lista.map((p) => `<div class="obj-codfila"><span>${esc(p.nombre)}</span><input data-cod="${p.id}" value="${esc(p.codigo)}" maxlength="20" autocapitalize="characters" aria-label="Código de ${esc(p.nombre)}"></div>`).join('') || '<div class="ayuda">Este evento no tiene profesoras. Añádelas en la ficha del evento (Profesoras) y vuelve aquí.</div>'}
       <div class="ayuda">Salen solos con su nombre; puedes cambiarlos por otro más fácil de decir (solo letras y números). La familia lo dice al apuntar a la niña en clase si la profesora no la apuntó antes.</div></div>
     <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
+  const cc = document.getElementById('cupon');
+  if (cc) (cc.onchange = () => { document.getElementById('campos-cupon').hidden = !cc.checked; })();
   document.getElementById('frm').onsubmit = async (ev) => {
     ev.preventDefault();
     const activo = document.getElementById('activo').checked, euros = Number(String(document.getElementById('f_euros').value).replace(',', '.'));
@@ -2561,7 +2600,14 @@ async function formObjetivo(id) {
     if (new Set(filas.map((f) => f.codigo)).size < filas.length) { aviso('Hay dos profesoras con el mismo código', true); return; }
     const btn = ev.target.querySelector('[type=submit]'); btn.disabled = true;
     try {
-      await q(sb.from('eventos').update({ objetivo_euros: activo ? euros : null }).eq('id', id));
+      const cambios = { objetivo_euros: activo ? euros : null };
+      const cc = document.getElementById('cupon');
+      if (cc) {
+        const dto = Number(String(document.getElementById('f_cupon').value).replace(',', '.'));
+        if (activo && cc.checked && !(dto > 0)) { aviso('Pon cuántos euros de descuento', true); btn.disabled = false; return; }
+        Object.assign(cambios, activo && cc.checked ? { cupon_euros: dto, cupon_mes: document.getElementById('f_mes').value } : { cupon_euros: null, cupon_mes: null });
+      }
+      await q(sb.from('eventos').update(cambios).eq('id', id));
       if (activo && filas.length) {
         // Primero se quitan los que cambian (si no, dos profesoras podrían chocar al intercambiar códigos)
         const cambian = filas.filter((f) => codigos.some((c) => c.profesora_id === f.profesora_id && c.codigo !== f.codigo)).map((f) => f.profesora_id);
