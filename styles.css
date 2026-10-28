@@ -566,3 +566,11 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .obj-codfila{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:8px;align-items:center;margin-bottom:8px}
 .obj-codfila span{font-weight:600}
 .obj-codfila input{text-align:center}
+.obj-cupon{background:linear-gradient(135deg,#F4F0FD,#fff);border:1px solid rgba(118,80,224,0.35);border-radius:16px;padding:12px 14px;display:grid;gap:4px}
+.obj-cupon[hidden]{display:none}
+.obj-cupon .obj-et{color:var(--morado3)}
+.obj-cupon b{font:700 16px/1.3 Sora,sans-serif;color:var(--texto)}
+.obj-cupon span{color:var(--texto2);font-size:14px;line-height:1.4}
+.form .obj-cupon{margin-bottom:14px}
+#campos-cupon{display:grid;gap:14px}
+#campos-cupon[hidden]{display:none}
