@@ -2439,7 +2439,7 @@ async function pantallaEvento(id) {
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
     ${bloqueObjetivo(e, ob, nomProf)}
     ${htmlCoord}
-    ${htmlVentas}
+    ${e.con_ventas === false ? '' : htmlVentas}
     ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
@@ -2922,6 +2922,7 @@ async function formEvento(id, params) {
   let vender = false, coords = null;
   const venta = !id && params && params.get('venta') === '1';
   const conTabla = await hayCoordinadoras();
+  const conVentas = !!id && !(await sb.from('eventos').select('con_ventas').limit(1)).error;   // ¿está pegada la 030?
   let campoCoord = { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] };
   let opc = null;
   if (conTabla) {
@@ -2948,6 +2949,8 @@ async function formEvento(id, params) {
     campos: [
       { k: 'titulo', label: 'Título', req: true, ph: venta ? 'Camisetas Navidad, Entradas fin de curso…' : 'Halloween, Gala de Navidad…' },
       ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
+      // Con la casilla quitada, el apartado de ventas y reservas no sale en el evento (migración 030)
+      ...(id && conVentas ? [{ k: 'con_ventas', label: 'En este evento se venden cosas (camisetas, entradas…). Si la quitas, nadie ve las ventas y reservas de este evento.', tipo: 'bool' }] : []),
       { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
       { k: 'lugar', label: 'Lugar' }, campoCoord,
       { k: 'descripcion', label: 'Descripción', tipo: 'textarea', formato: true }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },
