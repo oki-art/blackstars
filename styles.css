@@ -548,3 +548,21 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .mini-estrellas .ico-caja{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,0.18)}
 .mini-estrellas b{font-family:'Sora',sans-serif;font-size:15px;color:#fff}
 .mini-estrellas span:not(.ico-caja){font-size:12px;opacity:.85}
+/* Objetivo extra de un evento (plus para las profesoras) */
+.obj-ev{display:grid;gap:12px;background:linear-gradient(135deg,#FFF8EE,#fff);border:1px solid rgba(242,196,141,0.7);border-radius:20px;padding:16px;box-shadow:0 10px 26px rgba(242,196,141,0.25)}
+.obj-ev h3{font:700 18px/1.25 Sora,sans-serif;margin:0;color:var(--texto)}
+.obj-ev p{margin:0;color:var(--texto2);font-size:14px;line-height:1.45}
+.obj-et{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9A6326}
+.obj-codigo{text-align:center;background:#fff;border:2px dashed var(--morado);border-radius:16px;padding:12px}
+.obj-codigo small{display:block;color:var(--texto2);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.obj-codigo b{font:700 32px Sora,sans-serif;letter-spacing:.12em;color:#3E3763;word-break:break-all}
+.obj-chip{font:700 12px Sora,sans-serif;letter-spacing:.08em;background:#F4F0FD;color:var(--morado3);padding:2px 7px;border-radius:8px}
+.obj-prof .cc-movs .lista{padding:10px}
+.obj-pagar{display:flex;flex-wrap:wrap;gap:8px;padding:0 10px 12px}
+.obj-ok{margin-top:8px;padding:10px 12px;border-radius:12px;background:rgba(31,138,92,0.10);color:var(--ingreso);font-weight:700;font-size:14px;display:flex;gap:8px;align-items:center}
+.obj-ok.mal{background:rgba(209,47,59,0.10);color:var(--gasto)}
+.obj-ok[hidden]{display:none}
+.obj-input,.obj-codfila input{text-transform:uppercase;font-family:Sora,sans-serif;font-weight:700;letter-spacing:.08em}
+.obj-codfila{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:8px;align-items:center;margin-bottom:8px}
+.obj-codfila span{font-weight:600}
+.obj-codfila input{text-align:center}
