@@ -8,7 +8,7 @@ let VER_COMO = null;
 try { VER_COMO = JSON.parse(localStorage.getItem('bs-ver-como') || 'null'); } catch (e) { /* sin almacenamiento */ }
 const guardarVerComo = (vc) => { VER_COMO = vc; try { if (vc) localStorage.setItem('bs-ver-como', JSON.stringify(vc)); else localStorage.removeItem('bs-ver-como'); } catch (e) { /* sin almacenamiento */ } };
 // Lo único que se deja pasar mientras tanto, además de leer: la sesión, abrir documentos y consultas que no cambian nada
-const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates)/;
+const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates|objetivo_codigo)/;
 
 // Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
 const TIEMPOS = [], PANTALLAS = [];   // consultas sueltas y pantallas completas (desde el toque hasta que se ve)
@@ -17,7 +17,7 @@ const medirFetch = async (url, opts) => {
   if (VER_COMO && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !VER_COMO_PASA.test(String(url)))
     return new Response(JSON.stringify({ message: `Estás viendo la app como ${VER_COMO.nombre}: solo para mirar, no se puede cambiar nada.` }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
-  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates)/.test(String(url))) VISTAS.clear();
+  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates|objetivo_codigo)/.test(String(url))) VISTAS.clear();
   // Ninguna consulta se queda esperando sin fin: a los 20 s se corta y sale "La conexión va muy lenta" (las subidas de archivos, no)
   const subida = /\/storage\/v1\/object\/(?!sign\/)/.test(String(url)) && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method);
   const corte = subida ? null : new AbortController(), reloj = corte && setTimeout(() => corte.abort(), 20000);
@@ -1299,6 +1299,12 @@ async function pantallaInscripciones() {
 }
 async function formInscripcion(params) {
   const clase = params.get('clase'), alumna = params.get('alumna');
+  // Objetivo extra: si la familia dice el código de una profesora, la niña cuenta para ella (migración 028)
+  const conCodigo = await hayObjetivo();
+  const campoCodigo = { k: '_codigo', tipo: 'html', html: `<div class="campo"><label for="f_codigo">¿Viene de un evento? Código de profesora (opcional)</label>
+    <input id="f_codigo" maxlength="20" autocapitalize="characters" autocomplete="off" placeholder="Solo si lo dice la familia" class="obj-input">
+    <div class="obj-ok" id="cod-ok" hidden></div>
+    <div class="ayuda">Si la profesora ya la apuntó en el evento con el mismo teléfono, cuenta sola aunque no digan el código.</div></div>` };
   await pantallaForm({
     titulo: 'Inscribir en clase', tabla: 'inscripciones', modulo: 'inscripciones',
     volver: clase ? `#/clase/${clase}` : alumna ? `#/alumna/${alumna}` : '#/inscripciones',
@@ -1306,9 +1312,32 @@ async function formInscripcion(params) {
     campos: [
       { k: 'alumna_id', label: 'Alumna', tipo: 'select', req: true, opciones: await intentar(opcionesAlumnas) },
       { k: 'clase_id', label: 'Clase', tipo: 'select', req: true, opciones: await intentar(() => opcionesClases(true)) },
-      { k: 'fecha_alta', label: 'Desde', tipo: 'fecha', def: hoyISO() }
-    ]
+      { k: 'fecha_alta', label: 'Desde', tipo: 'fecha', def: hoyISO() },
+      ...(conCodigo ? [campoCodigo] : [])
+    ],
+    alGuardar: async (r) => {
+      const cod = document.getElementById('f_codigo'), c = cod ? cod.value.trim() : '';
+      if (!c) return;
+      const res = await q(sb.rpc('objetivo_aplicar_codigo', { p_alumna: r.alumna_id, p_codigo: c }));
+      if (res === 'codigo') aviso('Ese código no es de ninguna profesora: la inscripción sí se ha guardado', true);
+      else if (res === 'ya') aviso('Inscrita. Esta alumna ya contaba para el objetivo de una profesora.');
+    }
   });
+  const cod = document.getElementById('f_codigo'), ok = document.getElementById('cod-ok');
+  if (!cod) return;
+  let t = null;
+  cod.oninput = () => {
+    clearTimeout(t);
+    const c = cod.value.trim();
+    if (!c) { ok.hidden = true; return; }
+    t = setTimeout(async () => {
+      const r = await intentar(async () => q(sb.rpc('objetivo_codigo', { p_codigo: c })));
+      if (cod.value.trim() !== c) return;
+      const x = r && r[0];
+      ok.hidden = false; ok.classList.toggle('mal', !x);
+      ok.innerHTML = x ? `${ico('check', 18)} Cuenta para ${esc(x.profesora)} (+${eur(x.euros)}) · ${esc(x.evento)}` : `${ico('alerta', 18)} Ese código no es de ninguna profesora`;
+    }, 350);
+  };
 }
 
 // Corregir las fechas de una alumna en una clase (si se puso mal al inscribirla)
@@ -2336,7 +2365,7 @@ async function pantallaEvento(id) {
   if (!puedeVer('eventos')) return sinPermiso();
   const ed = puedeEditar('eventos'), ventas = {};
   // Todo a la vez (antes iba una cosa detrás de otra y el evento tardaba más de 2 s)
-  const [e, ins, profs, coords0, optCoord, htmlVentas, movs, optProfs, optAlus, nombres] = await Promise.all([
+  const [e, ins, profs, coords0, optCoord, htmlVentas, movs, optProfs, optAlus, nombres, ob] = await Promise.all([
     q(sb.from(S.admin ? 'eventos_con_autor' : 'eventos').select('*').eq('id', id).maybeSingle()),
     q(sb.from('inscripciones_evento').select('id,estado,alumnas(id,nombre,apellidos)').eq('evento_id', id)),
     q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id)),
@@ -2347,13 +2376,15 @@ async function pantallaEvento(id) {
     ed && puedeVer('profesoras') ? intentar(opcionesProfesoras) : [],
     ed && puedeVer('alumnas') ? intentar(opcionesAlumnas) : [],
     // Nombres de sus profesoras para quien no puede leer todas las fichas (migración 025; también en "Ver como")
-    S.admin ? [] : intentar(() => q(sb.rpc('nombres_evento', { p_evento: id })))
+    S.admin ? [] : intentar(() => q(sb.rpc('nombres_evento', { p_evento: id }))),
+    leerObjetivo(id)   // objetivo extra (migración 028)
   ]);
   // Una profesora solo abre los eventos en los que está (como profesora o coordinadora)
   if (!e) return pintar(cabecera('Evento', { volver: '#/eventos' }) + `<main class="cont">${vacio('Este evento no es tuyo: solo lo ven quienes lo coordinan o dan clase en él, y la administración.')}</main>`, 'mas');
   const coords = coords0 || await leerCoordinadoras(e), conTabla = await hayCoordinadoras();
   const nomProf = new Map((nombres || []).map((n) => [n.profesora_id, n.nombre]));
   [...coords, ...profs].forEach((x) => { if (!x.profesoras && nomProf.has(x.profesora_id)) x.profesoras = { nombre: nomProf.get(x.profesora_id) }; });
+  [...coords, ...profs].forEach((x) => { if (x.profesora_id && x.profesoras) nomProf.set(x.profesora_id, x.profesoras.nombre); });
   const htmlCoord = `<div class="seccion">Coordinación${coords.length > 1 ? ` (${coords.length})` : ''}</div>
     <div class="lista">${coords.map((c) => fila({ href: `#/evento/${id}`, tit: nomCoord(c), det: c.principal ? 'Coordinadora principal' : 'También coordina',
       der: `<span class="chips">${c.principal ? '<span class="chip oro">Principal</span>' : ''}${ed && conTabla && !c.principal ? `<button class="chip mor" data-principal="${c.id}" style="border:0;cursor:pointer;min-height:32px">Hacer principal</button>` : ''}${ed && conTabla ? `<button class="chip no" data-quitar-coord="${c.id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : ''}</span>` })).join('') || vacio('Nadie coordina este evento todavía.')}</div>
@@ -2381,6 +2412,7 @@ async function pantallaEvento(id) {
       ${e.descripcion ? `<div class="largo"><dt>Descripción</dt><dd>${conFormato(e.descripcion)}</dd></div>` : ''}${e.normas ? `<div class="largo"><dt>Normas</dt><dd>${conFormato(e.normas)}</dd></div>` : ''}${e.condiciones ? `<div class="largo"><dt>Condiciones</dt><dd>${conFormato(e.condiciones)}</dd></div>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
+    ${bloqueObjetivo(e, ob, nomProf)}
     ${htmlCoord}
     ${htmlVentas}
     ${cajaEv}
@@ -2392,7 +2424,7 @@ async function pantallaEvento(id) {
     ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${optAlus.filter(([aid]) => !ins.some((i) => i.alumnas && i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
-  activarCobros();
+  activarCobros(); activarObjetivo(id);
   const sp = document.getElementById('addProf');
   if (sp) sp.onchange = async () => { if (!sp.value) return; try { await q(sb.from('evento_profesoras').insert({ evento_id: id, profesora_id: sp.value })); router(); } catch (er) { aviso(traducirError(er), true); } };
   const sc = document.getElementById('addCoord');
@@ -2421,6 +2453,168 @@ async function pantallaEvento(id) {
   $app.querySelectorAll('[data-cancelar]').forEach((b) => b.onclick = async (ev) => { ev.preventDefault(); ev.stopPropagation();
     if (!confirm('¿Cancelar la inscripción de esta alumna?')) return;
     try { await q(sb.from('inscripciones_evento').update({ estado: 'cancelada' }).eq('id', b.dataset.cancelar)); router(); } catch (er) { aviso(traducirError(er), true); } });
+}
+/* ---------- objetivo extra de un evento ----------
+   Las profesoras apuntan en el evento a las niñas interesadas (nombre, tutor/a y teléfono). Si una se inscribe después
+   en una clase, cuenta para su profesora, que gana el plus del evento. Lo valida el servidor al inscribirla (migración 028). */
+async function hayObjetivo() {   // ¿está pegada la migración 028?
+  if (S.objetivoOk == null) { const { error } = await sb.from('evento_codigos').select('evento_id').limit(1); S.objetivoOk = !error; }
+  return S.objetivoOk;
+}
+const gestionaObjetivo = () => S.admin || (puedeEditar('eventos') && !(S.permisos.eventos && S.permisos.eventos.solo_propias));
+// Código a partir del nombre de pila: CONCHY, ANA… (sin tildes ni espacios)
+const codigoDe = (nombre) => String(nombre || '').trim().split(/\s+/)[0].normalize('NFD').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16) || 'PROFE';
+async function leerObjetivo(id) {
+  if (!(await hayObjetivo())) return null;
+  const [codigos, ints, yo] = await Promise.all([
+    intentar(() => q(sb.from('evento_codigos').select('profesora_id,codigo').eq('evento_id', id))),
+    intentar(() => q(sb.from('evento_interesadas').select('id,profesora_id,nombre,tutor_nombre,telefono,nota,validada_en,caja_id,creado_en').eq('evento_id', id).order('creado_en'))),
+    S.admin ? null : miProfesora()
+  ]);
+  return { codigos, ints, yo: yo && yo.id };
+}
+function bloqueObjetivo(e, ob, nomProf) {
+  if (!ob) return '';
+  const id = e.id, gest = gestionaObjetivo(), euros = +e.objetivo_euros || 0;
+  if (!euros) return gest ? `<a class="btn sec" href="#/evento/${id}/objetivo">${ico('trofeo')} Añadir objetivo extra para las profesoras</a>` : '';
+  const nom = (pid) => nomProf.get(pid) || '—';
+  const deProf = (pid) => ob.ints.filter((i) => i.profesora_id === pid);
+  const enClase = (l) => l.filter((i) => i.validada_en);
+  const tel = (i) => [i.tutor_nombre, i.telefono].filter(Boolean).join(' · ');
+  const chip = (i) => i.caja_id ? `<span class="chip ok">Pagado · ${eur(euros)}</span>` : i.validada_en ? `<span class="chip ok">En clase · +${eur(euros)}</span>` : '<span class="chip gris">Pendiente</span>';
+  const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '')), der: chip(i) });
+  const mio = ob.yo && ob.codigos.find((c) => c.profesora_id === ob.yo);
+  // La profesora: su código, lo que lleva y sus interesadas
+  if (mio && !gest) {
+    const l = deProf(ob.yo), v = enClase(l);
+    const msg = `¡Hola! Soy ${nom(ob.yo).split(' ')[0]}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${mio.codigo}`;
+    return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} Tu objetivo extra</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
+      <p>Apunta a las niñas interesadas. Cuando una se inscriba en una clase de la escuela, se valida sola y ganas ${eur(euros)}.</p>
+      <div class="obj-codigo"><small>Tu código</small><b>${esc(mio.codigo)}</b></div>
+      <a class="btn verde ancho" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">${ico('wa')} Enviar mi código por WhatsApp</a>
+      <div class="totales"><div><small>Interesadas</small><b>${l.length}</b></div><div><small>En clase</small><b>${v.length}</b></div><div><small>Ganado</small><b class="in">${eur(v.length * euros)}</b></div></div></div>
+      <a class="btn pri" href="#/interesada/nueva?evento=${id}">${ico('mas')} Apuntar niña interesada</a>
+      <div class="seccion">Tus interesadas (${l.length})</div>
+      <div class="lista">${l.map((i) => filaInt(i, true)).join('') || vacio('Todavía no has apuntado a nadie.')}</div>
+      ${l.some((i) => !i.validada_en) ? '<p class="nota">Pulsa una pendiente para corregir sus datos o borrarla.</p>' : ''}`;
+  }
+  if (!gest && !(S.permisos.eventos && !S.permisos.eventos.solo_propias)) return '';
+  // Administración y gestión: todas las profesoras con código
+  const v = enClase(ob.ints), porPagar = v.filter((i) => !i.caja_id).length;
+  const pagaCaja = gest && puedeEditar('caja');
+  const tarjetas = ob.codigos.slice().sort((a, b) => enClase(deProf(b.profesora_id)).length - enClase(deProf(a.profesora_id)).length || nom(a.profesora_id).localeCompare(nom(b.profesora_id), 'es')).map((c) => {
+    const l = deProf(c.profesora_id), vc = enClase(l), debe = vc.filter((i) => !i.caja_id).length;
+    return `<details class="caja-clase obj-prof"><summary class="cc-cab"><span><h3>${esc(nom(c.profesora_id))}</h3><small><span class="obj-chip">${esc(c.codigo)}</span> · ${l.length} interesada${l.length === 1 ? '' : 's'} · ${vc.length} en clase</small></span>
+      <span class="cc-tot"><b class="${debe ? 'out' : ''}">${eur(vc.length * euros)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-movs"><div class="lista">${l.map((i) => filaInt(i, gest)).join('') || vacio('Aún no ha apuntado a nadie.')}</div>
+      ${debe && pagaCaja ? `<div class="obj-pagar"><button class="vt-cobrar" data-obj-pagar="${c.profesora_id}">Pagar ${eur(debe * euros)} a ${esc(nom(c.profesora_id).split(' ')[0])}</button>
+        <div class="vt-metodos" id="op-${c.profesora_id}" hidden>${METODOS.map(([k, t]) => `<button data-obj-metodo="${k}" data-prof="${c.profesora_id}">${t}</button>`).join('')}</div></div>` : ''}</div></details>`;
+  }).join('');
+  return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} Objetivo extra</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
+      <p>Cuentan las niñas interesadas que apuntan las profesoras en el evento y que luego se inscriben en una clase.</p>
+      <div class="totales"><div><small>Interesadas</small><b>${ob.ints.length}</b></div><div><small>En clase</small><b>${v.length}</b></div><div><small>Por pagar</small><b class="${porPagar ? 'out' : ''}">${eur(porPagar * euros)}</b></div></div></div>
+    <div class="lista">${tarjetas || vacio('Ninguna profesora tiene código todavía.')}</div>
+    ${gest ? `<a class="btn sec" href="#/interesada/nueva?evento=${id}">${ico('mas')} Apuntar niña interesada</a><a class="btn sec" href="#/evento/${id}/objetivo">${ico('lapiz')} Cambiar objetivo o códigos</a>` : ''}`;
+}
+function activarObjetivo(id) {
+  $app.querySelectorAll('[data-obj-pagar]').forEach((b) => b.onclick = () => { const m = document.getElementById('op-' + b.dataset.objPagar); m.hidden = !m.hidden; });
+  $app.querySelectorAll('[data-obj-metodo]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { await q(sb.rpc('pagar_objetivo', { p_evento: id, p_profesora: b.dataset.prof, p_metodo: b.dataset.objMetodo })); aviso('Pagado: está en la caja del evento como gasto'); router(); }
+    catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
+}
+// Activar el objetivo en un evento: cuánto por alumna y el código de cada profesora
+async function formObjetivo(id) {
+  if (!gestionaObjetivo()) return sinPermiso();
+  if (!(await hayObjetivo())) return pintar(cabecera('Objetivo extra', { volver: `#/evento/${id}` }) + `<main class="cont">${vacio('Falta pegar en Supabase el paso 028 (objetivo extra). Cuando esté, ya se puede usar.')}</main>`, 'mas');
+  const [e, profs, coords, codigos] = await Promise.all([
+    q(sb.from('eventos').select('id,titulo,objetivo_euros').eq('id', id).single()),
+    q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id)),
+    hayCoordinadoras().then((ok) => ok ? intentar(() => q(sb.from('evento_coordinadoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id).not('profesora_id', 'is', null))) : []),
+    q(sb.from('evento_codigos').select('profesora_id,codigo').eq('evento_id', id))
+  ]);
+  // Profesoras del evento (y coordinadoras que son profesoras), sin repetir
+  const lista = [];
+  [...profs, ...coords].forEach((p) => { if (p.profesora_id && !lista.some((x) => x.id === p.profesora_id)) lista.push({ id: p.profesora_id, nombre: p.profesoras ? p.profesoras.nombre : '—' }); });
+  const usados = new Set(codigos.map((c) => c.codigo));
+  lista.forEach((p) => {
+    const ya = codigos.find((c) => c.profesora_id === p.id);
+    if (ya) { p.codigo = ya.codigo; return; }
+    let c = codigoDe(p.nombre), n = 2; while (usados.has(c)) c = codigoDe(p.nombre).slice(0, 14) + n++;
+    usados.add(c); p.codigo = c;
+  });
+  pintar(cabecera('Objetivo extra', { volver: `#/evento/${id}`, sub: esc(e.titulo) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <label class="check"><input type="checkbox" id="activo" ${e.objetivo_euros || !codigos.length ? 'checked' : ''}><span>Este evento tiene objetivo extra para las profesoras</span></label>
+    <div class="campo"><label for="f_euros">Cuánto gana por cada alumna conseguida (€)</label><input id="f_euros" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(e.objetivo_euros != null ? +e.objetivo_euros : 10)}">
+      <div class="ayuda">Por cada niña interesada que apunte en el evento y que luego se inscriba en una clase de la escuela.</div></div>
+    <div class="campo"><label>Código de cada profesora del evento</label>
+      ${lista.map((p) => `<div class="obj-codfila"><span>${esc(p.nombre)}</span><input data-cod="${p.id}" value="${esc(p.codigo)}" maxlength="20" autocapitalize="characters" aria-label="Código de ${esc(p.nombre)}"></div>`).join('') || '<div class="ayuda">Este evento no tiene profesoras. Añádelas en la ficha del evento (Profesoras) y vuelve aquí.</div>'}
+      <div class="ayuda">Salen solos con su nombre; puedes cambiarlos por otro más fácil de decir (solo letras y números). La familia lo dice al apuntar a la niña en clase si la profesora no la apuntó antes.</div></div>
+    <button class="btn pri ancho" type="submit">Guardar</button></form></main>`, false);
+  document.getElementById('frm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const activo = document.getElementById('activo').checked, euros = Number(String(document.getElementById('f_euros').value).replace(',', '.'));
+    if (activo && !(euros > 0)) { aviso('Pon cuántos euros por alumna', true); return; }
+    const filas = [...$app.querySelectorAll('[data-cod]')].map((i) => ({ evento_id: id, profesora_id: i.dataset.cod, codigo: i.value.normalize('NFD').replace(/[^A-Za-z0-9]/g, '').toUpperCase() }));
+    if (filas.some((f) => f.codigo.length < 2)) { aviso('Cada código necesita al menos 2 letras o números', true); return; }
+    if (new Set(filas.map((f) => f.codigo)).size < filas.length) { aviso('Hay dos profesoras con el mismo código', true); return; }
+    const btn = ev.target.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      await q(sb.from('eventos').update({ objetivo_euros: activo ? euros : null }).eq('id', id));
+      if (activo && filas.length) {
+        // Primero se quitan los que cambian (si no, dos profesoras podrían chocar al intercambiar códigos)
+        const cambian = filas.filter((f) => codigos.some((c) => c.profesora_id === f.profesora_id && c.codigo !== f.codigo)).map((f) => f.profesora_id);
+        if (cambian.length) await q(sb.from('evento_codigos').delete().eq('evento_id', id).in('profesora_id', cambian));
+        await q(sb.from('evento_codigos').upsert(filas, { onConflict: 'evento_id,profesora_id' }));
+      }
+      aviso('Guardado'); location.hash = `#/evento/${id}`;
+    } catch (e2) { aviso(traducirError(e2), true); btn.disabled = false; }
+  };
+}
+// Apuntar (o corregir) a una niña interesada
+async function formInteresada(params, iid) {
+  if (!(await hayObjetivo())) return sinPermiso();
+  const gest = gestionaObjetivo();
+  const reg = iid ? await q(sb.from('evento_interesadas').select('*').eq('id', iid).single()) : null;
+  const ev = reg ? reg.evento_id : params.get('evento');
+  const [e, codigos, yo, nombres] = await Promise.all([
+    q(sb.from('eventos').select('id,titulo').eq('id', ev).single()),
+    q(sb.from('evento_codigos').select('profesora_id,codigo').eq('evento_id', ev)),
+    S.admin ? null : miProfesora(),
+    gest ? intentar(() => q(sb.rpc('nombres_evento', { p_evento: ev }))) : []
+  ]);
+  if (!gest && !(yo && codigos.some((c) => c.profesora_id === yo.id))) return sinPermiso();
+  if (reg && reg.validada_en && !gest) return sinPermiso();
+  const nomP = new Map((nombres || []).map((n) => [n.profesora_id, n.nombre]));
+  const volver = `#/evento/${ev}`, v = reg || {};
+  pintar(cabecera(iid ? 'Corregir interesada' : 'Nueva interesada', { volver, sub: esc(e.titulo) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${gest ? `<div class="campo"><label for="f_prof">Profesora que la ha conseguido *</label><select id="f_prof" required><option value="">—</option>${codigos.map((c) => `<option value="${c.profesora_id}" ${c.profesora_id === v.profesora_id ? 'selected' : ''}>${esc(nomP.get(c.profesora_id) || c.codigo)}</option>`).join('')}</select></div>` : ''}
+    <div class="campo"><label for="f_nombre">Nombre de la niña *</label><input id="f_nombre" required maxlength="120" value="${esc(v.nombre || '')}"></div>
+    <div class="campo"><label for="f_tutor">Nombre de la madre, padre o tutor/a *</label><input id="f_tutor" required maxlength="120" value="${esc(v.tutor_nombre || '')}"></div>
+    <div class="campo"><label for="f_tel">Teléfono de contacto *</label><input id="f_tel" type="tel" required value="${esc(v.telefono || '')}"><div class="ayuda">Con este teléfono la escuela la reconoce sola cuando se apunte a una clase.</div></div>
+    <div class="campo"><label for="f_nota">Qué le interesa (opcional)</label><input id="f_nota" maxlength="300" placeholder="Urbano, 8 años…" value="${esc(v.nota || '')}"></div>
+    ${gest ? '' : `<div class="obj-ok">${ico('check', 18)} Queda a tu nombre. Si se apunta a una clase, ganas el plus.</div>`}
+    <button class="btn pri ancho" type="submit">Guardar interesada</button>
+    ${iid && !v.validada_en ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar</button>' : ''}</form>${autorDe(reg)}</main>`, false);
+  const $ = (x) => document.getElementById(x);
+  $('frm').onsubmit = async (ev2) => {
+    ev2.preventDefault();
+    const tel = $('f_tel').value.trim();
+    if (tel.replace(/\D/g, '').length < 9) { aviso('El teléfono necesita al menos 9 números', true); return; }
+    const d = { nombre: $('f_nombre').value.trim(), tutor_nombre: $('f_tutor').value.trim() || null, telefono: tel, nota: $('f_nota').value.trim() || null };
+    if (gest) d.profesora_id = $('f_prof').value; else if (!iid) d.profesora_id = yo.id;
+    const btn = $('frm').querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      if (iid) await q(sb.from('evento_interesadas').update(d).eq('id', iid));
+      else await q(sb.from('evento_interesadas').insert({ evento_id: ev, ...d }));
+      aviso('Guardado'); location.hash = volver;
+    } catch (e2) { aviso(traducirError(e2), true); btn.disabled = false; }
+  };
+  if ($('borrar')) $('borrar').onclick = async () => {
+    if (!confirm(`¿Borrar a ${v.nombre} de las interesadas?`)) return;
+    try { await q(sb.from('evento_interesadas').delete().eq('id', iid)); aviso('Borrada'); location.hash = volver; } catch (e2) { aviso(traducirError(e2), true); }
+  };
 }
 /* ---------- coordinación de un evento: una principal y las que se quieran añadir ----------
    Puede coordinar una profesora o cualquier persona del equipo (Adela, María…), aunque aún no tenga usuario. */
@@ -3355,7 +3549,9 @@ async function router() {
       case 'evento':
         if (p[1] === 'nuevo') return await formEvento(null, params);
         if (p[2] === 'editar') return await formEvento(p[1]);
+        if (p[2] === 'objetivo') return await formObjetivo(p[1]);
         return await pantallaEvento(p[1]);
+      case 'interesada': return await formInteresada(params, p[1] === 'nueva' ? null : p[1]);
       case 'escuelas': return await pantallaEscuelas();
       case 'escuela':
         if (p[1] === 'nueva') return await formEscuela(null);
