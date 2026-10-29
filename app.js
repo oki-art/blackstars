@@ -2512,17 +2512,22 @@ function bloqueObjetivo(e, ob, nomProf) {
   const enClase = (l) => l.filter((i) => i.validada_en);
   const tel = (i) => [i.tutor_nombre, i.telefono].filter(Boolean).join(' · ');
   const chip = (i) => i.caja_id ? `<span class="chip ok">Pagado · ${eur(euros)}</span>` : i.validada_en ? `<span class="chip ok">En clase · +${eur(euros)}</span>` : '<span class="chip gris">Pendiente</span>';
-  const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '') + (i.cupon_caja_id ? ` · cupón usado (−${eur(e.cupon_euros)})` : '')), der: chip(i) });
+  // Mensaje de WhatsApp con el código de la profesora (y el cupón, si lo hay)
+  const mensaje = (pid, codigo) => { const pila = nom(pid).split(' ')[0]; return hayCupon(e)
+    ? `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase en ${mesCupon(e)}, di este código en la escuela y tendrá ${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}: ${codigo}`
+    : `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${codigo}`; };
+  const codDe = (pid) => (ob.codigos.find((c) => c.profesora_id === pid) || {}).codigo;
+  // Botón para mandar el código por WhatsApp al teléfono de esa interesada
+  const waInt = (i) => { const t = String(i.telefono || '').replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1'), cod = codDe(i.profesora_id);
+    return !i.validada_en && t && cod ? `<button class="obj-wa-btn" data-wa="https://wa.me/${t}?text=${encodeURIComponent(mensaje(i.profesora_id, cod))}" aria-label="Enviar el código por WhatsApp a ${esc(i.tutor_nombre || i.nombre)}">${ico('wa', 20)}</button>` : ''; };
+  const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '') + (i.cupon_caja_id ? ` · cupón usado (−${eur(e.cupon_euros)})` : '')), der: `<span class="obj-der">${chip(i)}${waInt(i)}</span>` });
   const mio = ob.yo && ob.codigos.find((c) => c.profesora_id === ob.yo);
   // Lo que ve cada profesora: su código, el cupón de la familia, el WhatsApp y lo que lleva (la administración lo ve igual dentro de cada profesora)
   const tarjetaProfe = (pid, codigo, suya) => {
-    const l = deProf(pid), v = enClase(l), pila = nom(pid).split(' ')[0];
-    const msg = hayCupon(e)
-      ? `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase en ${mesCupon(e)}, di este código en la escuela y tendrá ${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}: ${codigo}`
-      : `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${codigo}`;
+    const l = deProf(pid), v = enClase(l), pila = nom(pid).split(' ')[0], msg = mensaje(pid, codigo);
     return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} ${suya ? 'Tu objetivo extra' : 'Lo que ve ' + esc(pila)}</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
       ${suya ? `<p>Apunta a las niñas interesadas. Cuando una se inscriba en una clase de la escuela, se valida sola y ganas ${eur(euros)}.</p>` : ''}
-      <div class="obj-codigo"><small>${suya ? 'Tu código' : 'Su código'}</small><b>${esc(codigo)}</b></div>
+      <div class="obj-codigo"><small>${suya ? 'Tu código' : 'Su código'}</small><b style="font-size:${Math.min(32, Math.floor(230 / (String(codigo).length * 0.9)))}px">${esc(codigo)}</b></div>
       ${hayCupon(e) ? `<div class="obj-cupon"><div class="obj-et">${ico('euro', 16)} Regalo para la familia</div><b>${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}</b><span>Si la niña se apunta a clase en ${mesCupon(e)} diciendo ${suya ? 'tu' : 'su'} código.</span></div>` : ''}
       ${suya ? `<a class="btn verde ancho" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">${ico('wa')} Enviar mi código por WhatsApp</a>`
         : `<details class="obj-wa"><summary>${ico('wa', 18)} Mensaje de WhatsApp que manda</summary><p>${esc(msg)}</p></details>`}
@@ -2558,6 +2563,8 @@ function bloqueObjetivo(e, ob, nomProf) {
     ${gest ? `<a class="btn sec" href="#/interesada/nueva?evento=${id}">${ico('mas')} Apuntar niña interesada</a><a class="btn sec" href="#/evento/${id}/objetivo">${ico('lapiz')} Cambiar objetivo o códigos</a>` : ''}`;
 }
 function activarObjetivo(id) {
+  // El botón de WhatsApp va dentro de la fila (que es un enlace): abre WhatsApp sin abrir la ficha
+  $app.querySelectorAll('[data-wa]').forEach((b) => b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); window.open(b.dataset.wa, '_blank', 'noopener'); });
   $app.querySelectorAll('[data-obj-pagar]').forEach((b) => b.onclick = () => { const m = document.getElementById('op-' + b.dataset.objPagar); m.hidden = !m.hidden; });
   $app.querySelectorAll('[data-obj-metodo]').forEach((b) => b.onclick = async () => {
     b.disabled = true;

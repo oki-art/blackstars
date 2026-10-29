@@ -555,7 +555,7 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .obj-et{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9A6326}
 .obj-codigo{text-align:center;background:#fff;border:2px dashed var(--morado);border-radius:16px;padding:12px}
 .obj-codigo small{display:block;color:var(--texto2);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-.obj-codigo b{font:700 32px Sora,sans-serif;letter-spacing:.12em;color:#3E3763;word-break:break-all}
+.obj-codigo b{font:700 32px Sora,sans-serif;letter-spacing:.1em;color:#3E3763;white-space:nowrap;display:block;overflow:hidden;text-overflow:ellipsis}
 .obj-chip{font:700 12px Sora,sans-serif;letter-spacing:.08em;background:#F4F0FD;color:var(--morado3);padding:2px 7px;border-radius:8px}
 .obj-prof .cc-movs .lista{padding:10px}
 .obj-pagar{display:flex;flex-wrap:wrap;gap:8px;padding:0 10px 12px}
@@ -586,3 +586,5 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .obj-sub .lista{margin-top:4px}
 .obj-ev,.obj-dentro{grid-template-columns:minmax(0,1fr)}
 .obj-dentro>*{min-width:0}
+.obj-der{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.obj-wa-btn{width:44px;height:44px;border-radius:50%;border:0;background:#1FA855;color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 4px 12px rgba(31,168,85,0.3)}
