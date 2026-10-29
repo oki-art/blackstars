@@ -2391,7 +2391,9 @@ async function pantallaEvento(id) {
   const ed = puedeEditar('eventos'), ventas = {};
   // Todo a la vez (antes iba una cosa detrás de otra y el evento tardaba más de 2 s)
   const [e, ins, profs, coords0, optCoord, htmlVentas, movs, optProfs, optAlus, nombres, ob] = await Promise.all([
-    q(sb.from(S.admin ? 'eventos_con_autor' : 'eventos').select('*').eq('id', id).maybeSingle()),
+    // De la tabla, también la administración: la vista eventos_con_autor se hizo antes de añadir columnas (objetivo, cupón…)
+    // y no las tiene. Quién lo registró sale igual con autorDe (usa los nombres del equipo).
+    q(sb.from('eventos').select('*').eq('id', id).maybeSingle()),
     q(sb.from('inscripciones_evento').select('id,estado,alumnas(id,nombre,apellidos)').eq('evento_id', id)),
     q(sb.from('evento_profesoras').select('profesora_id,profesoras(nombre)').eq('evento_id', id)),
     hayCoordinadoras().then((ok) => ok ? leerCoordinadoras({ id }) : null),
@@ -2439,7 +2441,7 @@ async function pantallaEvento(id) {
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
     ${bloqueObjetivo(e, ob, nomProf)}
     ${htmlCoord}
-    ${htmlVentas}
+    ${e.con_ventas === false ? '' : htmlVentas}
     ${cajaEv}
     <div class="seccion">Profesoras (${profs.length})</div>
     <div class="lista">${profs.map((p) => fila({ href: `#/evento/${id}`, tit: p.profesoras ? p.profesoras.nombre : '—', der: ed ? `<button class="chip no" data-quitar-prof="${p.profesora_id}" style="border:0;cursor:pointer;min-height:32px">Quitar</button>` : '' })).join('') || vacio('Sin profesoras asignadas.')}</div>
@@ -2512,18 +2514,24 @@ function bloqueObjetivo(e, ob, nomProf) {
   const chip = (i) => i.caja_id ? `<span class="chip ok">Pagado · ${eur(euros)}</span>` : i.validada_en ? `<span class="chip ok">En clase · +${eur(euros)}</span>` : '<span class="chip gris">Pendiente</span>';
   const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '') + (i.cupon_caja_id ? ` · cupón usado (−${eur(e.cupon_euros)})` : '')), der: chip(i) });
   const mio = ob.yo && ob.codigos.find((c) => c.profesora_id === ob.yo);
+  // Lo que ve cada profesora: su código, el cupón de la familia, el WhatsApp y lo que lleva (la administración lo ve igual dentro de cada profesora)
+  const tarjetaProfe = (pid, codigo, suya) => {
+    const l = deProf(pid), v = enClase(l), pila = nom(pid).split(' ')[0];
+    const msg = hayCupon(e)
+      ? `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase en ${mesCupon(e)}, di este código en la escuela y tendrá ${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}: ${codigo}`
+      : `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${codigo}`;
+    return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} ${suya ? 'Tu objetivo extra' : 'Lo que ve ' + esc(pila)}</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
+      ${suya ? `<p>Apunta a las niñas interesadas. Cuando una se inscriba en una clase de la escuela, se valida sola y ganas ${eur(euros)}.</p>` : ''}
+      <div class="obj-codigo"><small>${suya ? 'Tu código' : 'Su código'}</small><b>${esc(codigo)}</b></div>
+      ${hayCupon(e) ? `<div class="obj-cupon"><div class="obj-et">${ico('euro', 16)} Regalo para la familia</div><b>${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}</b><span>Si la niña se apunta a clase en ${mesCupon(e)} diciendo ${suya ? 'tu' : 'su'} código.</span></div>` : ''}
+      ${suya ? `<a class="btn verde ancho" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">${ico('wa')} Enviar mi código por WhatsApp</a>`
+        : `<details class="obj-wa"><summary>${ico('wa', 18)} Mensaje de WhatsApp que manda</summary><p>${esc(msg)}</p></details>`}
+      <div class="totales"><div><small>Interesadas</small><b>${l.length}</b></div><div><small>En clase</small><b>${v.length}</b></div><div><small>${suya ? 'Ganado' : 'Ha ganado'}</small><b class="in">${eur(v.length * euros)}</b></div></div></div>`;
+  };
   // La profesora: su código, lo que lleva y sus interesadas
   if (mio && !gest) {
-    const l = deProf(ob.yo), v = enClase(l);
-    const msg = hayCupon(e)
-      ? `¡Hola! Soy ${nom(ob.yo).split(' ')[0]}, profesora de la Academia Blackstars. Si tu peque se apunta a clase en ${mesCupon(e)}, di este código en la escuela y tendrá ${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}: ${mio.codigo}`
-      : `¡Hola! Soy ${nom(ob.yo).split(' ')[0]}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${mio.codigo}`;
-    return `<div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} Tu objetivo extra</div><h3>${eur(euros)} por cada alumna que se apunte a clase</h3>
-      <p>Apunta a las niñas interesadas. Cuando una se inscriba en una clase de la escuela, se valida sola y ganas ${eur(euros)}.</p>
-      <div class="obj-codigo"><small>Tu código</small><b>${esc(mio.codigo)}</b></div>
-      ${hayCupon(e) ? `<div class="obj-cupon"><div class="obj-et">${ico('euro', 16)} Regalo para la familia</div><b>${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}</b><span>Si la niña se apunta a clase en ${mesCupon(e)} diciendo tu código.</span></div>` : ''}
-      <a class="btn verde ancho" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">${ico('wa')} Enviar mi código por WhatsApp</a>
-      <div class="totales"><div><small>Interesadas</small><b>${l.length}</b></div><div><small>En clase</small><b>${v.length}</b></div><div><small>Ganado</small><b class="in">${eur(v.length * euros)}</b></div></div></div>
+    const l = deProf(ob.yo);
+    return `${tarjetaProfe(ob.yo, mio.codigo, true)}
       <a class="btn pri" href="#/interesada/nueva?evento=${id}">${ico('mas')} Apuntar niña interesada</a>
       <div class="seccion">Tus interesadas (${l.length})</div>
       <div class="lista">${l.map((i) => filaInt(i, true)).join('') || vacio('Todavía no has apuntado a nadie.')}</div>
@@ -2537,7 +2545,8 @@ function bloqueObjetivo(e, ob, nomProf) {
     const l = deProf(c.profesora_id), vc = enClase(l), debe = vc.filter((i) => !i.caja_id).length;
     return `<details class="caja-clase obj-prof"><summary class="cc-cab"><span><h3>${esc(nom(c.profesora_id))}</h3><small><span class="obj-chip">${esc(c.codigo)}</span> · ${l.length} interesada${l.length === 1 ? '' : 's'} · ${vc.length} en clase</small></span>
       <span class="cc-tot"><b class="${debe ? 'out' : ''}">${eur(vc.length * euros)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
-      <div class="cc-movs"><div class="lista">${l.map((i) => filaInt(i, gest)).join('') || vacio('Aún no ha apuntado a nadie.')}</div>
+      <div class="cc-movs obj-dentro">${tarjetaProfe(c.profesora_id, c.codigo, false)}
+      <details class="obj-sub"${l.length ? ' open' : ''}><summary>Sus interesadas (${l.length})<span class="cc-flecha">${ico('sig', 18)}</span></summary><div class="lista">${l.map((i) => filaInt(i, gest)).join('') || vacio('Aún no ha apuntado a nadie.')}</div></details>
       ${debe && pagaCaja ? `<div class="obj-pagar"><button class="vt-cobrar" data-obj-pagar="${c.profesora_id}">Pagar ${eur(debe * euros)} a ${esc(nom(c.profesora_id).split(' ')[0])}</button>
         <div class="vt-metodos" id="op-${c.profesora_id}" hidden>${METODOS.map(([k, t]) => `<button data-obj-metodo="${k}" data-prof="${c.profesora_id}">${t}</button>`).join('')}</div></div>` : ''}</div></details>`;
   }).join('');
@@ -2922,6 +2931,7 @@ async function formEvento(id, params) {
   let vender = false, coords = null;
   const venta = !id && params && params.get('venta') === '1';
   const conTabla = await hayCoordinadoras();
+  const conVentas = !!id && !(await sb.from('eventos').select('con_ventas').limit(1)).error;   // ¿está pegada la 030?
   let campoCoord = { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] };
   let opc = null;
   if (conTabla) {
@@ -2948,6 +2958,8 @@ async function formEvento(id, params) {
     campos: [
       { k: 'titulo', label: 'Título', req: true, ph: venta ? 'Camisetas Navidad, Entradas fin de curso…' : 'Halloween, Gala de Navidad…' },
       ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
+      // Con la casilla quitada, el apartado de ventas y reservas no sale en el evento (migración 030)
+      ...(id && conVentas ? [{ k: 'con_ventas', label: 'En este evento se venden cosas (camisetas, entradas…). Si la quitas, nadie ve las ventas y reservas de este evento.', tipo: 'bool' }] : []),
       { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
       { k: 'lugar', label: 'Lugar' }, campoCoord,
       { k: 'descripcion', label: 'Descripción', tipo: 'textarea', formato: true }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },

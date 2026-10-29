@@ -574,3 +574,15 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .form .obj-cupon{margin-bottom:14px}
 #campos-cupon{display:grid;gap:14px}
 #campos-cupon[hidden]{display:none}
+.obj-dentro{display:grid;gap:12px;padding:12px}
+.obj-dentro .obj-ev{box-shadow:none}
+.obj-dentro .obj-pagar{padding:0}
+.obj-wa{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:10px 12px}
+.obj-wa summary{display:flex;gap:8px;align-items:center;font-weight:700;color:#1FA855;cursor:pointer;list-style:none;min-height:28px}
+.obj-wa summary::-webkit-details-marker,.obj-sub summary::-webkit-details-marker{display:none}
+.obj-wa p{margin:8px 0 0;background:#D9FDD3;border-radius:12px;padding:10px 12px;color:#111;font-size:14px;line-height:1.45}
+.obj-sub summary{display:flex;justify-content:space-between;align-items:center;font-weight:700;color:var(--texto2);font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;list-style:none;min-height:44px}
+.obj-sub[open]>summary .cc-flecha{transform:rotate(90deg)}
+.obj-sub .lista{margin-top:4px}
+.obj-ev,.obj-dentro{grid-template-columns:minmax(0,1fr)}
+.obj-dentro>*{min-width:0}
