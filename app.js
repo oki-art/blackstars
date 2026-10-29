@@ -3018,7 +3018,7 @@ async function pantallaEscuela(id) {
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
       ${puedeEditar('caja') && +res.cuota_mensual > 0 ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes)}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
     ${puedeVer('clases') ? `<div class="seccion">Sus clases en nuestra sala</div>
-      <div class="lista">${clases.sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => fila({ href: `#/clase/${c.id}`, ini: iniciales(c.nombre), tit: c.nombre, det: esc(`${textoHorario(c)} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: c.activa ? '' : '<span class="chip gris">Inactiva</span>' })).join('') || vacio('Sin clases registradas.')}</div>
+      <div class="lista">${clases.sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => fila({ href: `#/clase/${c.id}`, ini: iniciales(c.nombre), tit: c.nombre, det: esc(`${textoHorario(c)} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: (c.activa ? '' : '<span class="chip gris">Inactiva</span>') + (S.admin ? `<button class="ins-editar" data-ir="#/clase/${c.id}/borrar" aria-label="Borrar clase">${ico('papelera', 18)}</button>` : '') })).join('') || vacio('Sin clases registradas.')}</div>
       ${puedeEditar('clases') ? `<a class="btn sec" href="#/escuela/${id}/clase/nueva">${ico('mas')} Añadir clase externa</a>` : ''}` : ''}
     <div class="seccion">Coincidencias (${coinc.length})</div>
     <div class="lista">${coinc.map((c) => fila({ href: `#/alumna/${c.alumna_id}`, tit: `${c.nombre} ${c.apellidos || ''}`, det: esc([c.clase_externa, c.notas].filter(Boolean).join(' · ')) })).join('') || vacio('Ninguna alumna nuestra va a esta escuela.')}</div>
@@ -3026,8 +3026,50 @@ async function pantallaEscuela(id) {
     <div class="seccion">Notas</div>
     <div class="lista">${notas.map((n) => `<div class="tarjeta"><div style="font-size:12px;color:var(--texto2)">${fechaCorta(n.fecha)}${S.admin && n.creado_por ? ' · ' + esc(S.nombres[n.creado_por] || '') : ''}</div><div style="margin-top:4px;white-space:pre-wrap">${esc(n.texto)}</div></div>`).join('') || vacio('Sin notas.')}</div>
     ${ed ? `<a class="btn sec" href="#/escuela/${id}/nota">${ico('mas')} Añadir nota</a>` : ''}
+    ${S.admin ? `<a class="btn peligro" href="#/escuela/${id}/borrar">${ico('papelera', 18)} Borrar escuela</a>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
+}
+// Como al borrar una clase: se cuenta lo que tiene la escuela para decir qué se pierde y qué se queda
+async function pantallaBorrarEscuela(id) {
+  if (!S.admin) return sinPermiso();
+  const e = await q(sb.from('escuelas_amigas').select('id,nombre,activa').eq('id', id).single());
+  const contar = (tabla) => intentar(async () => { const { count } = await sb.from(tabla).select('id', { count: 'exact', head: true }).eq('escuela_amiga_id', id); return count || 0; });
+  const [clases, coinc, notas, cobros] = await Promise.all([contar('clases'), contar('alumnas_escuela_amiga'), contar('notas_escuela_amiga'), contar('caja')]);
+  const volver = `#/escuela/${id}`;
+  const linea = (n, uno, varios, que) => n ? `<li><b>${n} ${n === 1 ? uno : varios}</b> · ${que}</li>` : '';
+  const lista = [
+    linea(clases, 'clase en nuestra sala', 'clases en nuestra sala', clases === 1 ? 'se borra también' : 'se borran también'),
+    linea(coinc, 'coincidencia', 'coincidencias', `${coinc === 1 ? 'se borra' : 'se borran'} (las fichas de nuestras alumnas no se tocan)`),
+    linea(notas, 'nota', 'notas', notas === 1 ? 'se borra' : 'se borran'),
+    linea(cobros, 'cobro en caja', 'cobros en caja', 'el dinero se queda en Caja, pero sin el nombre de la escuela')
+  ].join('');
+  const conHistoria = clases + coinc + notas + cobros > 0;
+  pintar(cabecera('Borrar escuela', { volver, sub: esc(e.nombre) }) + `<main class="cont">
+    <div class="tarjeta borrar-clase">
+      ${conHistoria ? `<p><b>Esta escuela tiene datos guardados:</b></p><ul>${lista}</ul>` : '<p><b>Esta escuela no tiene clases, notas ni cobros.</b> Se puede borrar sin perder nada.</p>'}
+      <p class="nota">Borrar no se puede deshacer.${conHistoria && e.activa ? ' Si solo ha dejado de venir, mejor déjala inactiva: se guarda todo lo anterior.' : ''}</p>
+    </div>
+    ${conHistoria && e.activa ? '<button class="btn pri" id="inactiva">Dejarla inactiva</button>' : ''}
+    <button class="btn peligro" id="borrar">${ico('papelera', 18)} Borrar para siempre</button>
+    <a class="btn sec" href="${volver}">Cancelar</a>
+  </main>`, 'mas');
+  const bi = document.getElementById('inactiva');
+  if (bi) bi.onclick = async () => {
+    bi.disabled = true;
+    try { await q(sb.from('escuelas_amigas').update({ activa: false }).eq('id', id)); aviso('Escuela inactiva'); location.hash = volver; } catch (er) { aviso(traducirError(er), true); bi.disabled = false; }
+  };
+  const b = document.getElementById('borrar');
+  b.onclick = async () => {
+    if (!confirm(`¿Seguro? "${e.nombre}" se borrará para siempre.`)) return;
+    b.disabled = true;
+    try {
+      // Sus clases no dejan borrar la escuela: primero se borran ellas
+      await q(sb.from('clases').delete().eq('escuela_amiga_id', id));
+      await q(sb.from('escuelas_amigas').delete().eq('id', id));
+      aviso('Escuela borrada'); location.hash = '#/escuelas';
+    } catch (er) { aviso(traducirError(er), true); b.disabled = false; }
+  };
 }
 const formEscuela = (id) => pantallaForm({
   titulo: id ? 'Editar escuela' : 'Nueva escuela amiga', tabla: 'escuelas_amigas', modulo: 'escuelas_amigas', id, volver: id ? `#/escuela/${id}` : '#/escuelas', despues: (r) => `#/escuela/${r.id}`,
@@ -3621,6 +3663,7 @@ async function router() {
       case 'escuela':
         if (p[1] === 'nueva') return await formEscuela(null);
         if (p[2] === 'editar') return await formEscuela(p[1]);
+        if (p[2] === 'borrar') return await pantallaBorrarEscuela(p[1]);
         if (p[2] === 'clase') return await formClaseExterna(p[1], p[3] === 'nueva' ? null : p[3]);
         if (p[2] === 'nota') return await formNotaEscuela(p[1]);
         return await pantallaEscuela(p[1]);
