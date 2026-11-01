@@ -49,7 +49,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -586,14 +586,14 @@ async function salirVerComo() {
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
 // Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable, o recepción con la caja abierta) o Equipo
 const papel = (per) => esProfesora(per) ? 'Profesora'
-  : MODULOS.filter(([m]) => m !== 'documentos').every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
+  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
   : per.caja && per.caja.puede_escribir ? 'Gestión' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
   caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
-  // Documentos y Pilates no van en ninguna plantilla: solo los da la administración a mano
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => m !== 'documentos' && m !== 'pilates').map(([m]) => [m, 2])) }
+  // Documentos, Pilates y Contabilidad no van en ninguna plantilla: solo los da la administración a mano
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad'].includes(m)).map(([m]) => [m, 2])) }
 };
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
@@ -1376,7 +1376,7 @@ async function leerCaja(filtrar) {
 // Apartados de la caja: de dónde viene cada ingreso y en qué se va cada gasto
 const APARTADOS = {
   ingreso: [['mensualidad', 'Mensualidad'], ['evento', 'Evento'], ['ventas', 'Ventas sueltas (antiguas)'], ['escuela_amiga', 'Escuela amiga'], ['otro', 'Otro ingreso']],
-  gasto: [['limpieza', 'Limpieza'], ['papeleria', 'Papelería'], ['decoracion', 'Decoración'], ['material', 'Material y vestuario'], ['local', 'Local (alquiler, luz, agua)'], ['evento', 'Evento'], ['cambio', 'Cambio (se devuelve)'], ['otro', 'Otro gasto']]
+  gasto: [['limpieza', 'Limpieza'], ['papeleria', 'Papelería'], ['decoracion', 'Decoración'], ['material', 'Material y vestuario'], ['local', 'Local (alquiler, luz, agua)'], ['evento', 'Evento'], ['cambio', 'Cambio (se devuelve)'], ['equipo', 'Pago al equipo'], ['otro', 'Otro gasto']]
 };
 // Los movimientos antiguos no tienen apartado: se deduce (con clase = mensualidad; con escuela = escuela amiga)
 const apartadoDe = (x) => x.apartado || (x.escuela_amiga_id ? 'escuela_amiga' : x.tipo === 'ingreso' && x.clase_id ? 'mensualidad' : 'otro');
@@ -1542,9 +1542,9 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
   if (t === 'gasto' && s === 'cambio') return `<div class="lista">${cajaCambio(cambios, puedeEditar('caja'))}</div>`;
   if (t === 'gasto') return `<div class="lista">${totalCaja('gasto', 'Total gastos', `${gas.length} gasto${gas.length === 1 ? '' : 's'}`, lineaBolsas(gas, 1), o)}${gas.length ? cajaPorClase(gas, { conFecha, volver }) : vacio('Sin gastos este mes.')}</div>`;
   // Balance: todo junto
-  const [gi, go] = sumaCaja(gen), [pi, po] = sumaCaja(pil), neto = (v) => (v < 0 ? '−' : '+') + eur(Math.abs(v));
+  const cont = gen.filter(esContab), [, co] = sumaCaja(cont), [gi, go] = sumaCaja(gen), [pi, po] = sumaCaja(pil), neto = (v) => (v < 0 ? '−' : '+') + eur(Math.abs(v));
   return `<div class="lista">${totalCaja('balance', 'Balance del mes', c === 'todo' ? `General ${eur(gi - go)} · Pilates ${eur(pi - po)}` : `Ingresos ${eur(i)} · Gastos ${eur(o)}`, fuera ? `Cambio fuera: ${eur(fuera)} (no cuenta)` : '', i - o)}${bolsasCaja(movs)}
-    <div class="tarjeta reservas">${filaResumen('Mensualidades', lineaBolsas(men), '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', lineaBolsas(evs), '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', ['Escuela amiga y otros', lineaBolsas(ext)].filter(Boolean).join(' · '), '+' + eur(suma(ext)), ir('ingreso', 'total'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${filaResumen('Gastos', [c === 'todo' ? 'Caja general' : '', lineaBolsas(gen.filter((x) => x.tipo === 'gasto'), 1)].filter(Boolean).join(' · ') || 'Limpieza, papelería, decoración…', '−' + eur(go), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', lineaBolsas(men), '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', lineaBolsas(evs), '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', ['Escuela amiga y otros', lineaBolsas(ext)].filter(Boolean).join(' · '), '+' + eur(suma(ext)), ir('ingreso', 'total'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${cont.length || veContab() ? filaResumen(`Contabilidad${candadoCaja}`, ['Pagos al equipo y compras', lineaBolsas(cont, 1)].filter(Boolean).join(' · '), '−' + eur(co), `#/contabilidad?mes=${(base.match(/mes=([\d-]+)/) || [0, hoyISO().slice(0, 7)])[1]}`, 'out') : ''}${filaResumen('Gastos', [c === 'todo' ? 'Caja general' : '', lineaBolsas(gen.filter((x) => x.tipo === 'gasto' && !esContab(x)), 1)].filter(Boolean).join(' · ') || 'Limpieza, papelería, decoración…', '−' + eur(go - co), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
 }
 // Caja de Pilates: lo cobrado en sus clases y sus gastos, sin nada de la caja general
 function cajaMesPilates(movs, t, ins, { conFecha = true, volver, base }) {
@@ -1607,6 +1607,7 @@ async function pantallaCaja(params) {
     ${totalesCaja(tIn, tOut, `${base}&`, t, pilates ? 'Cobrado' : 'Ingresos')}
     <div class="tarjeta"><div class="calendario plegado" id="cal">${cal}</div>
       <button class="cal-mas" id="cal-mas" type="button" aria-expanded="false"><span>Ver el mes entero</span>${ico('abajo', 18)}</button></div>
+    ${!pilates && veContab() ? `<a class="contab-enlace" href="#/contabilidad?mes=${mes}"><span>${ico('candado', 18)}</span><span class="txt"><b>Contabilidad mensual</b><small>Pagos al equipo y compras</small></span>${ico('sig', 18)}</a>` : ''}
     <div class="seccion">Movimientos del mes</div>
     ${pilates ? cajaMesPilates(movs, t, ins, { volver, base })
     : `${filtrosCaja(base, t, sc)}${cajaMes(movs, t, sc, ins, { volver, pendientes, cambios, base, c })}`}
@@ -1706,6 +1707,203 @@ async function pantallaHoras(params) {
     ${ed ? `<a class="btn sec" href="#/caja/festivo?mes=${mes}">${ico('mas')} Marcar un día sin clase</a>` : ''}
   </main>`, 'clases');
 }
+/* ---------- Caja › Contabilidad mensual (migración 031) ----------
+   Solo la administración y quien tenga el permiso Contabilidad (p. ej. Adela). María no la ve.
+   · Profesoras: precio por hora del mes × horas del mes (las calcula calcularHoras, como en Horas del mes).
+   · Cuota fija (María): la cuota del mes; cada día que falta resta cuota ÷ (días a la semana × 4). Va por mes.
+   · Plus o extra para cualquiera. Pagar = gasto en Caja marcado como contabilidad (efectivo o banco). */
+const veContab = () => S.admin || puedeVer('contabilidad');
+const editaContab = () => S.admin || puedeEditar('contabilidad');
+const TARIFAS = [8, 10, 12.5, 15];
+const esContab = (x) => !!x.contabilidad;
+const mesContab = (params) => { const m = params.get('mes'); return /^\d{4}-\d{2}$/.test(m || '') ? m : hoyISO().slice(0, 7); };
+const sumaPlus = (r) => (r.pluses || []).reduce((t, p) => t + (+p.importe || 0), 0);
+const diasRef = (r) => (+r.dias_semana || 4) * 4;   // días de un mes "normal" (4 semanas), para restar las faltas
+const descuentoFija = (r) => Math.round((+r.cuota || 0) * (+r.dias_falta || 0) / diasRef(r) * 100) / 100;
+const totalPago = (r) => Math.round(((r.tipo === 'fija' ? (+r.cuota || 0) - descuentoFija(r) : (+r.tarifa || 0) * (+r.horas || 0)) + sumaPlus(r)) * 100) / 100;
+const faltaContab = (e) => /pagos_equipo|contabilidad/i.test((e && (e.message || e.details || e.hint || e.code)) || '') || (e && (e.code === '42P01' || e.code === 'PGRST205'));
+// Personas del mes: las de Horas del mes (por horas), las guardadas este mes y las de cuota fija de meses anteriores
+async function datosContab(mes) {
+  const [y, m] = mes.split('-').map(Number), ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
+  const [filas, antes, horas, gastos] = await Promise.all([
+    q(sb.from('pagos_equipo').select('*').eq('mes', mes)),
+    q(sb.from('pagos_equipo').select('*').lt('mes', mes).order('mes', { ascending: false }).limit(300)),
+    intentar(async () => calcularHoras(mes, await datosHoras(mes))),
+    q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select(SEL_CAJA).eq('contabilidad', true).gte('fecha', ini).lt('fecha', fin).order('fecha'))
+  ]);
+  const previa = {}; antes.forEach((r) => { if (!previa[r.persona]) previa[r.persona] = r; });
+  const actual = Object.fromEntries(filas.map((r) => [r.persona, r]));
+  const P = new Map();
+  const base = (k, nombre, tipo) => {
+    const g = actual[k], pv = previa[k];
+    if (g) return { ...g, guardada: true };
+    const t = pv ? pv.tipo : tipo;
+    return { mes, persona: k, nombre: pv ? pv.nombre : nombre, tipo: t, tarifa: pv ? pv.tarifa : null, cuota: pv ? pv.cuota : null,
+      horas_semana: pv ? pv.horas_semana : null, dias_semana: pv ? pv.dias_semana : null, dias_falta: 0, pluses: [], guardada: false };
+  };
+  ((horas && horas.lista) || []).filter((x) => x.k !== 'sin').forEach((x) => { const r = base(x.k, x.nombre, 'horas'); r.horasMes = x.min / 60; P.set(x.k, r); });
+  filas.forEach((r) => { if (!P.has(r.persona)) P.set(r.persona, base(r.persona, r.nombre, r.tipo)); });
+  Object.values(previa).filter((r) => r.tipo === 'fija').forEach((r) => { if (!P.has(r.persona)) P.set(r.persona, base(r.persona, r.nombre, 'fija')); });
+  // Horas: las del mes (si aún no está pagado) o las que se guardaron al pagar
+  P.forEach((r) => { if (r.tipo === 'horas') r.horas = r.caja_id ? +r.horas || 0 : r.horasMes != null ? Math.round(r.horasMes * 100) / 100 : +r.horas || 0; r.total = totalPago(r); });
+  const lista = [...P.values()].sort((a, b) => (a.tipo === 'fija') - (b.tipo === 'fija') || a.nombre.localeCompare(b.nombre, 'es'));
+  // Lo pagado se busca por su gasto, aunque se pagara en otro mes
+  const ids = filas.map((r) => r.caja_id).filter(Boolean);
+  const pagados = ids.length ? await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').in('id', ids)) : [];
+  const pagos = Object.fromEntries(pagados.map((x) => [x.id, x]));
+  return { lista, compras: gastos.filter((x) => x.apartado !== 'equipo'), pagos, horas };
+}
+const detallePago = (r) => r.tipo === 'fija'
+  ? [`Cuota ${eur(r.cuota)}`, r.dias_falta ? `− ${r.dias_falta} día${r.dias_falta === 1 ? '' : 's'}` : '', sumaPlus(r) ? `+ plus ${eur(sumaPlus(r))}` : ''].filter(Boolean).join(' ')
+  : [r.tarifa ? `${horasTxt((+r.horas || 0) * 60)} × ${eur(r.tarifa)}/h` : `${horasTxt((+r.horas || 0) * 60)} · falta el precio`, sumaPlus(r) ? `+ plus ${eur(sumaPlus(r))}` : ''].filter(Boolean).join(' ');
+async function pantallaContab(params) {
+  if (!veContab()) return sinPermiso();
+  const mes = mesContab(params), [y, m] = mes.split('-').map(Number), ed = editaContab();
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
+  const cab = cabecera('Contabilidad mensual', { volver: `#/caja?mes=${mes}`, sub: 'Pagos al equipo y compras' });
+  let d;
+  try { d = await datosContab(mes); } catch (e) {
+    if (!faltaContab(e)) throw e;
+    return pintar(cab + `<main class="cont">${vacio('Falta un paso en Supabase (031) para activar la contabilidad. Avisa a la administración.')}</main>`, 'caja');
+  }
+  const volver = `#/contabilidad?mes=${mes}`;
+  const pagado = (r) => r.caja_id && d.pagos[r.caja_id];
+  const tEq = d.lista.reduce((t, r) => t + r.total, 0), tCo = d.compras.reduce((t, x) => t + +x.importe, 0);
+  const tPag = d.lista.filter(pagado).reduce((t, r) => t + +d.pagos[r.caja_id].importe, 0) + tCo, tFal = d.lista.filter((r) => !pagado(r)).reduce((t, r) => t + r.total, 0);
+  const fila = (r) => {
+    const p = pagado(r);
+    return `<a class="mov" href="#/contabilidad/persona?mes=${mes}&k=${encodeURIComponent(r.persona)}"><span class="txt"><span class="tit">${esc(r.nombre)}</span><span class="det">${esc(detallePago(r))}</span></span>
+      ${p ? `<span class="chip-pago ${esBanco(p) ? 'banco' : 'efectivo'}">Pagado</span>` : '<span class="chip gris">Falta</span>'}<b>${eur(p ? p.importe : r.total)}</b>${ico('sig', 16)}</a>`;
+  };
+  pintar(cab + `<main class="cont">
+    <div class="contab-candado">${ico('candado', 14)} Solo lo ve la administración${S.admin ? ' y quien tenga el permiso Contabilidad' : ''}</div>
+    <div class="mes"><button data-ir="#/contabilidad?mes=${prev}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/contabilidad?mes=${next}" aria-label="Mes siguiente">${ico('sig')}</button></div>
+    <div class="lista">${totalCaja('', `Total a pagar en ${nombreMes(mes + '-01').split(' ')[0].toLowerCase()}`, `Equipo ${eur(tEq)} · Compras ${eur(tCo)}`, '', tEq + tCo)}
+    <div class="bolsas"><div class="bolsa pagado"><span class="bolsa-t">Pagado</span><b class="bolsa-eur">${eur(tPag)}</b></div><div class="bolsa falta"><span class="bolsa-t">Falta por pagar</span><b class="bolsa-eur">${eur(tFal)}</b></div></div>
+    <div class="seccion">Equipo</div>
+    ${d.lista.length ? `<div class="tarjeta reservas">${d.lista.map(fila).join('')}</div>` : vacio('Este mes no hay horas de clase. Añade a alguien con el botón de abajo.')}
+    ${!d.horas ? '<div class="ayuda">No se han podido leer las horas del mes.</div>' : ''}
+    ${ed ? `<a class="btn sec" href="#/contabilidad/persona?mes=${mes}&nueva=1">${ico('mas')} Añadir persona</a>` : ''}
+    <div class="seccion">Compras y otros gastos</div>
+    ${d.compras.length ? `<div class="tarjeta reservas">${d.compras.map((x) => movCaja(x, { conFecha: true, volver })).join('')}</div>` : vacio('Sin compras este mes.')}
+    ${ed ? `<a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=material&contab=1&fecha=${mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01'}&volver=${encodeURIComponent(volver)}">${ico('mas')} Añadir compra</a>` : ''}
+    </div></main>`, 'caja');
+}
+async function formPagoEquipo(params) {
+  if (!veContab()) return sinPermiso();
+  const mes = mesContab(params), volver = `#/contabilidad?mes=${mes}`, ed = editaContab(), nueva = params.get('nueva') === '1';
+  let r;
+  if (nueva) {
+    if (!ed) return sinPermiso();
+    r = { mes, persona: '', nombre: '', tipo: 'fija', tarifa: null, cuota: 200, horas_semana: 8, dias_semana: 4, dias_falta: 0, pluses: [], horas: 0 };
+  } else {
+    const d = await datosContab(mes);
+    r = d.lista.find((x) => x.persona === params.get('k'));
+    if (!r) { aviso('No encuentro a esa persona en este mes', true); location.hash = volver; return; }
+    r.pago = r.caja_id ? d.pagos[r.caja_id] : null;
+  }
+  r.pluses = (r.pluses || []).map((p) => ({ concepto: p.concepto || '', importe: +p.importe || 0 }));
+  const manual = nueva || r.persona.startsWith('n:');   // sin horas automáticas: se escriben a mano
+  const bloqueado = !ed || !!r.pago;
+  const dis = bloqueado ? 'disabled' : '';
+  const pintarForm = () => {
+    r.total = totalPago(r);
+    const horasAuto = r.tipo === 'horas' && !manual;
+    pintar(cabecera(nueva ? 'Añadir persona' : r.nombre, { volver, sub: `Contabilidad · ${nombreMes(mes + '-01')}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
+      ${nueva ? `<div class="campo"><label for="c_nombre">Nombre *</label><input id="c_nombre" value="${esc(r.nombre)}" placeholder="María, monitor de verano…" required></div>` : ''}
+      ${nueva || (manual && !r.pago) ? `<div class="campo"><label>¿Cómo cobra?</label><div class="filtros tipos-ini">${[['fija', 'Cuota fija al mes'], ['horas', 'Por horas']].map(([k, t]) => `<button type="button" data-tipo="${k}" class="${r.tipo === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>` : ''}
+      ${r.tipo === 'horas' ? `<div class="campo"><label>Precio por hora este mes</label><div class="tarifas">${TARIFAS.map((t) => `<button type="button" data-tarifa="${t}" class="${+r.tarifa === t ? 'on' : ''}" ${dis}>${eur(t)}<small>/hora</small></button>`).join('')}</div></div>
+        ${horasAuto ? `<div class="contab-auto">${ico('clases', 14)} ${horasTxt((+r.horas || 0) * 60)} este mes, sacadas de <a href="#/horas?mes=${mes}">Horas del mes</a></div>`
+          : `<div class="campo"><label for="c_horas">Horas de este mes</label><input id="c_horas" type="number" step="0.25" min="0" inputmode="decimal" value="${esc(r.horas || '')}" ${dis}></div>`}
+        <div class="contab-cuenta"><span>${horasTxt((+r.horas || 0) * 60)} × ${r.tarifa ? eur(r.tarifa) : '—'}</span><b>${eur((+r.tarifa || 0) * (+r.horas || 0))}</b></div>`
+      : `<div class="campo"><label for="c_cuota">Cuota fija del mes (€)</label><input id="c_cuota" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(r.cuota ?? '')}" ${dis}></div>
+        <div class="contab-dos"><div class="campo"><label for="c_hs">Horas a la semana</label><input id="c_hs" type="number" step="0.5" min="0" inputmode="decimal" value="${esc(r.horas_semana ?? '')}" ${dis}></div>
+          <div class="campo"><label for="c_ds">Días a la semana</label><input id="c_ds" type="number" step="1" min="1" max="7" inputmode="numeric" value="${esc(r.dias_semana ?? 4)}" ${dis}></div></div>
+        <div class="contab-auto">La cuota es la misma tenga el mes 4 o 5 semanas. Cada día que falta resta ${eur((+r.cuota || 0) / diasRef(r))} (${eur(r.cuota)} ÷ ${diasRef(r)} días).</div>
+        <div class="campo"><label>Días que no ha venido</label><div class="contab-dias"><button type="button" data-dias="-1" ${dis} aria-label="Uno menos">−</button><b>${r.dias_falta || 0}</b><button type="button" data-dias="1" ${dis} aria-label="Uno más">+</button></div></div>
+        ${r.dias_falta ? `<div class="contab-cuenta"><span>${r.dias_falta} día${r.dias_falta === 1 ? '' : 's'} × ${eur((+r.cuota || 0) / diasRef(r))}</span><b class="out">−${eur(descuentoFija(r))}</b></div>` : ''}`}
+      <div class="campo"><label>Plus o extra</label>
+        ${r.pluses.map((p, i) => `<div class="contab-plus"><input data-pc="${i}" value="${esc(p.concepto)}" placeholder="Horas extra, ensayo…" ${dis} aria-label="Concepto del plus"><input data-pi="${i}" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(p.importe || '')}" placeholder="€" ${dis} aria-label="Importe del plus">${bloqueado ? '' : `<button type="button" data-quitar="${i}" aria-label="Quitar plus">${ico('papelera', 16)}</button>`}</div>`).join('')}
+        ${bloqueado ? (r.pluses.length ? '' : '<div class="ayuda">Sin plus.</div>') : `<button type="button" class="btn sec" id="mas-plus">${ico('mas')} Añadir plus</button>`}</div>
+      <div class="contab-cuenta grande"><span>Total a pagar</span><b>${eur(r.total)}</b></div>
+      ${r.pago ? `<div class="contab-pagado ${esBanco(r.pago) ? 'banco' : 'efectivo'}">${ico('check', 16)} Pagado el ${esc(fechaCorta(r.pago.fecha))} · ${esBanco(r.pago) ? 'Banco' : 'Efectivo'} · ${eur(r.pago.importe)}</div>
+          ${ed ? '<button type="button" class="btn sec ancho" id="deshacer">Deshacer el pago</button><div class="ayuda">Para cambiar algo, deshaz antes el pago: se quita el gasto de la Caja.</div>' : ''}`
+        : ed ? `<button type="submit" class="btn pri ancho">Guardar</button>
+          <div class="contab-pagar"><button type="button" data-pagar="efectivo" class="efectivo">💶 Pagar en efectivo</button><button type="button" data-pagar="transferencia" class="banco">🏦 Pagar por banco</button></div>
+          <div class="ayuda">Al pagar, queda apuntado como gasto en la Caja (solo lo ve quien ve la contabilidad).</div>` : ''}
+      ${!nueva && r.guardada && ed && !r.pago ? `<button type="button" class="btn peligro ancho" id="quitar">${ico('papelera', 18)} Quitar de este mes</button>` : ''}
+    </form></main>`, 'caja');
+    enlazar();
+  };
+  // Lo escrito se guarda en r antes de volver a pintar
+  const leer = () => {
+    const v = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; }, n = (x) => (x === undefined || x === '' ? null : Number(String(x).replace(',', '.')));
+    if (v('c_nombre') !== undefined) r.nombre = v('c_nombre').trim();
+    if (v('c_horas') !== undefined) r.horas = n(v('c_horas')) || 0;
+    if (v('c_cuota') !== undefined) r.cuota = n(v('c_cuota'));
+    if (v('c_hs') !== undefined) r.horas_semana = n(v('c_hs'));
+    if (v('c_ds') !== undefined) r.dias_semana = Math.min(7, Math.max(1, n(v('c_ds')) || 4));
+    $app.querySelectorAll('[data-pc]').forEach((el) => { r.pluses[+el.dataset.pc].concepto = el.value.trim(); });
+    $app.querySelectorAll('[data-pi]').forEach((el) => { r.pluses[+el.dataset.pi].importe = n(el.value) || 0; });
+  };
+  const fila = () => {
+    const pl = r.pluses.filter((p) => p.importe > 0).map((p) => ({ concepto: p.concepto || 'Plus', importe: p.importe }));
+    return { mes, persona: r.persona, nombre: r.nombre, tipo: r.tipo, tarifa: r.tipo === 'horas' ? r.tarifa : null, horas: r.tipo === 'horas' ? r.horas : null,
+      cuota: r.tipo === 'fija' ? r.cuota : null, horas_semana: r.tipo === 'fija' ? r.horas_semana : null, dias_semana: r.tipo === 'fija' ? r.dias_semana : null,
+      dias_falta: r.tipo === 'fija' ? r.dias_falta || 0 : 0, pluses: pl, total: totalPago({ ...r, pluses: pl }) };
+  };
+  const guardar = async () => {
+    leer();
+    if (nueva) { if (!r.nombre) throw new Error('Escribe el nombre'); r.persona = 'n:' + r.nombre.toLowerCase().replace(/\s+/g, ' ').slice(0, 120); }
+    if (r.tipo === 'horas' && !r.tarifa) throw new Error('Elige el precio por hora');
+    if (r.tipo === 'fija' && !(r.cuota > 0)) throw new Error('Escribe la cuota del mes');
+    const datos = fila();
+    const g = await q(sb.from('pagos_equipo').upsert(datos, { onConflict: 'mes,persona' }).select('*').single());
+    Object.assign(r, g, { guardada: true }); return g;
+  };
+  const enlazar = () => {
+    const form = document.getElementById('frm');
+    const ocupado = (b) => { if (b.disabled) return true; b.disabled = true; return false; };
+    $app.querySelectorAll('[data-tipo]').forEach((b) => b.onclick = () => { leer(); r.tipo = b.dataset.tipo; if (r.tipo === 'fija') { r.cuota = r.cuota ?? 200; r.horas_semana = r.horas_semana ?? 8; r.dias_semana = r.dias_semana ?? 4; } pintarForm(); });
+    $app.querySelectorAll('[data-tarifa]').forEach((b) => b.onclick = () => { leer(); r.tarifa = +b.dataset.tarifa; pintarForm(); });
+    $app.querySelectorAll('[data-dias]').forEach((b) => b.onclick = () => { leer(); r.dias_falta = Math.min(31, Math.max(0, (r.dias_falta || 0) + +b.dataset.dias)); pintarForm(); });
+    $app.querySelectorAll('[data-quitar]').forEach((b) => b.onclick = () => { leer(); r.pluses.splice(+b.dataset.quitar, 1); pintarForm(); });
+    ['c_horas', 'c_cuota', 'c_hs', 'c_ds'].forEach((id) => { const el = document.getElementById(id); if (el) el.onchange = () => { leer(); pintarForm(); }; });
+    $app.querySelectorAll('[data-pi]').forEach((el) => { el.onchange = () => { leer(); pintarForm(); }; });
+    const mp = document.getElementById('mas-plus'); if (mp) mp.onclick = () => { leer(); r.pluses.push({ concepto: '', importe: 0 }); pintarForm(); const ult = $app.querySelectorAll('[data-pc]'); if (ult.length) ult[ult.length - 1].focus(); };
+    form.onsubmit = async (ev) => {
+      ev.preventDefault(); const b = form.querySelector('[type=submit]'); if (ocupado(b)) return;
+      try { await guardar(); aviso('Guardado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+    };
+    $app.querySelectorAll('[data-pagar]').forEach((b) => b.onclick = async () => {
+      if (ocupado(b)) return;
+      try {
+        const g = await guardar();
+        if (!(g.total > 0)) throw new Error('El total tiene que ser mayor que 0');
+        const hoy = hoyISO();
+        const mov = await q(sb.from('caja').insert({ fecha: hoy, tipo: 'gasto', apartado: 'equipo', contabilidad: true, metodo: b.dataset.pagar,
+          concepto: `Pago ${nombreMes(mes + '-01').toLowerCase()} · ${g.nombre}`, importe: g.total }).select('id').single());
+        try { await q(sb.from('pagos_equipo').update({ caja_id: mov.id }).eq('id', g.id)); }
+        catch (e) { await q(sb.from('caja').delete().eq('id', mov.id)).catch(() => {}); throw e; }
+        aviso(`Pagado: ${eur(g.total)} ${b.dataset.pagar === 'efectivo' ? 'en efectivo' : 'por banco'}`); location.hash = volver;
+      } catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+    });
+    const dh = document.getElementById('deshacer');
+    if (dh) dh.onclick = async () => {
+      if (!confirm(`¿Deshacer el pago de ${r.nombre}? Se quita el gasto de ${eur(r.pago.importe)} de la Caja.`)) return;
+      if (ocupado(dh)) return;
+      try { await q(sb.from('pagos_equipo').update({ caja_id: null }).eq('id', r.id)); await q(sb.from('caja').delete().eq('id', r.pago.id)); aviso('Pago deshecho'); router(); }
+      catch (e) { aviso(traducirError(e), true); dh.disabled = false; }
+    };
+    const qt = document.getElementById('quitar');
+    if (qt) qt.onclick = async () => {
+      if (!confirm(`¿Quitar a ${r.nombre} de este mes? Si cobra por horas y tiene clases, volverá a salir sola.`)) return;
+      if (ocupado(qt)) return;
+      try { await q(sb.from('pagos_equipo').delete().eq('id', r.id)); aviso('Quitado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); qt.disabled = false; }
+    };
+  };
+  pintarForm();
+}
 async function formCambio(params) {
   if (!puedeEditar('caja')) return sinPermiso();
   const id = params.get('id'), mes = params.get('mes') || hoyISO().slice(0, 7), volver = `#/horas?mes=${mes}`;
@@ -1801,8 +1999,10 @@ async function formCaja(params, id = null) {
   if (!puedeEditar('caja') && !escribeCajaPilates()) return sinPermiso();
   const reg = id ? await q(sb.from('caja').select('*').eq('id', id).single()) : null;
   // ¿En qué caja va? Quien puede apuntar en las dos lo elige; María, siempre en la general; la profesora de Pilates, en la de Pilates
-  const soloPil = !puedeEditar('caja'), ambas = !soloPil && escribeCajaPilates();
-  let caja = soloPil ? 'pilates' : !ambas ? 'general' : reg ? (reg.pilates === true || (reg.pilates === undefined && reg.clase_id && esPrivada(reg.clase_id)) ? 'pilates' : 'general') : params.get('caja') === 'pilates' ? 'pilates' : 'general';
+  // Compra de la contabilidad (031): solo la ve quien ve la contabilidad
+  const contab = reg ? !!reg.contabilidad : params.get('contab') === '1' && editaContab();
+  const soloPil = !puedeEditar('caja'), ambas = !soloPil && !contab && escribeCajaPilates();
+  let caja = contab ? 'general' : soloPil ? 'pilates' : !ambas ? 'general' : reg ? (reg.pilates === true || (reg.pilates === undefined && reg.clase_id && esPrivada(reg.clase_id)) ? 'pilates' : 'general') : params.get('caja') === 'pilates' ? 'pilates' : 'general';
   const ini = reg || { fecha: params.get('fecha') || hoyISO(), tipo: params.get('tipo') || 'ingreso', importe: params.get('importe'), concepto: params.get('concepto'),
     escuela_amiga_id: params.get('escuela'), evento_id: params.get('evento'), apartado: params.get('apartado') || (params.get('escuela') ? 'escuela_amiga' : null) };
   if (soloPil && !reg) ini.tipo = 'gasto';   // la profesora de Pilates cobra con "Ha pagado" en la clase; aquí apunta gastos
@@ -1827,7 +2027,7 @@ async function formCaja(params, id = null) {
   const desdeEvento = params.get('evento');
   // Al volver o guardar se regresa a la pantalla desde la que se abrió (la Caja del mes, el día, el evento…)
   const origen = params.get('volver'), volver = origen && origen.startsWith('#/') ? origen : desdeEvento ? `#/evento/${desdeEvento}` : `#/caja/dia/${ini.fecha}`;
-  pintar(cabecera(id ? 'Editar movimiento' : soloPil ? 'Gasto de Pilates' : 'Nuevo movimiento', { volver, sub: soloPil ? 'Caja de Pilates' : '' }) + `<main class="cont"><form class="form tarjeta" id="frm">
+  pintar(cabecera(id ? 'Editar movimiento' : soloPil ? 'Gasto de Pilates' : contab ? 'Nueva compra' : 'Nuevo movimiento', { volver, sub: soloPil ? 'Caja de Pilates' : contab ? 'Contabilidad mensual' : '' }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="tipo"${soloPil ? ' hidden' : ''}><button type="button" data-t="ingreso" class="in">Ingreso</button><button type="button" data-t="gasto" class="out">Gasto</button></div>
     ${ambas ? `<div class="campo"><label>¿De qué caja?</label><div class="filtros tipos-ini" id="cajas"><button type="button" data-caja="general">General</button><button type="button" data-caja="pilates">Pilates ${ico('candado', 14)}</button></div></div>` : ''}
     <div class="campo"><label>¿De qué es?</label><div class="filtros tipos-ini" id="apartados"></div></div>
@@ -1855,6 +2055,7 @@ async function formCaja(params, id = null) {
     // En la caja de Pilates no hay eventos, escuela amiga ni cambio
     const dePilates = { ingreso: ['mensualidad', 'otro'], gasto: ['limpieza', 'papeleria', 'decoracion', 'material', 'local', 'otro'] };
     const opciones = APARTADOS[tipo].filter(([k]) => (k !== 'ventas' || (reg && apartadoDe(reg) === 'ventas'))
+      && (k !== 'equipo' || (reg && apartadoDe(reg) === 'equipo'))
       && (caja !== 'pilates' || dePilates[tipo].includes(k) || (reg && apartadoDe(reg) === k)));
     if (!opciones.some(([k]) => k === apartado)) apartado = opciones[0][0];
     document.getElementById('apartados').innerHTML = opciones.map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
@@ -1888,6 +2089,7 @@ async function formCaja(params, id = null) {
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
     // Sin la 026 no existe la columna: solo se manda cuando hace falta
     if (caja === 'pilates' || (reg && 'pilates' in reg)) datos.pilates = caja === 'pilates';
+    if (contab) datos.contabilidad = true;
     if (!datos.concepto) datos.concepto = apartado === 'evento' ? 'Evento · ' + ((eventos.find(([v]) => v === datos.evento_id) || [0, ''])[1].split(' · ')[0]) : nombreApartado(tipo, apartado);
     if (conCupon) datos.concepto += ` (cupón ${cupon.codigo || ''} −${eur(cupon.euros)})`;
     // Se bloquea Guardar mientras guarda: un doble toque apuntaba el mismo cobro dos veces
@@ -3654,6 +3856,7 @@ async function router() {
       case 'inscripciones': return await pantallaInscripciones();
       case 'inscripcion': return p[1] && p[1] !== 'nueva' ? await formFechasInscripcion(p[1], params) : await formInscripcion(params);
       case 'horas': return await pantallaHoras(params);
+      case 'contabilidad': return p[1] === 'persona' ? await formPagoEquipo(params) : await pantallaContab(params);
       case 'caja':
         if (p[1] === 'dia') return await pantallaCajaDia(p[2], params);
         if (p[1] === 'nuevo') return await formCaja(params);
