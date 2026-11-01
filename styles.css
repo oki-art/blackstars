@@ -607,3 +607,37 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .pago-aviso{margin-top:6px;padding:8px 10px;border-radius:10px}
 .pago-aviso.banco{background:#E8EFFA;color:#2F5DA8}
 .pago-aviso.efectivo{background:#FBF3E4;color:#8F6A1C}
+/* Contabilidad mensual */
+.contab-enlace{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:18px;background:#fff;border:1px solid var(--borde);color:var(--texto);text-decoration:none;box-shadow:0 6px 18px rgba(90,59,196,0.08)}
+.contab-enlace>span:first-child{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#FBF3E4;color:#8F6A1C}
+.contab-enlace .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.contab-enlace small{color:var(--texto2);font-size:13px}
+.contab-candado{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#8F6A1C;background:#FBF3E4;border-radius:999px;padding:5px 12px;margin-bottom:4px}
+.bolsa.pagado{background:#E3F3EA;border-color:#BFE3CE;color:#1F8A5C}
+.bolsa.falta{background:#FCE9EB;border-color:#F3C5CA;color:#D12F3B}
+.tarifas{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tarifas button{min-height:52px;border-radius:14px;border:1px solid var(--borde);background:#fff;font-family:'Sora',sans-serif;font-weight:700;font-size:15px;color:var(--texto);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.tarifas button small{font-family:'DM Sans',sans-serif;font-weight:400;font-size:11px;color:var(--texto2)}
+.tarifas button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;border-color:transparent}
+.tarifas button.on small{color:#E7E0FA}
+.tarifas button:disabled{opacity:.6;cursor:default}
+.contab-auto{font-size:13px;color:var(--morado2);background:#EDE7FB;border-radius:12px;padding:9px 12px}
+.contab-auto a{color:inherit;font-weight:700}
+.contab-cuenta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:15px}
+.contab-cuenta span{color:var(--texto2)}
+.contab-cuenta b{font-family:'Sora',sans-serif}
+.contab-cuenta.grande{border-top:1px solid var(--borde);padding-top:12px}
+.contab-cuenta.grande b{font-size:24px;color:var(--morado2)}
+.contab-dos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.contab-dias{display:flex;align-items:center;gap:14px}
+.contab-dias button{width:48px;height:48px;border-radius:14px;border:1px solid var(--borde);background:#fff;font-size:22px;font-weight:700;color:var(--morado2);cursor:pointer}
+.contab-dias b{font-family:'Sora',sans-serif;font-size:22px;min-width:28px;text-align:center}
+.contab-plus{display:grid;grid-template-columns:1fr 90px 44px;gap:8px;align-items:center;margin-bottom:8px}
+.contab-plus button{height:44px;border-radius:12px;border:1px solid var(--borde);background:#fff;color:var(--gasto);cursor:pointer}
+.contab-pagar{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.contab-pagar button{min-height:52px;border-radius:16px;font-weight:700;font-size:15px;cursor:pointer}
+.contab-pagar .efectivo{background:#FBF3E4;color:#8F6A1C;border:1.5px solid #EED9B0}
+.contab-pagar .banco{background:#E8EFFA;color:#2F5DA8;border:1.5px solid #C9D8F2}
+.contab-pagado{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:14px;font-weight:700}
+.contab-pagado.efectivo{background:#FBF3E4;color:#8F6A1C}
+.contab-pagado.banco{background:#E8EFFA;color:#2F5DA8}
