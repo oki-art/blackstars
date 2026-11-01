@@ -1717,6 +1717,7 @@ const editaContab = () => S.admin || puedeEditar('contabilidad');
 const TARIFAS = [8, 10, 12.5, 15];
 const esContab = (x) => !!x.contabilidad;
 const mesContab = (params) => { const m = params.get('mes'); return /^\d{4}-\d{2}$/.test(m || '') ? m : hoyISO().slice(0, 7); };
+const esAmigaK = (k) => String(k || '').startsWith('a:');
 const sumaPlus = (r) => (r.pluses || []).reduce((t, p) => t + (+p.importe || 0), 0);
 const diasRef = (r) => (+r.dias_semana || 4) * 4;   // días de un mes "normal" (4 semanas), para restar las faltas
 const descuentoFija = (r) => Math.round((+r.cuota || 0) * (+r.dias_falta || 0) / diasRef(r) * 100) / 100;
@@ -1744,14 +1745,17 @@ async function datosContab(mes) {
   ((horas && horas.lista) || []).filter((x) => x.k !== 'sin').forEach((x) => { const r = base(x.k, x.nombre, 'horas'); r.horasMes = x.min / 60; P.set(x.k, r); });
   filas.forEach((r) => { if (!P.has(r.persona)) P.set(r.persona, base(r.persona, r.nombre, r.tipo)); });
   Object.values(previa).filter((r) => r.tipo === 'fija').forEach((r) => { if (!P.has(r.persona)) P.set(r.persona, base(r.persona, r.nombre, 'fija')); });
+  // Escuela amiga (a:<id>): lo que nos paga; la cantidad se escribe cada mes (se recuerda la del mes pasado)
+  P.forEach((r, k) => { if (esAmigaK(k)) { r.anterior = previa[k] ? +previa[k].cuota || 0 : null; if (!r.guardada) r.cuota = null; } });
   // Horas: las del mes (si aún no está pagado) o las que se guardaron al pagar
   P.forEach((r) => { if (r.tipo === 'horas') r.horas = r.caja_id ? +r.horas || 0 : r.horasMes != null ? Math.round(r.horasMes * 100) / 100 : +r.horas || 0; r.total = totalPago(r); });
-  const lista = [...P.values()].sort((a, b) => (a.tipo === 'fija') - (b.tipo === 'fija') || a.nombre.localeCompare(b.nombre, 'es'));
+  const todas = [...P.values()].sort((a, b) => (a.tipo === 'fija') - (b.tipo === 'fija') || a.nombre.localeCompare(b.nombre, 'es'));
+  const lista = todas.filter((r) => !esAmigaK(r.persona)), amigas = todas.filter((r) => esAmigaK(r.persona));
   // Lo pagado se busca por su gasto, aunque se pagara en otro mes
   const ids = filas.map((r) => r.caja_id).filter(Boolean);
   const pagados = ids.length ? await q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').in('id', ids)) : [];
   const pagos = Object.fromEntries(pagados.map((x) => [x.id, x]));
-  return { lista, compras: gastos.filter((x) => x.apartado !== 'equipo'), pagos, horas };
+  return { lista, amigas, compras: gastos.filter((x) => x.apartado !== 'equipo' && x.tipo === 'gasto'), pagos, horas };
 }
 const detallePago = (r) => r.tipo === 'fija'
   ? [`Cuota ${eur(r.cuota)}`, r.dias_falta ? `− ${r.dias_falta} día${r.dias_falta === 1 ? '' : 's'}` : '', sumaPlus(r) ? `+ plus ${eur(sumaPlus(r))}` : ''].filter(Boolean).join(' ')
@@ -1775,15 +1779,25 @@ async function pantallaContab(params) {
     return `<a class="mov" href="#/contabilidad/persona?mes=${mes}&k=${encodeURIComponent(r.persona)}"><span class="txt"><span class="tit">${esc(r.nombre)}</span><span class="det">${esc(detallePago(r))}</span></span>
       ${p ? `<span class="chip-pago ${esBanco(p) ? 'banco' : 'efectivo'}">Pagado</span>` : '<span class="chip gris">Falta</span>'}<b>${eur(p ? p.importe : r.total)}</b>${ico('sig', 16)}</a>`;
   };
+  const filaAmiga = (r) => {
+    const p = pagado(r);
+    return `<a class="mov" href="#/contabilidad/amiga?mes=${mes}&k=${encodeURIComponent(r.persona)}"><span class="txt"><span class="tit">${esc(r.nombre)}</span><span class="det">${r.cuota ? `Cantidad de ${nombreMes(mes + '-01').split(' ')[0].toLowerCase()}` : 'Falta poner la cantidad'}${r.anterior != null ? ` · el mes pasado ${eur(r.anterior)}` : ''}</span></span>
+      ${p ? `<span class="chip-pago ${esBanco(p) ? 'banco' : 'efectivo'}">Cobrado</span>` : '<span class="chip gris">Por cobrar</span>'}<b class="in">${p || r.cuota ? '+' + eur(p ? p.importe : r.cuota) : '—'}</b>${ico('sig', 16)}</a>`;
+  };
+  const tAm = d.amigas.reduce((t, r) => t + (pagado(r) ? +d.pagos[r.caja_id].importe : +r.cuota || 0), 0);
   pintar(cab + `<main class="cont">
     <div class="contab-candado">${ico('candado', 14)} Solo lo ve la administración${S.admin ? ' y quien tenga el permiso Contabilidad' : ''}</div>
     <div class="mes"><button data-ir="#/contabilidad?mes=${prev}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/contabilidad?mes=${next}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     <div class="lista">${totalCaja('', `Total a pagar en ${nombreMes(mes + '-01').split(' ')[0].toLowerCase()}`, `Equipo ${eur(tEq)} · Compras ${eur(tCo)}`, '', tEq + tCo)}
     <div class="bolsas"><div class="bolsa pagado"><span class="bolsa-t">Pagado</span><b class="bolsa-eur">${eur(tPag)}</b></div><div class="bolsa falta"><span class="bolsa-t">Falta por pagar</span><b class="bolsa-eur">${eur(tFal)}</b></div></div>
+    ${tAm ? `<div class="contab-cobrar">${ico('escuela', 16)} Escuela amiga este mes <b>+${eur(tAm)}</b></div>` : ''}
     <div class="seccion">Equipo</div>
     ${d.lista.length ? `<div class="tarjeta reservas">${d.lista.map(fila).join('')}</div>` : vacio('Este mes no hay horas de clase. Añade a alguien con el botón de abajo.')}
     ${!d.horas ? '<div class="ayuda">No se han podido leer las horas del mes.</div>' : ''}
     ${ed ? `<a class="btn sec" href="#/contabilidad/persona?mes=${mes}&nueva=1">${ico('mas')} Añadir persona</a>` : ''}
+    <div class="seccion">Escuela amiga · lo que nos paga</div>
+    ${d.amigas.length ? `<div class="tarjeta reservas contab-amiga">${d.amigas.map(filaAmiga).join('')}</div>` : ''}
+    ${ed ? `<a class="btn sec" href="#/contabilidad/amiga?mes=${mes}">${ico('mas')} Añadir escuela amiga</a>` : !d.amigas.length ? vacio('Sin escuela amiga este mes.') : ''}
     <div class="seccion">Compras y otros gastos</div>
     ${d.compras.length ? `<div class="tarjeta reservas">${d.compras.map((x) => movCaja(x, { conFecha: true, volver })).join('')}</div>` : vacio('Sin compras este mes.')}
     ${ed ? `<a class="btn sec" href="#/caja/nuevo?tipo=gasto&apartado=material&contab=1&fecha=${mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01'}&volver=${encodeURIComponent(volver)}">${ico('mas')} Añadir compra</a>` : ''}
@@ -1903,6 +1917,66 @@ async function formPagoEquipo(params) {
     };
   };
   pintarForm();
+}
+// Escuela amiga en la contabilidad: elige la escuela y escribe a mano lo que paga este mes; al cobrar entra como ingreso en Caja
+async function formCobroAmiga(params) {
+  if (!veContab()) return sinPermiso();
+  const mes = mesContab(params), volver = `#/contabilidad?mes=${mes}`, ed = editaContab(), k0 = params.get('k');
+  const [d, escuelas] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas)]);
+  let r = k0 ? d.amigas.find((x) => x.persona === k0) : null;
+  if (k0 && !r) { aviso('No encuentro esa escuela en este mes', true); location.hash = volver; return; }
+  if (!r && !ed) return sinPermiso();
+  const pago = r && r.caja_id ? d.pagos[r.caja_id] : null, bloqueado = !ed || !!pago, dis = bloqueado ? 'disabled' : '';
+  const ya = new Set(d.amigas.map((x) => x.persona));
+  const libres = escuelas.filter(([id]) => !ya.has('a:' + id));
+  const mesTxt = nombreMes(mes + '-01').split(' ')[0].toLowerCase();
+  pintar(cabecera(r ? r.nombre : 'Añadir escuela amiga', { volver, sub: `Contabilidad · ${nombreMes(mes + '-01')}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></div>`
+      : `${vacio('No hay escuelas amigas libres. Créala antes en Más › Escuelas amigas.')}`}
+    <div class="campo"><label for="c_cant">Cantidad de ${mesTxt} (€) *</label><input id="c_cant" class="contab-grande" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(pago ? pago.importe : r && r.cuota != null ? r.cuota : '')}" ${dis} required></div>
+    ${r && r.anterior != null ? `<div class="contab-auto">El mes pasado fueron ${eur(r.anterior)}</div>` : ''}
+    ${pago ? `<div class="contab-pagado ${esBanco(pago) ? 'banco' : 'efectivo'}">${ico('check', 16)} Cobrado el ${esc(fechaCorta(pago.fecha))} · ${esBanco(pago) ? 'Banco' : 'Efectivo'} · ${eur(pago.importe)}</div>
+        ${ed ? '<button type="button" class="btn sec ancho" id="deshacer">Deshacer el cobro</button><div class="ayuda">Para cambiar la cantidad, deshaz antes el cobro: se quita el ingreso de la Caja.</div>' : ''}`
+      : ed && (r || libres.length) ? `<button type="submit" class="btn pri ancho">Guardar</button>
+        <div class="contab-pagar"><button type="button" data-cobrar="efectivo" class="efectivo">💶 Cobrado en efectivo</button><button type="button" data-cobrar="transferencia" class="banco">🏦 Cobrado por banco</button></div>
+        <div class="ayuda">Al cobrar, entra como ingreso en tu Caja (solo lo ve quien ve la contabilidad).</div>` : ''}
+    ${r && r.guardada && ed && !pago ? `<button type="button" class="btn peligro ancho" id="quitar">${ico('papelera', 18)} Quitar de la contabilidad</button>` : ''}
+  </form></main>`, 'caja');
+  const form = document.getElementById('frm');
+  const guardar = async () => {
+    const cant = Number(String(document.getElementById('c_cant').value).replace(',', '.'));
+    if (!(cant > 0)) throw new Error('Escribe la cantidad del mes');
+    let persona = r && r.persona, nombre = r && r.nombre;
+    if (!r) { const sel = document.getElementById('c_esc'); persona = 'a:' + sel.value; nombre = sel.options[sel.selectedIndex].text; }
+    return q(sb.from('pagos_equipo').upsert({ mes, persona, nombre, tipo: 'fija', cuota: cant, dias_falta: 0, pluses: [], total: cant }, { onConflict: 'mes,persona' }).select('*').single());
+  };
+  const ocupado = (b) => { if (b.disabled) return true; b.disabled = true; return false; };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault(); const b = form.querySelector('[type=submit]'); if (!b || ocupado(b)) return;
+    try { await guardar(); aviso('Guardado'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  };
+  $app.querySelectorAll('[data-cobrar]').forEach((b) => b.onclick = async () => {
+    if (ocupado(b)) return;
+    try {
+      const g = await guardar();
+      const mov = await q(sb.from('caja').insert({ fecha: hoyISO(), tipo: 'ingreso', apartado: 'escuela_amiga', escuela_amiga_id: g.persona.slice(2), contabilidad: true, metodo: b.dataset.cobrar,
+        concepto: `Cuota ${mesTxt} · ${g.nombre}`, importe: g.total }).select('id').single());
+      try { await q(sb.from('pagos_equipo').update({ caja_id: mov.id }).eq('id', g.id)); }
+      catch (e) { await q(sb.from('caja').delete().eq('id', mov.id)).catch(() => {}); throw e; }
+      aviso(`Cobrado: ${eur(g.total)} ${b.dataset.cobrar === 'efectivo' ? 'en efectivo' : 'por banco'}`); location.hash = volver;
+    } catch (e) { aviso(traducirError(e), true); b.disabled = false; }
+  });
+  const dh = document.getElementById('deshacer');
+  if (dh) dh.onclick = async () => {
+    if (!confirm(`¿Deshacer el cobro de ${r.nombre}? Se quita el ingreso de ${eur(pago.importe)} de la Caja.`) || ocupado(dh)) return;
+    try { await q(sb.from('pagos_equipo').update({ caja_id: null }).eq('id', r.id)); await q(sb.from('caja').delete().eq('id', pago.id)); aviso('Cobro deshecho'); router(); }
+    catch (e) { aviso(traducirError(e), true); dh.disabled = false; }
+  };
+  const qt = document.getElementById('quitar');
+  if (qt) qt.onclick = async () => {
+    if (!confirm(`¿Quitar ${r.nombre} de la contabilidad de este mes?`) || ocupado(qt)) return;
+    try { await q(sb.from('pagos_equipo').delete().eq('id', r.id)); aviso('Quitada'); location.hash = volver; } catch (e) { aviso(traducirError(e), true); qt.disabled = false; }
+  };
 }
 async function formCambio(params) {
   if (!puedeEditar('caja')) return sinPermiso();
@@ -3856,7 +3930,7 @@ async function router() {
       case 'inscripciones': return await pantallaInscripciones();
       case 'inscripcion': return p[1] && p[1] !== 'nueva' ? await formFechasInscripcion(p[1], params) : await formInscripcion(params);
       case 'horas': return await pantallaHoras(params);
-      case 'contabilidad': return p[1] === 'persona' ? await formPagoEquipo(params) : await pantallaContab(params);
+      case 'contabilidad': return p[1] === 'persona' ? await formPagoEquipo(params) : p[1] === 'amiga' ? await formCobroAmiga(params) : await pantallaContab(params);
       case 'caja':
         if (p[1] === 'dia') return await pantallaCajaDia(p[2], params);
         if (p[1] === 'nuevo') return await formCaja(params);

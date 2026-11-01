@@ -641,3 +641,7 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .contab-pagado{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:14px;font-weight:700}
 .contab-pagado.efectivo{background:#FBF3E4;color:#8F6A1C}
 .contab-pagado.banco{background:#E8EFFA;color:#2F5DA8}
+.contab-amiga{border:2px solid #C9A25A}
+.contab-cobrar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:14px;background:#E3F3EA;color:#1F8A5C;font-size:14px;font-weight:600}
+.contab-cobrar b{margin-left:auto;font-family:'Sora',sans-serif;font-size:16px}
+.contab-grande{font-family:'Sora',sans-serif;font-size:22px;font-weight:700}
