@@ -476,6 +476,8 @@ async function pantallaInicio(vista = null) {
   } else tarjetaDocs = `<span class="mini-docs"><span class="ico-caja">${ico('doc', 22)}</span><b>Documentos</b><span>Subir y firmar</span></span>`;
   // Estrellas: la profesora puntúa a sus alumnas desde el Inicio, sin pasar por la clase
   const tarjetaEstrellas = profesora && ver('logros') && editar('logros') ? `<${vista ? 'span' : 'a href="#/estrellas"'} class="mini-estrellas"><span class="ico-caja">${ico('evento', 22)}</span><b>Estrellas</b><span>Puntuar alumnas</span></${vista ? 'span' : 'a'}>` : '';
+  // Pasar lista: la profesora marca quién vino a cada clase
+  const tarjetaLista = profesora && ver('clases') ? `<${vista ? 'span' : 'a href="#/lista"'} class="mini-lista"><span class="ico-caja">${ico('check', 22)}</span><span class="ml-t"><b>Pasar lista</b><span>Marca quién vino a cada clase</span></span>${ico('sig', 18)}</${vista ? 'span' : 'a'}>` : '';
   const soloPil = !vista && !puedeVer('caja') && veCajaPilates();
   const tarjetaCaja = (vista ? ver('caja') : veAlgunaCaja()) ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>${soloPil ? 'Caja de Pilates' : 'Caja'}</b><span>${soloPil ? 'Cobros y gastos' : 'Ingresos y gastos'}</span></a>` : '';
   const accesos = (profesora ? [
@@ -501,6 +503,7 @@ async function pantallaInicio(vista = null) {
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
     ${barraLogros}
+    ${tarjetaLista}
     <div class="minis">${tarjetaCaja}${tarjetaEstrellas}${tarjetaDocs}</div>
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
@@ -898,6 +901,7 @@ async function pantallaMisClases(params) {
         ${puedeVer('logros') ? `<div class="cp-bloque"><div class="cp-tit"><span>Estrellas de ${esc(nombreMes(mes))}</span><b>${media}%</b></div>${barra(media)}</div>` : ''}
         ${puedeVer('incidencias') ? `<div class="cp-bloque"><div class="cp-tit"><span>Últimas incidencias</span></div>
           ${suyas.map((x) => `<div class="cp-inc"><small>${fechaCorta(x.fecha)}${x.alumnas ? ' · ' + esc(x.alumnas.nombre + ' ' + (x.alumnas.apellidos || '')) : ''}</small>${esc(x.descripcion)}</div>`).join('') || '<div class="nota">Ninguna apuntada.</div>'}</div>` : ''}
+        ${c.privada ? '' : `<a class="btn pri" href="#/lista?c=${c.id}">${ico('check')} Pasar lista</a>`}
       </div></details>`;
   };
   pintar(cabecera('Mis clases', { sub: `${clases.length} ${clases.length === 1 ? 'clase' : 'clases'} · toca una para ver su información` }) + `<main class="cont">
@@ -929,6 +933,7 @@ async function pantallaClase(id) {
       <dt>Estado</dt><dd>${c.activa ? '<span class="chip ok">Activa</span>' : '<span class="chip gris">Inactiva</span>'}${c.privada ? ` <span class="chip oro">${ico('candado', 14)} Privada</span>` : ''}</dd>
     </dl></div>
     ${puedeEditar('clases') ? `<a class="btn sec" href="#/clase/${id}/editar">${ico('lapiz')} Editar clase</a>` : ''}
+    ${!c.escuela_amiga_id ? `<a class="btn sec" href="#/lista?c=${id}">${ico('check')} Pasar lista</a>` : ''}
     ${!c.escuela_amiga_id && puedeVer('logros') ? `<a class="btn ${soloInfo ? 'pri' : 'sec'}" href="#/logros/clase/${id}">${ico('trofeo')} ${puedeEditar('logros') ? 'Dar estrellas' : 'Ver estrellas'}</a>` : ''}
     ${privada ? privada.html : ''}
     ${!c.escuela_amiga_id && !c.privada && !soloInfo && puedeVer('inscripciones') ? `<div class="seccion">Alumnas (${ins.length})</div>
@@ -3966,6 +3971,100 @@ async function pantallaLogrosClase(id, params, desdeInicio = null) {
 }
 
 /* ======================================================================
+   PASAR LISTA: la profesora marca en cada día de clase quién vino y quién faltó (tabla asistencias, migración 032)
+   ====================================================================== */
+// Días de clase del mes: los del horario, sin festivos ni clases anuladas
+function diasDeClase(c, mes, festivos, anuladas) {
+  const ds = new Set((c.clase_horarios || []).map((h) => h.dia_semana));
+  return diasDelMes(mesCorto(mes)).filter((f) => ds.has(diaISO(aFecha(f))) && !festivos.has(f) && !anuladas.has(f));
+}
+const nombreLista = (a) => `${a.nombre}${a.apellidos ? ' ' + a.apellidos.trim().charAt(0) + '.' : ''}`;
+async function pantallaLista(params) {
+  if (!puedeVer('clases')) return sinPermiso();
+  const mes = mesParam(params), dias0 = diasDelMes(mesCorto(mes)), ini = dias0[0], fin = dias0[dias0.length - 1];
+  const clases = (await q(sb.from('clases').select('id,nombre,' + SEL_HOR).eq('activa', true).is('escuela_amiga_id', null))).sort((a, b) => ordenClase(a) - ordenClase(b));
+  if (!clases.length) return pintar(cabecera('Pasar lista', { volver: '#/inicio' }) + `<main class="cont">${vacio('Todavía no tienes clases.')}</main>`, 'inicio');
+  const c = clases.find((x) => x.id === params.get('c')) || clases[0];
+  const [ins, asis, fest, camb] = await Promise.all([
+    q(sb.from('inscripciones').select('fecha_alta,fecha_baja,alumnas(id,nombre,apellidos)').eq('clase_id', c.id).lte('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`)),
+    q(sb.from('asistencias').select('alumna_id,fecha,presente').eq('clase_id', c.id).gte('fecha', ini).lte('fecha', fin)),
+    intentar(() => q(sb.from('dias_sin_clase').select('fecha').gte('fecha', ini).lte('fecha', fin))),
+    intentar(() => q(sb.from('clases_cambios').select('fecha,anulada').eq('clase_id', c.id).eq('anulada', true).gte('fecha', ini).lte('fecha', fin)))
+  ]);
+  const dias = diasDeClase(c, mes, new Set(fest.map((f) => f.fecha)), new Set(camb.map((x) => x.fecha)));
+  // Una alumna puede tener varias inscripciones en la misma clase (baja y vuelta): se juntan sus periodos
+  const A = {};
+  ins.filter((i) => i.alumnas).forEach((i) => { const a = A[i.alumnas.id] = A[i.alumnas.id] || { ...i.alumnas, periodos: [] }; a.periodos.push([i.fecha_alta, i.fecha_baja]); });
+  const alumnas = Object.values(A).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
+  const estaEn = (a, f) => a.periodos.some(([al, ba]) => al <= f && (!ba || ba >= f));
+  const M = {}; asis.forEach((x) => { M[x.alumna_id + '|' + x.fecha] = x.presente; });
+  const hoy = hoyISO(), dia = dias.includes(params.get('dia')) ? params.get('dia') : null;
+  const base = `#/lista?c=${c.id}&mes=${mesCorto(mes)}`;
+  const mesMas = (n) => { const d = aFecha(mes); d.setMonth(d.getMonth() + n); return mesCorto(mesDe(d)); };
+  const cuenta = (a) => { let v = 0, f = 0; dias.forEach((d) => { const x = M[a.id + '|' + d]; if (x === true) v++; else if (x === false) f++; }); return { v, f }; };
+  const resumen = (a) => { const { v, f } = cuenta(a); return `<span class="ls-v">vino ${v}</span>` + (f ? ` · <span class="ls-f">faltó ${f}</span>` : ''); };
+  const celda = (x) => x === true ? ico('check', 18) : x === false ? '<b>✕</b>' : '';
+  const clasesFiltro = clases.length > 1 ? `<div class="filtros">${clases.map((x) => `<button data-ir="#/lista?c=${x.id}&mes=${mesCorto(mes)}" class="${x.id === c.id ? 'on' : ''}">${esc(x.nombre)}</button>`).join('')}</div>` : '';
+  const cab = cabecera('Pasar lista', { volver: dia ? base : '#/inicio', sub: esc(c.nombre) + ' · ' + (dia ? capital(fechaLarga(dia)) : nombreMes(mes)) });
+
+  if (dia) {   // Lista de un día: botones grandes Vino / Faltó
+    const de = alumnas.filter((a) => estaEn(a, dia));
+    const cont = () => { const v = de.filter((a) => M[a.id + '|' + dia] === true).length, f = de.filter((a) => M[a.id + '|' + dia] === false).length; return `<b>${v}</b> ${v === 1 ? 'vino' : 'vinieron'} · <b>${f}</b> ${f === 1 ? 'faltó' : 'faltaron'} · <b>${de.length - v - f}</b> sin marcar`; };
+    pintar(cab + `<main class="cont">
+      <div class="tarjeta ls-dia-res" id="ls-res">${cont()}</div>
+      <button class="btn sec" id="ls-todas">${ico('check')} Han venido todas</button>
+      <div class="lista">${de.map((a) => { const x = M[a.id + '|' + dia]; return `<div class="tarjeta ls-fila" data-a="${a.id}">
+        <b>${esc(a.nombre)} ${esc(a.apellidos || '')}</b>
+        <div class="ls-botones"><button class="ls-si ${x === true ? 'on' : ''}" data-p="1">${ico('check', 18)} Vino</button><button class="ls-no ${x === false ? 'on' : ''}" data-p="0">✕ Faltó</button></div></div>`; }).join('') || vacio('No hay alumnas en esta clase ese día.')}</div>
+    </main>`, 'inicio');
+    const guardar = async (aid, p) => {
+      const actual = M[aid + '|' + dia], nuevo = actual === p ? null : p;   // tocar el botón marcado lo quita
+      if (nuevo === null) await q(sb.from('asistencias').delete().eq('clase_id', c.id).eq('alumna_id', aid).eq('fecha', dia));
+      else await q(sb.from('asistencias').upsert({ clase_id: c.id, alumna_id: aid, fecha: dia, presente: nuevo, modificado_en: new Date().toISOString() }, { onConflict: 'clase_id,alumna_id,fecha' }));
+      if (nuevo === null) delete M[aid + '|' + dia]; else M[aid + '|' + dia] = nuevo;
+      const f = $app.querySelector(`.ls-fila[data-a="${aid}"]`);
+      f.querySelector('.ls-si').classList.toggle('on', nuevo === true); f.querySelector('.ls-no').classList.toggle('on', nuevo === false);
+      document.getElementById('ls-res').innerHTML = cont();
+    };
+    $app.querySelectorAll('.ls-fila button').forEach((b) => b.onclick = async () => {
+      try { await guardar(b.closest('.ls-fila').dataset.a, b.dataset.p === '1'); } catch (e) { aviso(traducirError(e), true); }
+    });
+    document.getElementById('ls-todas').onclick = async () => {
+      try { for (const a of de) if (M[a.id + '|' + dia] !== true) await guardar(a.id, true); aviso('Todas marcadas'); } catch (e) { aviso(traducirError(e), true); }
+    };
+    return;
+  }
+
+  // Cuadrante del mes: una fila por alumna y una columna por día de clase
+  const proximo = dias.find((d) => d >= hoy);
+  pintar(cab + `<main class="cont">
+    ${clasesFiltro}
+    <div class="ls-mes"><button data-ir="#/lista?c=${c.id}&mes=${mesMas(-1)}" aria-label="Mes anterior">${ico('volver', 18)}</button><b>${nombreMes(mes)}</b><button data-ir="#/lista?c=${c.id}&mes=${mesMas(1)}" aria-label="Mes siguiente" class="gira">${ico('volver', 18)}</button></div>
+    ${dias.includes(hoy) ? `<a class="btn pri" href="${base}&dia=${hoy}">${ico('check')} Pasar lista de hoy</a>` : proximo ? `<p class="nota" style="margin:0 2px">Próxima clase: ${fechaLarga(proximo)}.</p>` : ''}
+    ${!dias.length ? vacio('Este mes no hay días de clase.') : !alumnas.length ? vacio('No hay alumnas en esta clase.') : `<div class="tarjeta ls-cuadro"><div class="ls-scroll"><table class="ls-tabla">
+      <thead><tr><th class="ls-nom">Alumna</th>${dias.map((d) => `<th class="${d === hoy ? 'hoy' : ''}"><a href="${base}&dia=${d}"><small>${DIAS_C[diaISO(aFecha(d)) - 1]}</small>${+d.slice(8)}</a></th>`).join('')}</tr></thead>
+      <tbody>${alumnas.map((a) => `<tr><th class="ls-nom"><b>${esc(nombreLista(a))}</b><small data-res="${a.id}">${resumen(a)}</small></th>${dias.map((d) => { const x = M[a.id + '|' + d];
+        return estaEn(a, d) ? `<td class="${d === hoy ? 'hoy' : ''}"><button class="ls-c ${x === true ? 'si' : x === false ? 'no' : ''}" data-a="${a.id}" data-d="${d}" aria-label="${esc(a.nombre)} ${d}">${celda(x)}</button></td>` : `<td class="fuera${d === hoy ? ' hoy' : ''}">·</td>`; }).join('')}</tr>`).join('')}</tbody>
+    </table></div></div>
+    <p class="nota ls-ley"><span class="ls-c si">${ico('check', 14)}</span> vino <span class="ls-c no"><b>✕</b></span> faltó <span class="ls-c"></span> sin marcar</p>
+    <p class="nota ls-ayuda">Toca una casilla para cambiarla, o toca el día de arriba para pasar lista de ese día con botones grandes.</p>`}
+  </main>`, 'inicio');
+  const sc = $app.querySelector('.ls-scroll'), th = $app.querySelector('.ls-tabla thead th.hoy') || [...$app.querySelectorAll('.ls-tabla thead th')].find((t) => (t.querySelector('a') || {}).href && proximo && t.querySelector('a').href.endsWith(proximo));
+  if (sc && th) sc.scrollLeft = Math.max(0, th.offsetLeft + th.offsetWidth * 2 - sc.clientWidth);   // se ve hoy, lo anterior y la próxima clase
+  $app.querySelectorAll('button.ls-c').forEach((b) => b.onclick = async () => {
+    const aid = b.dataset.a, d = b.dataset.d, k = aid + '|' + d, x = M[k];
+    const nuevo = x === undefined ? true : x === true ? false : null;   // vacía → vino → faltó → vacía
+    try {
+      if (nuevo === null) await q(sb.from('asistencias').delete().eq('clase_id', c.id).eq('alumna_id', aid).eq('fecha', d));
+      else await q(sb.from('asistencias').upsert({ clase_id: c.id, alumna_id: aid, fecha: d, presente: nuevo, modificado_en: new Date().toISOString() }, { onConflict: 'clase_id,alumna_id,fecha' }));
+      if (nuevo === null) delete M[k]; else M[k] = nuevo;
+      b.className = 'ls-c' + (nuevo === true ? ' si' : nuevo === false ? ' no' : ''); b.innerHTML = celda(nuevo);
+      $app.querySelector(`[data-res="${aid}"]`).innerHTML = resumen(A[aid]);
+    } catch (e) { aviso(traducirError(e), true); }
+  });
+}
+
+/* ======================================================================
    ENRUTADOR
    ====================================================================== */
 async function router() {
@@ -4057,6 +4156,7 @@ async function router() {
       case 'permisos': return await pantallaPermisos(params);
       case 'vista': return await pantallaVista(p[1]);
       case 'estrellas': return await pantallaEstrellas(params);
+      case 'lista': return await pantallaLista(params);
       case 'logros':
         if (p[1] === 'reto') return await formReto(params);
         if (p[1] === 'profesora') return await pantallaLogrosProfesora(p[2], params);
