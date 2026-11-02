@@ -1299,7 +1299,7 @@ async function pantallaInscripciones() {
     der: i.fecha_baja ? '<span class="chip gris">Baja</span>' : '<span class="chip ok">Alta</span>' })).join('') || vacio('Sin inscripciones todavía.')}</div></main>`, 'mas', puedeEditar('inscripciones') ? '#/inscripcion/nueva' : null);
 }
 async function formInscripcion(params) {
-  const clase = params.get('clase'), alumna = params.get('alumna');
+  const clase = params.get('clase'), alumna = params.get('alumna'), origen = params.get('volver');
   // Objetivo extra: si la familia dice el código de una profesora, la niña cuenta para ella (migración 028)
   const conCodigo = await hayObjetivo();
   const campoCodigo = { k: '_codigo', tipo: 'html', html: `<div class="campo"><label for="f_codigo">¿Viene de un evento? Código de profesora (opcional)</label>
@@ -1308,7 +1308,7 @@ async function formInscripcion(params) {
     <div class="ayuda">Si la profesora ya la apuntó en el evento con el mismo teléfono, cuenta sola aunque no digan el código.</div></div>` };
   await pantallaForm({
     titulo: 'Inscribir en clase', tabla: 'inscripciones', modulo: 'inscripciones',
-    volver: clase ? `#/clase/${clase}` : alumna ? `#/alumna/${alumna}` : '#/inscripciones',
+    volver: origen && origen.startsWith('#/') ? origen : clase ? `#/clase/${clase}` : alumna ? `#/alumna/${alumna}` : '#/inscripciones',
     valoresIniciales: { clase_id: clase, alumna_id: alumna },
     campos: [
       { k: 'alumna_id', label: 'Alumna', tipo: 'select', req: true, opciones: await intentar(opcionesAlumnas) },
@@ -1454,15 +1454,81 @@ const botonesCaja = (c, ir) => eligeCaja() ? `<div class="filtros cajas">${[['to
   .map(([k, txt]) => `<button data-ir="${ir(k)}" class="${c === k ? 'on' : ''}" aria-pressed="${c === k}">${txt}</button>`).join('')}</div>` : '';
 const candadoCaja = ` <span class="candado" title="Clase privada: solo la ven la administración, quien tenga el permiso Pilates y su profesora">${ico('candado', 14)}</span>`;
 // Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
+// Cobro rápido de la mensualidad: las alumnas que siguen en la clase salen ya cargadas como "Pendiente";
+// al tocarlas se elige cuánto (completo, medio u otra cantidad) y queda cobrada en efectivo (las mensualidades se cobran siempre en efectivo). Desde ahí también se da de baja.
+const PRECIOS_MES = [['completo', 'Completo', CUOTA_MES], ['medio', 'Medio', 20]];
+function filaPendiente(f, g) {
+  const a = f.ins.alumnas || {}, media = a.cuota === 'media';
+  if (!S.cajaCobro || g.privada || !puedeEditar('caja')) return `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(f.nombre)}</span></span><b>Pendiente</b></div>`;
+  const defecto = media ? 'medio' : 'completo';
+  return `<div class="reserva mens-pend" data-clase="${g.id}" data-alumna="${f.ins.alumna_id}" data-ins="${f.ins.id || ''}" data-alta="${f.ins.fecha_alta || ''}" data-nombre="${esc(f.nombre)}" data-nclase="${esc(g.nombre)}">
+    <button type="button" class="txt mp-abrir"><span class="tit">${esc(f.nombre)}</span><span class="det">Pendiente${media ? ' · ½ mes' : ''}</span></button>
+    <button type="button" class="vt-cobrar mp-abrir">Cobrar</button>
+    <div class="mp-panel" hidden>
+      <small class="mp-et">¿Cuánto?</small>
+      <div class="vt-metodos pv-precios">${PRECIOS_MES.map(([k, t, imp]) => `<button type="button" data-mp-precio="${k}" data-imp="${imp}" class="${k === defecto ? 'activo' : ''}">${t}<small>${imp} €</small></button>`).join('')}<button type="button" data-mp-precio="otro">Otro</button>
+        <div class="pv-otro mp-otro" hidden><input type="text" inputmode="decimal" placeholder="Cantidad en €" aria-label="Otra cantidad en euros"></div></div>
+      <div class="obj-cupon mp-cupon" hidden></div>
+      <button type="button" class="btn pri ancho" data-mp-pagar="efectivo">${ico('euro', 18)} Cobrar en efectivo</button>
+      ${puedeEditar('inscripciones') && f.ins.id ? `<button type="button" class="mp-baja">${ico('papelera', 16)} Dar de baja de la clase</button>` : ''}
+    </div></div>`;
+}
+function activarCobroRapido() {
+  const cc = S.cajaCobro; if (!cc) return;
+  S.ccAbiertas = S.ccAbiertas || new Set();
+  $app.querySelectorAll('details[data-cc]').forEach((d) => d.addEventListener('toggle', () => { if (d.dataset.cc) S.ccAbiertas[d.open ? 'add' : 'delete'](d.dataset.cc); }));
+  const recargar = async () => { const y = window.scrollY; await router(); window.scrollTo(0, y); };
+  $app.querySelectorAll('.mens-pend').forEach((fila) => {
+    const panel = fila.querySelector('.mp-panel'), otro = fila.querySelector('.mp-otro'), cup = fila.querySelector('.mp-cupon');
+    let precio = fila.querySelector('[data-mp-precio].activo').dataset.mpPrecio, cupon = null, mirado = false;
+    const base = () => { const b = fila.querySelector(`[data-mp-precio="${precio}"]`); return precio === 'otro' ? importeValido(otro.querySelector('input').value.trim()) : +b.dataset.imp; };
+    fila.querySelectorAll('.mp-abrir').forEach((b) => b.onclick = async () => {
+      panel.hidden = !panel.hidden;
+      if (panel.hidden || mirado) return;
+      mirado = true;   // Cupón del objetivo extra (029): si lo tiene para este mes, se resta solo
+      const r = await intentar(async () => q(sb.rpc('cupon_alumna', { p_alumna: fila.dataset.alumna, p_fecha: cc.fecha })));
+      const x = r && r[0]; if (!x) return;
+      cupon = x; cup.innerHTML = `<div class="obj-et">${ico('euro', 16)} Tiene cupón ${esc(x.codigo || '')}</div><b>−${eur(x.euros)} en esta cuota</b>`; cup.hidden = false;
+    });
+    fila.querySelectorAll('[data-mp-precio]').forEach((b) => b.onclick = () => {
+      precio = b.dataset.mpPrecio; fila.querySelectorAll('[data-mp-precio]').forEach((x) => x.classList.toggle('activo', x === b));
+      otro.hidden = precio !== 'otro'; if (!otro.hidden) otro.querySelector('input').focus();
+    });
+    fila.querySelectorAll('[data-mp-pagar]').forEach((b) => b.onclick = async () => {
+      const imp0 = base();
+      if (!imp0) { aviso('Escribe la cantidad que ha pagado, en euros', true); otro.querySelector('input').focus(); return; }
+      const imp = cupon ? Math.max(0, Math.round((imp0 - cupon.euros) * 100) / 100) : imp0;
+      if (!(imp > 0)) { aviso('Con el cupón no queda nada que cobrar', true); return; }
+      const botones = fila.querySelectorAll('button'); botones.forEach((x) => { x.disabled = true; });
+      const concepto = `Mensualidad de ${cc.mes}${precio === 'medio' ? ' · medio mes' : ''}${cupon ? ` (cupón ${cupon.codigo || ''} −${eur(cupon.euros)})` : ''}`;
+      try {
+        const nuevo = await q(sb.from('caja').insert({ fecha: cc.fecha, tipo: 'ingreso', apartado: 'mensualidad', clase_id: fila.dataset.clase, alumna_id: fila.dataset.alumna, importe: imp, concepto, metodo: b.dataset.mpPagar }).select('id').single());
+        if (cupon && nuevo && nuevo.id) { try { await q(sb.rpc('usar_cupon', { p_interesada: cupon.interesada_id, p_caja: nuevo.id })); } catch (e) { aviso('Cobrado, pero no se pudo marcar el cupón como usado', true); } }
+        S.ccAbiertas.add(fila.dataset.clase); aviso(`Cobrado: ${fila.dataset.nombre} · ${eur(imp)}`); await recargar();
+      } catch (e) { aviso(traducirError(e), true); botones.forEach((x) => { x.disabled = false; }); }
+    });
+    const bj = fila.querySelector('.mp-baja');
+    if (bj) bj.onclick = async () => {
+      // Deja de salir desde este mes: la baja se pone el último día del mes anterior (lo de antes se queda como estaba)
+      const d = new Date(aFecha(cc.ini)); d.setDate(d.getDate() - 1);
+      const baja = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      if (fila.dataset.alta > baja) { aviso('Se apuntó este mismo mes: corrige sus fechas desde la clase', true); location.hash = `#/inscripcion/${fila.dataset.ins}?clase=${fila.dataset.clase}`; return; }
+      if (!confirm(`¿Dar de baja a ${fila.dataset.nombre} de ${fila.dataset.nclase}?\n\nDeja de salir en la caja desde ${cc.mes}. Su ficha y lo que ya pagó se quedan.`)) return;
+      bj.disabled = true;
+      try { await q(sb.from('inscripciones').update({ fecha_baja: baja }).eq('id', fila.dataset.ins)); S.ccAbiertas.add(fila.dataset.clase); aviso(`${fila.dataset.nombre} ya no sale en ${fila.dataset.nclase}`); await recargar(); }
+      catch (e) { aviso(traducirError(e), true); bj.disabled = false; }
+    };
+  });
+}
 const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
 function cajaMensualidad(movs, ins, volver, { juntarPilates = true, titulo = 'Total mensualidades' } = {}) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
-  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { nombre, privada: esPrivada(id), al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
+  const grupo = (id, nombre) => { if (!grupos.has(id)) grupos.set(id, { id, nombre, privada: esPrivada(id), al: new Map(), faltan: new Map(), total: 0 }); return grupos.get(id); };
   movs.filter(esCuota).forEach((x) => {
     const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'), a = g.al.get(x.alumna_id) || { nombre: nom(x.alumnas), importe: 0, n: 0, movs: [] };
     a.importe += +x.importe; a.n++; a.movs.push(x); g.al.set(x.alumna_id, a); g.total += +x.importe;
   });
-  (ins || []).forEach((x) => { const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'); if (!g.al.has(x.alumna_id)) g.faltan.set(x.alumna_id, nom(x.alumnas)); });
+  (ins || []).forEach((x) => { const g = grupo(x.clase_id, x.clases ? x.clases.nombre : 'Clase'); if (!g.al.has(x.alumna_id)) g.faltan.set(x.alumna_id, { nombre: nom(x.alumnas), ins: x }); });
   const lista = [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const nAl = lista.reduce((t, g) => t + g.al.size, 0), nFal = lista.reduce((t, g) => t + g.faltan.size, 0), total = lista.reduce((t, g) => t + g.total, 0);
   const porNombre = (a, b) => a.localeCompare(b, 'es');
@@ -1473,10 +1539,11 @@ function cajaMensualidad(movs, ins, volver, { juntarPilates = true, titulo = 'To
       ? movMens(a.movs[0], esc(a.nombre), '', volver)
       : `<div class="mov"><span class="mov-tipo bg-in"></span><span class="txt"><span class="tit">${esc(a.nombre)}</span><span class="det">${a.n} pagos</span></span><b class="in">${eur(a.importe)}</b></div>`
         + a.movs.map((x) => movMens(x, `Pago del ${fechaCorta(x.fecha)}`, 'mov-sub', volver)).join('')).join('');
-    const faltan = [...g.faltan.values()].sort(porNombre).map((f) => `<div class="mov falta"><span class="mov-tipo"></span><span class="txt"><span class="tit">${esc(f)}</span></span><b>Pendiente</b></div>`).join('');
-    return `<details class="caja-clase${g.privada ? ' privada' : ''}"><summary class="cc-cab"><span><h3>${esc(g.nombre)}${g.privada ? candadoCaja : ''}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
+    const faltan = [...g.faltan.values()].sort((a, b) => porNombre(a.nombre, b.nombre)).map((f) => filaPendiente(f, g)).join('');
+    const nueva = S.cajaCobro && !g.privada && puedeEditar('inscripciones') && g.id ? `<a class="mp-nueva" href="#/inscripcion/nueva?clase=${g.id}&volver=${encodeURIComponent(volver || '#/caja')}">${ico('mas', 18)} Apuntar otra alumna en esta clase</a>` : '';
+    return `<details class="caja-clase${g.privada ? ' privada' : ''}" data-cc="${g.id || ''}"${S.ccAbiertas && S.ccAbiertas.has(g.id) ? ' open' : ''}><summary class="cc-cab"><span><h3>${esc(g.nombre)}${g.privada ? candadoCaja : ''}</h3><small>${n}${de} alumna${n === 1 && !de ? '' : 's'} pagada${n === 1 && !de ? '' : 's'}${g.faltan.size ? ` · faltan ${g.faltan.size}` : ''}</small></span>
       <span class="cc-tot"><b class="in">${eur(g.total)}</b></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
-      <div class="cc-movs">${pagadas}${faltan}</div></details>`;
+      <div class="cc-movs">${pagadas}${faltan}${nueva}</div></details>`;
   };
   // Las clases privadas (Pilates) van juntas en una sola tarjeta con la suma de todas; dentro, cada clase con lo suyo
   const privadas = juntarPilates ? lista.filter((g) => g.privada) : [], pn = privadas.reduce((t, g) => t + g.al.size, 0), pf = privadas.reduce((t, g) => t + g.faltan.size, 0);
@@ -1579,8 +1646,10 @@ async function pantallaCaja(params) {
     leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en')), clasesPrivadas(),
     !pilates && t !== 'ingreso' && !cajaSinApartados ? intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [],
     !pilates && t === 'ingreso' && sc === 'eventos' ? intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [],
-    necesitaIns ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id,alumnas(nombre,apellidos),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null]);
+    necesitaIns ? intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,clase_id,alumna_id,alumnas(nombre,apellidos,cuota),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null]);
   S.privadas = privadas;
+  // Para cobrar desde la lista de pendientes: este mes, con fecha de hoy; otro mes, el día 1 de ese mes
+  S.cajaCobro = !pilates && t === 'ingreso' && sc === 'mensualidad' ? { fecha: mes === hoy.slice(0, 7) ? hoy : ini, ini, mes: new Date(y, m - 1, 1).toLocaleDateString('es-ES', { month: 'long' }) } : null;
   const movs = deVistaCaja(todos, c);
   const ins = ins0 && c !== 'todo' ? ins0.filter((x) => privadas.has(x.clase_id) === pilates) : ins0;
   const porDia = {}; movs.forEach((x) => { (porDia[x.fecha] = porDia[x.fecha] || []).push(x); });
@@ -1612,6 +1681,7 @@ async function pantallaCaja(params) {
     ${pilates ? cajaMesPilates(movs, t, ins, { volver, base })
     : `${filtrosCaja(base, t, sc)}${cajaMes(movs, t, sc, ins, { volver, pendientes, cambios, base, c })}`}
   </main>`, 'caja', mas);
+  activarCobroRapido();
   $app.querySelectorAll('[data-devuelto]').forEach((b) => b.onclick = async () => {
     b.disabled = true;
     try { await q(sb.from('caja').update({ devuelto_en: hoy }).eq('id', b.dataset.devuelto)); aviso('Apuntado: el cambio ya está devuelto'); router(); }
@@ -2135,10 +2205,13 @@ async function formCaja(params, id = null) {
     document.getElementById('apartados').innerHTML = opciones.map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
     $app.querySelectorAll('[data-solo]').forEach((d) => { d.hidden = !d.dataset.solo.split(' ').includes(apartado); });
     document.getElementById('f_concepto').placeholder = PH[apartado] || '';
+    // Las mensualidades se cobran siempre en efectivo: no se pregunta cómo ha pagado (salvo un cobro antiguo hecho de otra forma)
+    const pg = document.getElementById('pago'); if (pg) pg.closest('.campo').hidden = soloEfectivo();
     mirarCupon();
   };
   // Forma de pago: efectivo si no se elige otra. Transferencia, tarjeta y Bizum van al banco y no restan del efectivo
   let metodo = (reg && reg.metodo) || 'efectivo';
+  const soloEfectivo = () => tipo === 'ingreso' && apartado === 'mensualidad' && (!reg || !reg.metodo || reg.metodo === 'efectivo');
   const pintarPago = () => {
     $app.querySelectorAll('[data-pago]').forEach((b) => b.classList.toggle('on', b.dataset.pago === metodo));
     const banco = metodo !== 'efectivo', av = document.getElementById('pago-aviso');
@@ -2157,7 +2230,7 @@ async function formCaja(params, id = null) {
     ev.preventDefault();
     const datos = Object.assign(leerForm(form, campos), { tipo, apartado });
     campos.filter((c) => c.solo && !c.solo.includes(apartado)).forEach((c) => { datos[c.k] = null; });
-    delete datos._cupon; delete datos._pago; datos.metodo = metodo;
+    delete datos._cupon; delete datos._pago; datos.metodo = soloEfectivo() ? 'efectivo' : metodo;
     const conCupon = cupon && !id && apartado === 'mensualidad' && datos.alumna_id === cupon.alumna;
     if (!(datos.importe > 0)) { aviso('El importe tiene que ser mayor que 0', true); return; }
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
