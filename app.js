@@ -1520,6 +1520,13 @@ function activarCobroRapido() {
     };
   });
 }
+// En el balance: cuántas alumnas de las clases (sin Pilates) faltan por pagar este mes
+const faltanMens = (men, ins) => {
+  if (!ins) return '';
+  const pag = new Set(men.filter(esCuota).map((x) => x.clase_id + '|' + x.alumna_id));
+  const n = new Set(ins.filter((x) => !esPrivada(x.clase_id)).map((x) => x.clase_id + '|' + x.alumna_id).filter((k) => !pag.has(k))).size;
+  return n ? `Faltan ${n} por cobrar` : '';
+};
 const esCuota = (x) => x.tipo === 'ingreso' && apartadoDe(x) === 'mensualidad' && x.alumna_id && x.clase_id;
 function cajaMensualidad(movs, ins, volver, { juntarPilates = true, titulo = 'Total mensualidades' } = {}) {
   const grupos = new Map(), nom = (al) => al ? `${al.nombre} ${al.apellidos || ''}`.trim() : 'Alumna';
@@ -1611,7 +1618,7 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
   // Balance: todo junto
   const cont = gen.filter(esContab), [, co] = sumaCaja(cont), [gi, go] = sumaCaja(gen), [pi, po] = sumaCaja(pil), neto = (v) => (v < 0 ? '−' : '+') + eur(Math.abs(v));
   return `<div class="lista">${totalCaja('balance', 'Balance del mes', c === 'todo' ? `General ${eur(gi - go)} · Pilates ${eur(pi - po)}` : `Ingresos ${eur(i)} · Gastos ${eur(o)}`, fuera ? `Cambio fuera: ${eur(fuera)} (no cuenta)` : '', i - o)}${bolsasCaja(movs)}
-    <div class="tarjeta reservas">${filaResumen('Mensualidades', lineaBolsas(men), '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', lineaBolsas(evs), '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', ['Escuela amiga y otros', lineaBolsas(ext)].filter(Boolean).join(' · '), '+' + eur(suma(ext)), ir('ingreso', 'total'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${cont.length || veContab() ? filaResumen(`Contabilidad${candadoCaja}`, ['Pagos al equipo y compras', lineaBolsas(cont, 1)].filter(Boolean).join(' · '), '−' + eur(co), `#/contabilidad?mes=${(base.match(/mes=([\d-]+)/) || [0, hoyISO().slice(0, 7)])[1]}`, 'out') : ''}${filaResumen('Gastos', [c === 'todo' ? 'Caja general' : '', lineaBolsas(gen.filter((x) => x.tipo === 'gasto' && !esContab(x)), 1)].filter(Boolean).join(' · ') || 'Limpieza, papelería, decoración…', '−' + eur(go - co), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', [faltanMens(men, ins), lineaBolsas(men)].filter(Boolean).join(' · '), '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', lineaBolsas(evs), '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', ['Escuela amiga y otros', lineaBolsas(ext)].filter(Boolean).join(' · '), '+' + eur(suma(ext)), ir('ingreso', 'total'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${cont.length || veContab() ? filaResumen(`Contabilidad${candadoCaja}`, ['Pagos al equipo y compras', lineaBolsas(cont, 1)].filter(Boolean).join(' · '), '−' + eur(co), `#/contabilidad?mes=${(base.match(/mes=([\d-]+)/) || [0, hoyISO().slice(0, 7)])[1]}`, 'out') : ''}${filaResumen('Gastos', [c === 'todo' ? 'Caja general' : '', lineaBolsas(gen.filter((x) => x.tipo === 'gasto' && !esContab(x)), 1)].filter(Boolean).join(' · ') || 'Limpieza, papelería, decoración…', '−' + eur(go - co), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
 }
 // Caja de Pilates: lo cobrado en sus clases y sus gastos, sin nada de la caja general
 function cajaMesPilates(movs, t, ins, { conFecha = true, volver, base }) {
@@ -1631,12 +1638,13 @@ async function pantallaCaja(params) {
   if (params.get('v') === 'horas') return await pantallaHoras(params);
   const hoy = hoyISO();
   const c = vistaCaja(params), pilates = c === 'pilates';
-  const mes = params.get('mes') || hoy.slice(0, 7), t = tipoCaja(params), sc = pilates ? '' : subCaja(params, t);
+  // Quien cobra en recepción (no la administración) entra directa a Ingresos › Mensualidad, con las alumnas pendientes ya cargadas
+  const mes = params.get('mes') || hoy.slice(0, 7), t = params.get('t') || S.admin || pilates || !puedeEditar('caja') ? tipoCaja(params) : 'ingreso', sc = pilates ? '' : subCaja(params, t);
   const [y, m] = mes.split('-').map(Number);
   const ini = `${mes}-01`, fin = `${m === 12 ? y + 1 : y}-${pad(m === 12 ? 1 : m + 1)}-01`;
   // Las direcciones llevan la caja elegida (Todo, General o Pilates) para no perderla al cambiar de mes o de pestaña
   const conC = (mm) => `#/caja?mes=${mm}${eligeCaja() ? '&c=' + c : ''}`, base = conC(mes);
-  const necesitaIns = (pilates ? t !== 'gasto' : t === 'ingreso' && sc === 'mensualidad') && puedeVer('inscripciones');
+  const necesitaIns = (pilates ? t !== 'gasto' : (t === 'ingreso' && sc === 'mensualidad') || t === 'todo') && puedeVer('inscripciones');
   // Ojo: una profesora no ve las fichas de alumnas de otras clases, así que i.alumnas / r.alumnas pueden venir vacías
   // Todo a la vez (antes iba una consulta detrás de otra)
   // Cambio: el de este mes y el que siga fuera de meses anteriores
