@@ -645,3 +645,13 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .contab-cobrar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:14px;background:#E3F3EA;color:#1F8A5C;font-size:14px;font-weight:600}
 .contab-cobrar b{margin-left:auto;font-family:'Sora',sans-serif;font-size:16px}
 .contab-grande{font-family:'Sora',sans-serif;font-size:22px;font-weight:700}
+/* Caja › Mensualidad: cobrar una pendiente con un toque y dar de baja desde la caja */
+.cc-movs .mens-pend{padding:10px 16px;min-height:56px}
+.cc-movs .mov+.mens-pend,.cc-movs .mens-pend+.mov,.cc-movs .mens-pend+.mens-pend{border-top:1px solid var(--borde)}
+.mens-pend .mp-abrir.txt{background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer;min-height:44px;justify-content:center}
+.mens-pend .det{color:var(--texto2)}
+.mp-panel{flex-basis:100%;display:grid;gap:8px;padding:4px 0 6px}
+.mp-panel[hidden]{display:none}
+.mp-et{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--texto2);margin-top:4px}
+.mp-baja{justify-self:start;display:inline-flex;align-items:center;gap:6px;min-height:40px;margin-top:4px;padding:0 14px;border-radius:999px;border:0;background:rgba(209,47,59,0.08);color:var(--gasto);font-weight:600;cursor:pointer}
+.mp-nueva{display:flex;align-items:center;justify-content:center;gap:6px;min-height:48px;border-top:1px solid var(--borde);color:var(--morado3);font-weight:700;text-decoration:none}
