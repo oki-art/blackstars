@@ -1455,7 +1455,7 @@ const botonesCaja = (c, ir) => eligeCaja() ? `<div class="filtros cajas">${[['to
 const candadoCaja = ` <span class="candado" title="Clase privada: solo la ven la administración, quien tenga el permiso Pilates y su profesora">${ico('candado', 14)}</span>`;
 // Mensualidad: por clase, alumnas que han pagado (y las que faltan) y lo cobrado; arriba el total de todas las clases
 // Cobro rápido de la mensualidad: las alumnas que siguen en la clase salen ya cargadas como "Pendiente";
-// al tocarlas se elige cuánto (completo, medio u otra cantidad) y cómo paga, y queda cobrada. Desde ahí también se da de baja.
+// al tocarlas se elige cuánto (completo, medio u otra cantidad) y queda cobrada en efectivo (las mensualidades se cobran siempre en efectivo). Desde ahí también se da de baja.
 const PRECIOS_MES = [['completo', 'Completo', CUOTA_MES], ['medio', 'Medio', 20]];
 function filaPendiente(f, g) {
   const a = f.ins.alumnas || {}, media = a.cuota === 'media';
@@ -1469,8 +1469,7 @@ function filaPendiente(f, g) {
       <div class="vt-metodos pv-precios">${PRECIOS_MES.map(([k, t, imp]) => `<button type="button" data-mp-precio="${k}" data-imp="${imp}" class="${k === defecto ? 'activo' : ''}">${t}<small>${imp} €</small></button>`).join('')}<button type="button" data-mp-precio="otro">Otro</button>
         <div class="pv-otro mp-otro" hidden><input type="text" inputmode="decimal" placeholder="Cantidad en €" aria-label="Otra cantidad en euros"></div></div>
       <div class="obj-cupon mp-cupon" hidden></div>
-      <small class="mp-et">¿Cómo paga? Al tocar queda cobrado</small>
-      <div class="vt-metodos">${METODOS.map(([k, t]) => `<button type="button" data-mp-pagar="${k}">${t}</button>`).join('')}</div>
+      <button type="button" class="btn pri ancho" data-mp-pagar="efectivo">${ico('euro', 18)} Cobrar en efectivo</button>
       ${puedeEditar('inscripciones') && f.ins.id ? `<button type="button" class="mp-baja">${ico('papelera', 16)} Dar de baja de la clase</button>` : ''}
     </div></div>`;
 }
@@ -2206,10 +2205,13 @@ async function formCaja(params, id = null) {
     document.getElementById('apartados').innerHTML = opciones.map(([k, t]) => `<button type="button" data-ap="${k}" class="${k === apartado ? 'on' : ''}">${t}</button>`).join('');
     $app.querySelectorAll('[data-solo]').forEach((d) => { d.hidden = !d.dataset.solo.split(' ').includes(apartado); });
     document.getElementById('f_concepto').placeholder = PH[apartado] || '';
+    // Las mensualidades se cobran siempre en efectivo: no se pregunta cómo ha pagado (salvo un cobro antiguo hecho de otra forma)
+    const pg = document.getElementById('pago'); if (pg) pg.closest('.campo').hidden = soloEfectivo();
     mirarCupon();
   };
   // Forma de pago: efectivo si no se elige otra. Transferencia, tarjeta y Bizum van al banco y no restan del efectivo
   let metodo = (reg && reg.metodo) || 'efectivo';
+  const soloEfectivo = () => tipo === 'ingreso' && apartado === 'mensualidad' && (!reg || !reg.metodo || reg.metodo === 'efectivo');
   const pintarPago = () => {
     $app.querySelectorAll('[data-pago]').forEach((b) => b.classList.toggle('on', b.dataset.pago === metodo));
     const banco = metodo !== 'efectivo', av = document.getElementById('pago-aviso');
@@ -2228,7 +2230,7 @@ async function formCaja(params, id = null) {
     ev.preventDefault();
     const datos = Object.assign(leerForm(form, campos), { tipo, apartado });
     campos.filter((c) => c.solo && !c.solo.includes(apartado)).forEach((c) => { datos[c.k] = null; });
-    delete datos._cupon; delete datos._pago; datos.metodo = metodo;
+    delete datos._cupon; delete datos._pago; datos.metodo = soloEfectivo() ? 'efectivo' : metodo;
     const conCupon = cupon && !id && apartado === 'mensualidad' && datos.alumna_id === cupon.alumna;
     if (!(datos.importe > 0)) { aviso('El importe tiene que ser mayor que 0', true); return; }
     if (apartado === 'evento' && !datos.evento_id) { aviso('Elige el evento', true); return; }
