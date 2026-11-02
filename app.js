@@ -109,6 +109,8 @@ function ico(nombre, t = 20) {
     profe: '<circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', salir: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
     wa: '<path d="M3 21l1.7-5A8.5 8.5 0 1 1 8 19.4z"/>', copiar: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
     trofeo: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>',
+    nota: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>', reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    play: '<path d="M8 5v14l11-7z" fill="currentColor"/>', pausa: '<path d="M8 5v14M16 5v14"/>',
     euro: '<path d="M17 6.5A7 7 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
   }[nombre] || '';
   return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -2789,7 +2791,7 @@ async function pantallaEvento(id) {
   ]);
   // Una profesora solo abre los eventos en los que está (como profesora o coordinadora)
   if (!e) return pintar(cabecera('Evento', { volver: '#/eventos' }) + `<main class="cont">${vacio('Este evento no es tuyo: solo lo ven quienes lo coordinan o dan clase en él, y la administración.')}</main>`, 'mas');
-  const coords = coords0 || await leerCoordinadoras(e), conTabla = await hayCoordinadoras();
+  const [coords, conTabla, cs] = await Promise.all([coords0 || leerCoordinadoras(e), hayCoordinadoras(), leerCanciones(e)]);   // cs: canciones (033)
   const nomProf = new Map((nombres || []).map((n) => [n.profesora_id, n.nombre]));
   [...coords, ...profs].forEach((x) => { if (!x.profesoras && nomProf.has(x.profesora_id)) x.profesoras = { nombre: nomProf.get(x.profesora_id) }; });
   [...coords, ...profs].forEach((x) => { if (x.profesora_id && x.profesoras) nomProf.set(x.profesora_id, x.profesoras.nombre); });
@@ -2820,6 +2822,7 @@ async function pantallaEvento(id) {
       ${e.descripcion ? `<div class="largo"><dt>Descripción</dt><dd>${conFormato(e.descripcion)}</dd></div>` : ''}${e.normas ? `<div class="largo"><dt>Normas</dt><dd>${conFormato(e.normas)}</dd></div>` : ''}${e.condiciones ? `<div class="largo"><dt>Condiciones</dt><dd>${conFormato(e.condiciones)}</dd></div>` : ''}
     </dl></div>
     ${ed ? `<a class="btn sec" href="#/evento/${id}/editar">${ico('lapiz')} Editar evento</a>` : ''}
+    ${bloqueCanciones(e, cs, nomProf, [...profs, ...coords].map((x) => x.profesora_id).filter(Boolean))}
     ${bloqueObjetivo(e, ob, nomProf)}
     ${htmlCoord}
     ${e.con_ventas === false ? '' : htmlVentas}
@@ -2832,7 +2835,7 @@ async function pantallaEvento(id) {
     ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${optAlus.filter(([aid]) => !ins.some((i) => i.alumnas && i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
-  activarCobros(); activarObjetivo(id);
+  activarCobros(); activarObjetivo(id); activarCanciones(e, cs, nomProf);
   const sp = document.getElementById('addProf');
   if (sp) sp.onchange = async () => { if (!sp.value) return; try { await q(sb.from('evento_profesoras').insert({ evento_id: id, profesora_id: sp.value })); router(); } catch (er) { aviso(traducirError(er), true); } };
   const sc = document.getElementById('addCoord');
@@ -2952,6 +2955,263 @@ function activarObjetivo(id) {
     try { await q(sb.rpc('pagar_objetivo', { p_evento: id, p_profesora: b.dataset.prof, p_metodo: b.dataset.objMetodo })); aviso('Pagado: está en la caja del evento como gasto'); router(); }
     catch (e) { aviso(traducirError(e), true); b.disabled = false; }
   });
+}
+/* ---------- canciones de las profesoras en un evento (migración 033) ----------
+   En los eventos con la casilla «Las profesoras ponen sus canciones», cada profesora apunta las suyas: título, artista,
+   duración, su orden de preferencia (1, 2, 3…) y el archivo de música. Ella ve y cambia solo las suyas;
+   la administración ve las de todas, las escucha y las descarga (una a una o todas en un ZIP). */
+async function hayCanciones() {   // ¿está pegada la migración 033?
+  if (S.cancionesOk == null) { const { error } = await sb.from('evento_canciones').select('id').limit(1); S.cancionesOk = !error; }
+  return S.cancionesOk;
+}
+const gestionaCanciones = () => S.admin || (puedeEditar('eventos') && !(S.permisos.eventos && S.permisos.eventos.solo_propias));
+const durTxt = (s) => s == null ? '—' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const mbTxt = (b) => (b / 1048576).toLocaleString('es-ES', { maximumFractionDigits: b < 10485760 ? 1 : 0 }) + ' MB';
+const sumaDur = (l) => l.reduce((t, c) => t + (+c.duracion_seg || 0), 0);
+// Nombre con el que se guarda en el móvil: «Conchy 1 - Star Music.mp3»
+const nombreCancion = (c, nom) => `${String(nom || '').trim().split(/\s+/)[0]} ${c.orden} - ${c.titulo}`.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
+  + '.' + ((c.archivo_nombre || c.archivo || '').split('.').pop() || 'mp3').toLowerCase().replace(/[^a-z0-9]/g, '');
+async function leerCanciones(e) {
+  if (!e.con_canciones || !(await hayCanciones())) return null;
+  const [l, yo] = await Promise.all([
+    intentar(() => q(sb.from('evento_canciones').select('*').eq('evento_id', e.id).order('orden').order('creado_en'))),
+    gestionaCanciones() ? null : miProfesora()
+  ]);
+  return { l, yo: yo && yo.id };
+}
+function bloqueCanciones(e, cs, nomProf, profsEv) {
+  if (!('con_canciones' in e)) return '';
+  const gest = gestionaCanciones();
+  if (!cs) return gest && S.cancionesOk !== false ? `<button class="btn sec" data-can-activar>${ico('nota')} Pedir canciones a las profesoras</button>` : '';
+  const nom = (pid) => nomProf.get(pid) || '—';
+  const de = (pid) => cs.l.filter((c) => c.profesora_id === pid).sort((a, b) => a.orden - b.orden);
+  const filaCan = (c, i, n, modo) => `<div class="can">${modo === 'suya' ? `<a class="can-ir" href="#/cancion/${c.id}" aria-label="Cambiar ${esc(c.titulo)}">` : '<span class="can-ir">'}
+      <span class="num">${c.orden}</span><span class="txt"><span class="tit">${esc(c.titulo)}</span><span class="det">${c.archivo ? esc(c.artista || 'Archivo subido') : '<span class="can-sin">Sin archivo todavía</span>'}</span></span>
+      <span class="dur">${durTxt(c.duracion_seg)}</span>${modo === 'suya' ? '</a>' : '</span>'}
+    ${c.archivo ? `<button class="can-play" data-can-play="${c.id}" aria-label="Escuchar ${esc(c.titulo)}">${ico('play', 18)}</button>` : ''}
+    ${modo === 'todas' && c.archivo ? `<button class="can-bajar" data-can-bajar="${c.id}" aria-label="Descargar ${esc(c.titulo)}">${ico('bajar', 20)}</button>` : ''}
+    ${modo === 'suya' ? `<span class="can-flechas"><button data-can-mover="${c.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Subir">${ico('arriba', 18)}</button><button data-can-mover="${c.id}" data-dir="1" ${i === n - 1 ? 'disabled' : ''} aria-label="Bajar">${ico('abajo', 18)}</button></span>` : ''}</div>`;
+  // La profesora: solo las suyas
+  if (!gest) {
+    if (!cs.yo) return '';
+    const l = de(cs.yo);
+    return `<div class="can-ev"><div class="can-et">${ico('nota', 18)} Tus canciones para ${esc(e.titulo)}</div>
+      <p>Sube el archivo de cada canción y ponlas en el orden en que te gustaría que salieran. El 1 es la que más quieres.</p>
+      ${l.length ? `<div class="lista">${l.map((c, i) => filaCan(c, i, l.length, 'suya')).join('')}</div>
+      <div class="can-tot"><span>${ico('reloj', 18)} ${l.length} canci${l.length === 1 ? 'ón' : 'ones'}</span><b>${durTxt(sumaDur(l))}</b></div>` : vacio('Todavía no has puesto ninguna canción.')}
+      <a class="btn pri ancho" href="#/cancion/nueva?evento=${e.id}">${ico('mas')} Añadir canción</a>
+      ${l.length ? '<p class="can-ayuda">▶ para escucharla. Con las flechas cambias el orden. Toca una canción para cambiarla o borrarla.</p>' : ''}</div>`;
+  }
+  // La administración: las de todas las profesoras del evento (y las de quien ya no esté en él pero las puso)
+  const pids = [];
+  [...profsEv, ...cs.l.map((c) => c.profesora_id)].forEach((pid) => { if (pid && !pids.includes(pid)) pids.push(pid); });
+  const faltan = pids.filter((pid) => !de(pid).length);
+  const conArchivo = cs.l.filter((c) => c.archivo), bytes = cs.l.reduce((t, c) => t + (+c.archivo_bytes || 0), 0);
+  const cajon = (pid) => {
+    const l = de(pid), sin = l.filter((c) => !c.archivo).length;
+    if (!l.length) return `<div class="caja-clase otros"><div class="cc-cab"><span><h3>${esc(nom(pid))}</h3><small>Aún no ha puesto canciones</small></span><span class="chip no">Falta</span></div></div>`;
+    return `<details class="caja-clase can-prof" open><summary class="cc-cab"><span><h3>${esc(nom(pid))}</h3><small>${l.length} canci${l.length === 1 ? 'ón' : 'ones'} · ${durTxt(sumaDur(l))}${sin ? ` · ${sin} sin archivo` : ''}</small></span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-movs"><div class="lista">${l.map((c, i) => filaCan(c, i, l.length, 'todas')).join('')}</div></div></details>`;
+  };
+  return `<div class="can-ev"><div class="can-et">${ico('nota', 18)} Canciones de las profesoras</div>
+      <div class="totales"><div><small>Canciones</small><b>${cs.l.length}</b></div><div><small>Duración</small><b>${durTxt(sumaDur(cs.l))}</b></div><div><small>Faltan</small><b class="${faltan.length ? 'out' : 'in'}">${faltan.length}</b></div></div>
+      ${conArchivo.length ? `<button class="btn verde ancho" data-can-todas>${ico('bajar')} Descargar todas (${conArchivo.length} archivo${conArchivo.length === 1 ? '' : 's'})</button>` : ''}
+      <div class="lista">${pids.map(cajon).join('') || vacio('Este evento no tiene profesoras. Añádelas abajo, en Profesoras.')}</div>
+      ${bytes ? `<div class="can-espacio"><span>Las canciones ocupan ${mbTxt(bytes)}. El plan gratis tiene 1 GB para todos los archivos de la app.</span><div class="can-barra"><i style="width:${Math.min(100, Math.max(2, bytes / 10737418.24)).toFixed(1)}%"></i></div></div>` : ''}
+    </div>
+    ${cs.l.length ? `<button class="btn sec" data-can-copiar>${ico('copiar')} Copiar la lista para WhatsApp</button>` : ''}
+    ${conArchivo.length && S.admin ? `<button class="btn peligro" data-can-borrar-archivos>${ico('papelera')} Borrar los archivos de música (tras la gala)</button>` : ''}`;
+}
+// Reproductor: uno solo para toda la app; tocar la misma canción la para
+let audioCan = null;
+async function tocarCancion(b, c) {
+  if (audioCan && audioCan.dataset.id === c.id) { audioCan.pause(); audioCan = null; b.innerHTML = ico('play', 18); b.classList.remove('on'); return; }
+  if (audioCan) { audioCan.pause(); document.querySelectorAll('[data-can-play].on').forEach((x) => { x.classList.remove('on'); x.innerHTML = ico('play', 18); }); }
+  try {
+    const { data, error } = await sb.storage.from('canciones').createSignedUrl(c.archivo, 3600); if (error) throw error;
+    audioCan = new Audio(data.signedUrl); audioCan.dataset.id = c.id;
+    const fin = () => { b.classList.remove('on'); b.innerHTML = ico('play', 18); if (audioCan && audioCan.dataset.id === c.id) audioCan = null; };
+    audioCan.onended = fin; audioCan.onerror = () => { fin(); aviso('No se pudo reproducir este archivo. Prueba a descargarlo.', true); };
+    b.classList.add('on'); b.innerHTML = ico('pausa', 18);
+    await audioCan.play();
+  } catch (e) { b.classList.remove('on'); b.innerHTML = ico('play', 18); aviso(traducirError(e), true); }
+}
+addEventListener('hashchange', () => { if (audioCan) { audioCan.pause(); audioCan = null; } });
+// Guardar un archivo en el móvil con su nombre
+function guardarArchivo(blob, nombre) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+let cargaZip = null;
+const cargarZip = () => cargaZip || (cargaZip = new Promise((ok, mal) => {
+  const s = document.createElement('script'); s.src = 'vendor/jszip.min.js';
+  s.onload = () => ok(window.JSZip); s.onerror = () => { cargaZip = null; mal(new Error('No se pudo preparar la descarga. Revisa la conexión.')); };
+  document.head.appendChild(s);
+}));
+// Vuelve a numerar 1, 2, 3… las canciones de una profesora en el orden dado (solo guarda las que cambian)
+async function renumerarCanciones(lista) {
+  await Promise.all(lista.map((c, i) => c.orden === i + 1 ? null : q(sb.from('evento_canciones').update({ orden: i + 1 }).eq('id', c.id))));
+}
+function activarCanciones(e, cs, nomProf) {
+  const id = e.id, porId = (cid) => cs && cs.l.find((c) => c.id === cid);
+  const act = $app.querySelector('[data-can-activar]');
+  if (act) act.onclick = async () => {
+    if (!confirm('¿Pedir canciones a las profesoras de este evento? Cada una podrá subir las suyas y ponerlas en orden.')) return;
+    try { await q(sb.from('eventos').update({ con_canciones: true }).eq('id', id)); aviso('Listo: ya pueden poner sus canciones'); router(); } catch (er) { aviso(traducirError(er), true); }
+  };
+  if (!cs) return;
+  $app.querySelectorAll('[data-can-play]').forEach((b) => b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); const c = porId(b.dataset.canPlay); if (c) tocarCancion(b, c); });
+  $app.querySelectorAll('[data-can-bajar]').forEach((b) => b.onclick = async () => {
+    const c = porId(b.dataset.canBajar); if (!c) return;
+    b.disabled = true;
+    try { const { data, error } = await sb.storage.from('canciones').download(c.archivo); if (error) throw error; guardarArchivo(data, nombreCancion(c, nomProf.get(c.profesora_id))); }
+    catch (er) { aviso(traducirError(er), true); }
+    b.disabled = false;
+  });
+  const todas = $app.querySelector('[data-can-todas]');
+  if (todas) todas.onclick = async () => {
+    const l = cs.l.filter((c) => c.archivo), txt = todas.innerHTML;
+    todas.disabled = true;
+    try {
+      const JSZip = await cargarZip(), zip = new JSZip();
+      for (let i = 0; i < l.length; i++) {
+        todas.textContent = `Descargando ${i + 1} de ${l.length}…`;
+        const { data, error } = await sb.storage.from('canciones').download(l[i].archivo); if (error) throw error;
+        zip.file(nombreCancion(l[i], nomProf.get(l[i].profesora_id)), data);
+      }
+      todas.textContent = 'Preparando el archivo…';
+      // Sin comprimir: la música ya va comprimida y así tarda menos
+      guardarArchivo(await zip.generateAsync({ type: 'blob', compression: 'STORE' }), `Canciones ${e.titulo}.zip`.replace(/[\\/:*?"<>|]+/g, ' '));
+      aviso('Descargadas: están en un archivo ZIP');
+    } catch (er) { aviso(traducirError(er), true); }
+    todas.disabled = false; todas.innerHTML = txt;
+  };
+  const copiar = $app.querySelector('[data-can-copiar]');
+  if (copiar) copiar.onclick = async () => {
+    const pids = [...new Set(cs.l.map((c) => c.profesora_id))];
+    const texto = `🎵 Canciones · ${e.titulo}\n` + pids.map((pid) => {
+      const l = cs.l.filter((c) => c.profesora_id === pid).sort((a, b) => a.orden - b.orden);
+      return `\n*${nomProf.get(pid) || '—'}* (${durTxt(sumaDur(l))})\n` + l.map((c) => `${c.orden}. ${c.titulo}${c.artista ? ' – ' + c.artista : ''} (${durTxt(c.duracion_seg)})`).join('\n');
+    }).join('\n') + `\n\nTotal: ${cs.l.length} canciones · ${durTxt(sumaDur(cs.l))}`;
+    try { await navigator.clipboard.writeText(texto); aviso('Copiada: pégala en WhatsApp'); }
+    catch (er) { window.open('https://wa.me/?text=' + encodeURIComponent(texto), '_blank', 'noopener'); }
+  };
+  const borrar = $app.querySelector('[data-can-borrar-archivos]');
+  if (borrar) borrar.onclick = async () => {
+    if (!confirm('¿Borrar todos los archivos de música de este evento? La lista de canciones (títulos, duración y orden) se queda. Descárgalas antes si las quieres guardar.')) return;
+    borrar.disabled = true;
+    try {
+      const rutas = cs.l.filter((c) => c.archivo).map((c) => c.archivo);
+      const { error } = await sb.storage.from('canciones').remove(rutas); if (error) throw error;
+      await q(sb.from('evento_canciones').update({ archivo: null, archivo_nombre: null, archivo_bytes: null }).eq('evento_id', id).not('archivo', 'is', null));
+      aviso('Archivos borrados'); router();
+    } catch (er) { aviso(traducirError(er), true); borrar.disabled = false; }
+  };
+  $app.querySelectorAll('[data-can-mover]').forEach((b) => b.onclick = async (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const c = porId(b.dataset.canMover); if (!c) return;
+    const l = cs.l.filter((x) => x.profesora_id === c.profesora_id).sort((a, x) => a.orden - x.orden);
+    const i = l.indexOf(c), j = i + +b.dataset.dir;
+    if (j < 0 || j >= l.length) return;
+    [l[i], l[j]] = [l[j], l[i]];
+    $app.querySelectorAll('[data-can-mover]').forEach((x) => { x.disabled = true; });
+    try { await renumerarCanciones(l); router(); } catch (er) { aviso(traducirError(er), true); router(); }
+  });
+}
+// Añadir o cambiar una canción
+const MIME_AUDIO = { mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', webm: 'audio/webm', flac: 'audio/flac' };
+function duracionArchivo(file) {   // segundos, o null si el móvil no la sabe leer
+  return new Promise((ok) => {
+    const url = URL.createObjectURL(file), a = new Audio();
+    const fin = (v) => { URL.revokeObjectURL(url); ok(v); };
+    a.preload = 'metadata'; a.onloadedmetadata = () => fin(isFinite(a.duration) && a.duration > 0 ? Math.round(a.duration) : null);
+    a.onerror = () => fin(null); setTimeout(() => fin(null), 8000); a.src = url;
+  });
+}
+async function formCancion(params, cid) {
+  if (!(await hayCanciones())) return pintar(cabecera('Canción', { volver: '#/eventos' }) + `<main class="cont">${vacio('Falta pegar en Supabase el paso 033 (canciones). Cuando esté, ya se puede usar.')}</main>`, false);
+  const c = cid ? await q(sb.from('evento_canciones').select('*').eq('id', cid).maybeSingle()) : null;
+  if (cid && !c) return pintar(cabecera('Canción', { volver: '#/eventos' }) + `<main class="cont">${vacio('Esta canción ya no existe o no es tuya.')}</main>`, false);
+  const evId = c ? c.evento_id : params.get('evento');
+  const yo = c ? { id: c.profesora_id } : await miProfesora();
+  if (!yo) return pintar(cabecera('Nueva canción', { volver: `#/evento/${evId}` }) + `<main class="cont">${vacio('Las canciones las pone cada profesora desde su usuario.')}</main>`, false);
+  const [e, suyas] = await Promise.all([
+    q(sb.from('eventos').select('id,titulo').eq('id', evId).single()),
+    q(sb.from('evento_canciones').select('id,orden').eq('evento_id', evId).eq('profesora_id', yo.id).order('orden'))
+  ]);
+  const n = suyas.filter((x) => !c || x.id !== c.id).length + 1;   // puestos posibles (contando esta)
+  let orden = c ? Math.min(c.orden, n) : n, file = null, dur = c ? c.duracion_seg : null;
+  const volver = `#/evento/${evId}`;
+  pintar(cabecera(c ? 'Cambiar canción' : 'Nueva canción', { volver, sub: esc(e.titulo) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_archivo">Archivo de la canción</label>
+      <label class="can-subir" for="f_archivo"><span class="can-subir-ico">${ico('nota', 22)}</span><span class="txt"><b id="arch-nom">${c && c.archivo ? esc(c.archivo_nombre || 'Archivo subido') : 'Elegir la canción del móvil'}</b><small id="arch-det">${c && c.archivo ? (c.archivo_bytes ? mbTxt(c.archivo_bytes) + ' · ' : '') + 'toca para cambiarlo' : 'MP3 o m4a, hasta 50 MB'}</small></span>${ico('subir', 20)}</label>
+      <input id="f_archivo" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" hidden>
+      <div class="ayuda">Si aún no la tienes, puedes guardar solo el título y subirla más tarde.</div></div>
+    <div class="campo"><label for="f_titulo">Título de la canción</label><input id="f_titulo" required maxlength="120" value="${esc(c ? c.titulo : '')}"></div>
+    <div class="campo"><label for="f_artista">Artista (si quieres)</label><input id="f_artista" maxlength="120" value="${esc(c ? c.artista || '' : '')}"></div>
+    <div class="campo"><label for="f_min">Duración <span class="can-auto" id="dur-auto" hidden>${ico('check', 12)} sacada del archivo</span></label>
+      <div class="can-dur"><input id="f_min" inputmode="numeric" maxlength="2" value="${dur != null ? Math.floor(dur / 60) : ''}" aria-label="Minutos"><small>min</small><span>:</span><input id="f_seg" inputmode="numeric" maxlength="2" value="${dur != null ? String(dur % 60).padStart(2, '0') : ''}" aria-label="Segundos"><small>seg</small></div>
+      <div class="ayuda">Si la vais a cortar para el evento, pon aquí lo que durará.</div></div>
+    <div class="campo"><label>Orden de preferencia</label><div class="can-orden" id="orden">${Array.from({ length: n }, (_, i) => `<button type="button" data-o="${i + 1}" class="${i + 1 === orden ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
+      <div class="ayuda">En qué lugar te gustaría que saliera. Si ya hay otra en ese número, las demás se mueven un puesto solas.</div></div>
+    <button class="btn pri ancho" type="submit">Guardar canción</button>
+    ${c ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar canción</button>' : ''}</form></main>`, false);
+  const $ = (x) => document.getElementById(x);
+  $('orden').onclick = (ev) => { const b = ev.target.closest('[data-o]'); if (!b) return; orden = +b.dataset.o; $('orden').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+  $('f_archivo').onchange = async () => {
+    const f = $('f_archivo').files[0]; if (!f) return;
+    if (f.size > 52428800) { aviso('El archivo pasa de 50 MB', true); $('f_archivo').value = ''; return; }
+    file = f;
+    $('arch-nom').textContent = f.name; $('arch-det').textContent = mbTxt(f.size) + ' · se sube al guardar';
+    // Título y artista a partir del nombre («Lolita - Sarandonga.mp3»), solo si están vacíos
+    const base = f.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim(), partes = base.split(/\s+-\s+/);
+    if (!$('f_titulo').value.trim()) $('f_titulo').value = partes.length === 2 ? partes[1] : base;
+    if (!$('f_artista').value.trim() && partes.length === 2) $('f_artista').value = partes[0];
+    const s = await duracionArchivo(f);
+    if (s != null) { $('f_min').value = Math.floor(s / 60); $('f_seg').value = String(s % 60).padStart(2, '0'); $('dur-auto').hidden = false; }
+  };
+  $('frm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const titulo = $('f_titulo').value.trim(); if (!titulo) { aviso('Pon el título de la canción', true); return; }
+    const m = $('f_min').value.trim(), s = $('f_seg').value.trim();
+    if ((m && !/^\d+$/.test(m)) || (s && (!/^\d+$/.test(s) || +s > 59))) { aviso('Revisa la duración: minutos y segundos (de 0 a 59)', true); return; }
+    const btn = ev.target.querySelector('[type=submit]'); btn.disabled = true;
+    let subida = null;
+    try {
+      const datos = { titulo, artista: $('f_artista').value.trim() || null, duracion_seg: m || s ? (+m || 0) * 60 + (+s || 0) : null };
+      if (file) {
+        btn.textContent = 'Subiendo la canción…';
+        const ext = (file.name.split('.').pop() || 'mp3').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp3';
+        subida = `${evId}/${yo.id}/${Date.now()}.${ext}`;
+        const { error } = await sb.storage.from('canciones').upload(subida, file, { contentType: file.type || MIME_AUDIO[ext] || 'audio/mpeg' });
+        if (error) throw error;
+        Object.assign(datos, { archivo: subida, archivo_nombre: file.name, archivo_bytes: file.size });
+      }
+      let fila;
+      if (c) fila = await q(sb.from('evento_canciones').update(datos).eq('id', c.id).select('id').single());
+      else fila = await q(sb.from('evento_canciones').insert({ ...datos, evento_id: evId, profesora_id: yo.id, orden: n }).select('id').single());
+      if (file && c && c.archivo) sb.storage.from('canciones').remove([c.archivo]).catch(() => {});   // el archivo de antes ya no hace falta
+      // Se coloca en el puesto elegido y las demás se mueven
+      const resto = suyas.filter((x) => x.id !== fila.id);
+      resto.splice(orden - 1, 0, { id: fila.id, orden: c ? c.orden : n });
+      await renumerarCanciones(resto);
+      aviso('Canción guardada'); location.hash = volver;
+    } catch (er) {
+      if (subida) sb.storage.from('canciones').remove([subida]).catch(() => {});
+      aviso(/mime|type|not supported/i.test(String(er && er.message)) ? 'Ese archivo no es de música (MP3 o m4a)' : traducirError(er), true);
+      btn.disabled = false; btn.textContent = 'Guardar canción';
+    }
+  };
+  if (c) $('borrar').onclick = async () => {
+    if (!confirm(`¿Borrar «${c.titulo}»?`)) return;
+    try {
+      if (c.archivo) await sb.storage.from('canciones').remove([c.archivo]);
+      await q(sb.from('evento_canciones').delete().eq('id', c.id));
+      await renumerarCanciones(suyas.filter((x) => x.id !== c.id));
+      aviso('Borrada'); location.hash = volver;
+    } catch (er) { aviso(traducirError(er), true); }
+  };
 }
 // Activar el objetivo en un evento: cuánto por alumna y el código de cada profesora
 async function formObjetivo(id) {
@@ -3320,6 +3580,7 @@ async function formEvento(id, params) {
   const venta = !id && params && params.get('venta') === '1';
   const conTabla = await hayCoordinadoras();
   const conVentas = !!id && !(await sb.from('eventos').select('con_ventas').limit(1)).error;   // ¿está pegada la 030?
+  const conCanciones = await hayCanciones();   // ¿está pegada la 033?
   let campoCoord = { k: 'coordinadora_id', label: 'Coordina', tipo: 'select', opciones: puedeVer('profesoras') ? await intentar(opcionesProfesoras) : [] };
   let opc = null;
   if (conTabla) {
@@ -3348,6 +3609,8 @@ async function formEvento(id, params) {
       ...(id ? [] : [{ k: '_vender', label: 'Se vende algo (camisetas, entradas…). Al guardar te pido qué, el precio y las tallas.', tipo: 'bool' }]),
       // Con la casilla quitada, el apartado de ventas y reservas no sale en el evento (migración 030)
       ...(id && conVentas ? [{ k: 'con_ventas', label: 'En este evento se venden cosas (camisetas, entradas…). Si la quitas, nadie ve las ventas y reservas de este evento.', tipo: 'bool' }] : []),
+      // Cada profesora del evento apunta sus canciones y su orden (migración 033)
+      ...(conCanciones ? [{ k: 'con_canciones', label: 'Las profesoras ponen sus canciones (título, duración, orden y el archivo de música). Tú ves las de todas.', tipo: 'bool' }] : []),
       { k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true }, { k: 'hora', label: 'Hora', tipo: 'hora' },
       { k: 'lugar', label: 'Lugar' }, campoCoord,
       { k: 'descripcion', label: 'Descripción', tipo: 'textarea', formato: true }, { k: 'precio_alumna', label: 'Precio por alumna (€)', tipo: 'dinero' },
@@ -4134,6 +4397,7 @@ async function router() {
         if (p[2] === 'editar') return await formEvento(p[1]);
         if (p[2] === 'objetivo') return await formObjetivo(p[1]);
         return await pantallaEvento(p[1]);
+      case 'cancion': return await formCancion(params, p[1] === 'nueva' ? null : p[1]);
       case 'interesada': return await formInteresada(params, p[1] === 'nueva' ? null : p[1]);
       case 'escuelas': return await pantallaEscuelas();
       case 'escuela':

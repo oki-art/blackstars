@@ -700,3 +700,45 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .ls-botones .ls-no.on{background:var(--gasto);border-color:var(--gasto);color:#fff}
 .ls-ley,.ls-ayuda{border-top:0!important;padding-top:0!important}
 .ls-ayuda{margin:-6px 2px 0!important}
+
+/* Canciones de las profesoras en un evento (033) */
+.can-ev{display:grid;gap:12px;background:linear-gradient(135deg,#F6F2FF,#fff);border:1px solid rgba(118,80,224,0.28);border-radius:20px;padding:16px;box-shadow:0 10px 26px rgba(118,80,224,0.14)}
+.can-ev p{margin:0;color:var(--texto2);font-size:14px;line-height:1.45}
+.can-ev .can-ayuda{font-size:13px}
+.can-et{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--morado3)}
+.can{display:flex;align-items:center;gap:8px;padding:10px 8px 10px 10px;background:#fff;border:1px solid var(--borde);border-radius:16px;box-shadow:var(--sombra);min-height:64px}
+.can-ir{flex:1;min-width:0;display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none}
+.can .num{width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;font:700 18px Sora,sans-serif;color:#fff;background:linear-gradient(135deg,var(--morado),var(--morado2))}
+.can .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.can .tit{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.can .det{font-size:13px;color:var(--texto2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.can-sin{color:var(--gasto);font-weight:600}
+.can .dur{font:700 14px Sora,sans-serif;color:var(--negro);white-space:nowrap}
+.can-play{width:44px;height:44px;border-radius:50%;flex:none;display:grid;place-items:center;border:1px solid rgba(118,80,224,.3);background:#fff;color:var(--morado3);cursor:pointer}
+.can-play.on{background:var(--morado);color:#fff;border-color:var(--morado)}
+.can-bajar{width:44px;height:44px;border-radius:12px;flex:none;display:grid;place-items:center;border:0;background:#E3F3EA;color:var(--ingreso);cursor:pointer}
+.can-bajar:disabled{opacity:.5}
+.can-flechas{display:flex;flex-direction:column;gap:2px}
+.can-flechas button{width:34px;height:30px;border-radius:9px;border:1px solid var(--borde);background:#fff;color:var(--morado3);display:grid;place-items:center;cursor:pointer}
+.can-flechas button:disabled{opacity:.3;cursor:default}
+.can-tot{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:14px;background:#F4F0FD;color:var(--morado2);font-weight:700}
+.can-tot span{display:flex;align-items:center;gap:6px}
+.can-tot b{font:700 18px Sora,sans-serif}
+.can-prof .cc-movs .lista{padding:10px}
+.can-espacio{font-size:13px;color:var(--texto2);display:grid;gap:6px}
+.can-barra{height:8px;border-radius:99px;background:rgba(107,104,129,.15);overflow:hidden}
+.can-barra i{display:block;height:100%;background:var(--morado)}
+.can-subir{display:flex;align-items:center;gap:12px;padding:14px;border:2px dashed rgba(118,80,224,.35);border-radius:16px;background:#F8F5FF;cursor:pointer;color:var(--morado3)}
+.can-subir .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.can-subir b{color:var(--texto);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.can-subir small{color:var(--texto2);font-size:13px;font-weight:500}
+.can-subir-ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#fff;flex:none}
+.can-auto{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ingreso);background:#E3F3EA;border-radius:999px;padding:2px 9px;margin-left:6px}
+.can-dur{display:flex;align-items:center;gap:8px}
+.can-dur input{width:84px!important;text-align:center;font:700 20px Sora,sans-serif!important}
+.can-dur span{font:700 22px Sora,sans-serif;color:var(--texto2)}
+.can-dur small{color:var(--texto2);font-size:13px}
+.can-orden{display:flex;flex-wrap:wrap;gap:10px}
+.can-orden button{width:52px;height:52px;border-radius:50%;border:1px solid rgba(118,80,224,0.3);background:#fff;font:700 20px Sora,sans-serif;color:var(--morado3);cursor:pointer}
+.can-orden button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;border:0;box-shadow:0 8px 20px rgba(90,59,196,.3)}
+.campo label.can-subir{font-size:15px;font-weight:500;color:var(--morado3)}
