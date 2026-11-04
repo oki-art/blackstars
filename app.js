@@ -2008,7 +2008,7 @@ async function formPagoEquipo(params) {
 async function formCobroAmiga(params) {
   if (!veContab()) return sinPermiso();
   const mes = mesContab(params), volver = `#/contabilidad?mes=${mes}`, ed = editaContab(), k0 = params.get('k');
-  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*')))]);
+  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*'))), intentar(() => q(sb.from('escuelas_amigas').select('*')))]).then(([a, b, c, ea]) => [a, b, c.map((x) => Object.assign({}, ea.find((y) => y.id === x.id) || {}, x))]);
   let r = k0 ? d.amigas.find((x) => x.persona === k0) : null;
   if (k0 && !r) { aviso('No encuentro esa escuela en este mes', true); location.hash = volver; return; }
   if (!r && !ed) return sinPermiso();
@@ -2020,7 +2020,10 @@ async function formCobroAmiga(params) {
     ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></div>`
       : `${vacio('No hay escuelas amigas libres. Créala antes en Más › Escuelas amigas.')}`}
     <div class="campo"><label for="c_cant">Cantidad de ${mesTxt} (€) *</label><input id="c_cant" class="contab-grande" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(pago ? pago.importe : r && r.cuota != null ? r.cuota : '')}" ${dis} required></div>
-    <div class="campo" id="c_pct_box" hidden><label for="c_total">Lo que han cobrado a sus alumnas este mes (€)</label><input id="c_total" type="number" step="0.01" min="0" inputmode="decimal" ${dis}><div class="ayuda" id="c_pct_ayuda"></div></div>
+    <div class="campo" id="c_pct_box" hidden><label>Sus alumnas este mes</label>
+      <div class="rep-alumnas"><label><span>Mes completo<small id="c_pc"></small></span><input id="c_ncomp" type="number" step="1" min="0" inputmode="numeric" ${dis}></label>
+        <label><span>Medio mes<small id="c_pm"></small></span><input id="c_nmed" type="number" step="1" min="0" inputmode="numeric" ${dis}></label></div>
+      <div class="ayuda" id="c_pct_ayuda"></div></div>
     ${r && r.anterior != null ? `<div class="contab-auto">El mes pasado fueron ${eur(r.anterior)}</div>` : ''}
     ${pago ? `<div class="contab-pagado ${esBanco(pago) ? 'banco' : 'efectivo'}">${ico('check', 16)} Cobrado el ${esc(fechaCorta(pago.fecha))} · ${esBanco(pago) ? 'Banco' : 'Efectivo'} · ${eur(pago.importe)}</div>
         ${ed ? '<button type="button" class="btn sec ancho" id="deshacer">Deshacer el cobro</button><div class="ayuda">Para cambiar la cantidad, deshaz antes el cobro: se quita el ingreso de la Caja.</div>' : ''}`
@@ -2030,23 +2033,25 @@ async function formCobroAmiga(params) {
     ${r && r.guardada && ed && !pago ? `<button type="button" class="btn peligro ancho" id="quitar">${ico('papelera', 18)} Quitar de la contabilidad</button>` : ''}
   </form></main>`, 'caja');
   const form = document.getElementById('frm');
-  // Escuela "por porcentaje": se escribe lo que han cobrado y la cantidad para nosotros sale sola
+  // Escuela "por porcentaje": se ponen cuántas alumnas pagaron mes completo y cuántas medio mes, y nuestra parte sale sola
   const escuelaSel = () => r ? r.persona.slice(2) : (document.getElementById('c_esc') || {}).value;
-  const pctBox = document.getElementById('c_pct_box'), cTotal = document.getElementById('c_total'), cCant = document.getElementById('c_cant');
-  const calcular = () => {
-    const e = resumenes.find((x) => x.id === escuelaSel()), p = +(e && e.porcentaje_nuestro) || 0;
-    const t = Number(String(cTotal.value).replace(',', '.')) || 0;
-    document.getElementById('c_pct_ayuda').textContent = `${pctTxt(p)} para Blackstars = ${eur(redondeo(t * p / 100))} · el resto (${eur(redondeo(t - t * p / 100))}) para la escuela amiga.`;
-    if (!bloqueado) cCant.value = redondeo(t * p / 100) || '';
+  const pctBox = document.getElementById('c_pct_box'), cComp = document.getElementById('c_ncomp'), cMed = document.getElementById('c_nmed'), cCant = document.getElementById('c_cant');
+  const calcular = (tocar = true) => {
+    const e = resumenes.find((x) => x.id === escuelaSel()) || {}, p = +e.porcentaje_nuestro || 0;
+    const pc = +e.precio_alumna || 0, pm = +e.precio_medio_alumna || 0, nc = Math.max(0, +cComp.value || 0), nm = Math.max(0, +cMed.value || 0);
+    const t = redondeo(nc * pc + nm * pm), nos = redondeo(t * p / 100);
+    document.getElementById('c_pct_ayuda').innerHTML = `${[nc ? `${nc} × ${eur(pc)}` : '', nm ? `${nm} × ${eur(pm)}` : ''].filter(Boolean).join(' + ') || '0 alumnas'} = <b>${eur(t)}</b><br>${pctTxt(p)} para Blackstars = <b>${eur(nos)}</b> · el resto (${eur(redondeo(t - nos))}) para la escuela amiga.`;
+    if (tocar && !bloqueado) cCant.value = nos || '';
   };
   const mirarModo = (inicio) => {
     const e = resumenes.find((x) => x.id === escuelaSel());
     pctBox.hidden = !esPorcentaje(e); if (pctBox.hidden) return;
-    const p = +e.porcentaje_nuestro || 0, ya = Number(cCant.value) || 0;
-    cTotal.value = inicio && ya && p ? redondeo(ya * 100 / p) : e.total_alumnas || '';
-    calcular();
+    document.getElementById('c_pc').textContent = ` · ${eur(+e.precio_alumna || 0)}`;
+    document.getElementById('c_pm').textContent = ` · ${eur(+e.precio_medio_alumna || 0)}`;
+    cComp.value = +e.n_alumnas || 0; cMed.value = 0;
+    calcular(!(inicio && Number(cCant.value) > 0));   // si ya había una cantidad guardada, no se cambia hasta que se toquen las alumnas
   };
-  if (cTotal) { cTotal.addEventListener('input', calcular); const se = document.getElementById('c_esc'); if (se) se.addEventListener('change', () => mirarModo(false)); mirarModo(true); }
+  if (cComp) { [cComp, cMed].forEach((x) => x.addEventListener('input', () => calcular())); const se = document.getElementById('c_esc'); if (se) se.addEventListener('change', () => mirarModo(false)); mirarModo(true); }
   const guardar = async () => {
     const cant = Number(String(document.getElementById('c_cant').value).replace(',', '.'));
     if (!(cant > 0)) throw new Error('Escribe la cantidad del mes');
@@ -3729,7 +3734,8 @@ async function pantallaEscuela(id) {
   const mes = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   pintar(cabecera(e.nombre, { volver: '#/escuelas', sub: e.activa ? 'Activa' : 'Inactiva' }) + `<main class="cont">
     ${esPorcentaje(res) ? `<div class="totales"><div><small>Alumnas</small><b>${res.n_alumnas}</b></div><div><small>Total cobrado</small><b>${eur(res.total_alumnas)}</b></div><div><small>Para nosotros</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>
-      ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}`
+      ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}
+      <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; cuántas son se pone cada mes en Contabilidad.</div>`
     : `<div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>`}
     <div class="tarjeta"><dl class="datos"><dt>Contacto</dt><dd>${esc(e.contacto || '—')}</dd><dt>Teléfono</dt><dd>${esc(e.telefono || '—')}</dd><dt>Correo</dt><dd>${esc(e.email || '—')}</dd>${e.notas ? `<dt>Notas</dt><dd>${esc(e.notas)}</dd>` : ''}</dl></div>
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
@@ -3814,7 +3820,8 @@ async function formEscuela(id) {
       { k: 'modo_html', tipo: 'html', html: `<div class="campo"><label>¿Cómo nos paga?</label><div class="modo-cobro"><button type="button" data-modo="horas">${ico('reloj', 18)} Por horas</button><button type="button" data-modo="porcentaje"><b>%</b> Por porcentaje</button></div></div>` },
       { k: 'modo_cobro', tipo: 'oculto', def: 'horas' },
       { k: 'tarifa_hora_semana', label: 'Tarifa (€ al mes por cada hora semanal)', tipo: 'dinero', def: 40, ayuda: 'Ejemplo: 2,5 h a la semana × 40 € = 100 € al mes.' },
-      { k: 'precio_alumna', label: 'Lo que paga cada alumna al mes (€)', tipo: 'dinero', def: 30, ayuda: 'Se multiplica por las alumnas de sus clases.' },
+      { k: 'precio_alumna', label: 'Mes completo: lo que paga cada alumna (€)', tipo: 'dinero', def: 35, ayuda: 'Se multiplica por las alumnas de sus clases.' },
+      { k: 'precio_medio_alumna', label: 'Medio mes: lo que paga cada alumna (€)', tipo: 'dinero', def: 20, ayuda: 'Para las que solo vienen medio mes. Cuántas son se pone cada mes en Contabilidad.' },
       { k: 'porcentaje_nuestro', label: 'Porcentaje para Blackstars (%)', tipo: 'numero', def: 35, ayuda: 'El resto se lo queda la escuela amiga.' },
       { k: 'reparto_html', tipo: 'html', html: '<div id="reparto-vivo"></div>' },
       { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
@@ -3824,7 +3831,7 @@ async function formEscuela(id) {
       if (p && !(d.precio_alumna > 0)) throw new Error('Escribe lo que paga cada alumna');
       if (p && !(d.porcentaje_nuestro >= 0 && d.porcentaje_nuestro <= 100)) throw new Error('El porcentaje tiene que estar entre 0 y 100');
       if (!p && d.tarifa_hora_semana == null) throw new Error('Escribe la tarifa por hora');
-      return Object.assign(d, { modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
+      return Object.assign(d, { modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, precio_medio_alumna: d.precio_medio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
     }
   });
   const form = document.getElementById('frm'); if (!form) return;
@@ -3832,7 +3839,7 @@ async function formEscuela(id) {
   const pintarModo = () => {
     const p = modo.value === 'porcentaje';
     form.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === modo.value));
-    caja('tarifa_hora_semana').hidden = p; caja('precio_alumna').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
+    caja('tarifa_hora_semana').hidden = p; caja('precio_alumna').hidden = !p; caja('precio_medio_alumna').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
     const v = (k) => Number(String(form.elements[k].value).replace(',', '.')) || 0;
     document.getElementById('reparto-vivo').innerHTML = p ? `<div class="ayuda" style="margin:0 0 6px">${id ? 'Con las alumnas que tiene ahora:' : 'Ejemplo con 10 alumnas:'}</div>${repartoHtml(id ? nAlumnas : 10, v('precio_alumna'), v('porcentaje_nuestro'))}` : '';
   };

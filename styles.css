@@ -795,3 +795,6 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .rep-nos{background:#F4F0FD}.rep-nos b{color:var(--morado2)}
 .rep-ella{background:#FBF1E3}.rep-ella b{color:#3E3763}
 .campo[hidden]{display:none}
+.rep-alumnas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rep-alumnas label{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:13px;color:var(--texto)}
+.rep-alumnas label small{font-weight:400;color:var(--texto2)}
