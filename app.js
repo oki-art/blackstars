@@ -2835,7 +2835,7 @@ async function pantallaEvento(id) {
     ${ed && puedeVer('alumnas') ? `<div class="campo"><select id="addAlu"><option value="">+ Inscribir alumna…</option>${optAlus.filter(([aid]) => !ins.some((i) => i.alumnas && i.alumnas.id === aid)).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
-  activarCobros(); activarObjetivo(id); activarCanciones(e, cs, nomProf);
+  activarCobros(); activarListasVenta(e, ventas); activarObjetivo(id); activarCanciones(e, cs, nomProf);
   const sp = document.getElementById('addProf');
   if (sp) sp.onchange = async () => { if (!sp.value) return; try { await q(sb.from('evento_profesoras').insert({ evento_id: id, profesora_id: sp.value })); router(); } catch (er) { aviso(traducirError(er), true); } };
   const sc = document.getElementById('addCoord');
@@ -3405,7 +3405,7 @@ async function bloqueVentas(id, guardar = {}) {
     intentar(() => q(sb.from('evento_articulos').select('*').eq('evento_id', id).order('creado_en'))),
     intentar(() => q(sb.from('evento_reservas').select(SEL_RESERVA).eq('evento_id', id).neq('estado', 'cancelada').order('creado_en')))
   ]);
-  guardar.res = res;
+  guardar.res = res; guardar.arts = arts;
   if (!arts.length && !ges) return '';
   const f = new URLSearchParams(location.hash.split('?')[1] || '').get('r') || 'pendientes';
   const pend = res.filter((r) => r.estado === 'reservada'), pag = res.filter((r) => r.estado === 'pagada');
@@ -3417,7 +3417,8 @@ async function bloqueVentas(id, guardar = {}) {
     const orden = [...new Set([...tallasDe(a), ...Object.keys(tallas).filter((t) => t !== 'Sin talla'), 'Sin talla'])].filter((t) => tallas[t]);
     return `<div class="vt-art"><div class="vt-art-cab"><b>${esc(a.nombre)}</b><span>${eur(a.precio)} / ud.${ges ? ` <a class="vt-editar" href="#/articulo/${a.id}?evento=${id}" aria-label="Editar ${esc(a.nombre)}">${ico('lapiz', 16)}</a>` : ''}</span></div>
       <div class="nota" style="margin:2px 0 0">${uds(l)} reservad${uds(l) === 1 ? 'a' : 'as'} · ${uds(l.filter((r) => r.estado === 'pagada'))} pagad${uds(l.filter((r) => r.estado === 'pagada')) === 1 ? 'a' : 'as'}</div>
-      ${orden.length ? `<div class="tallas">${orden.map((t) => `<span class="chip mor">${t} × ${tallas[t]}</span>`).join('')}</div>` : ''}</div>`;
+      ${orden.length ? `<div class="tallas">${orden.map((t) => `<span class="chip mor">${t} × ${tallas[t]}</span>`).join('')}</div>` : ''}
+      ${l.length ? `<div class="vt-listas"><button class="btn sec" data-lista-pdf="${a.id}">${ico('doc', 18)} Descargar PDF</button><button class="btn sec" data-lista-copiar="${a.id}">${ico('copiar', 18)} Copiar lista</button></div>` : ''}</div>`;
   }).join('');
   const lista = (f === 'pagadas' ? pag : f === 'todas' ? res : pend);
   const fila = (r) => {
@@ -3445,6 +3446,57 @@ async function bloqueVentas(id, guardar = {}) {
     }).join('') : `<div class="tarjeta vacio" style="border:0">${f === 'pendientes' ? 'No hay nada pendiente de cobrar.' : 'Todavía no hay nada aquí.'}</div>`}` : vacio('Añade lo que vendes en este evento (camisetas, entradas…) con su precio.')}
     ${ges ? (arts.length ? `<div class="dos-btn"><a class="btn pri" href="#/reserva/nueva?evento=${id}">${ico('mas')} Reserva</a><a class="btn sec" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Artículo</a></div>`
       : `<a class="btn pri" href="#/articulo/nuevo?evento=${id}">${ico('mas')} Añadir camisetas, entradas…</a>`) : ''}`;
+}
+/* Lista de un artículo (camisetas…) para imprimir o pegar en WhatsApp/Instagram:
+   quién ha pedido qué talla, por clase, y al final el total de cada talla para hacer el pedido */
+function datosLista(a, res) {
+  const nom = (r) => r.alumnas ? nomAlumna(r.alumnas) : (r.comprador || '—');
+  const l = res.filter((r) => r.articulo_id === a.id), tot = {};
+  const tallasDeR = (r) => { const m = a.con_talla ? tallasReserva(r) : {}; return Object.keys(m).length ? m : { [a.con_talla ? 'Sin talla' : '']: r.cantidad }; };
+  l.forEach((r) => Object.entries(tallasDeR(r)).forEach(([t, n]) => { tot[t] = (tot[t] || 0) + n; }));
+  const orden = [...new Set([...tallasDe(a), ...Object.keys(tot).filter((t) => t !== 'Sin talla'), 'Sin talla'])].filter((t) => tot[t]);
+  const grupos = porClase(l, (r) => claseDe(r.alumnas)).map(([cl, g]) => [cl, g.slice().sort((x, y) => nom(x).localeCompare(nom(y), 'es')).map((r) => {
+    const m = tallasDeR(r);
+    return { nombre: nom(r), talla: Object.entries(m).map(([t, n]) => t ? t + (n > 1 ? ` ×${n}` : '') : `${n} ud.`).join(', '), cantidad: r.cantidad, tallas: m };
+  })]);
+  return { grupos, orden, tot, total: l.reduce((t, r) => t + r.cantidad, 0), personas: l.length };
+}
+function textoLista(e, a) {
+  const d = datosLista(a, e._res);
+  return [`*${a.nombre}* · ${e.titulo}`, `${d.personas} persona${d.personas === 1 ? '' : 's'} · ${d.total} en total`, '',
+    ...d.grupos.flatMap(([cl, l]) => [`*${cl}*`, ...l.map((x) => `• ${x.nombre}: ${x.talla}`), '']),
+    ...(a.con_talla ? ['*Total por talla*', ...d.orden.map((t) => `${t}: ${d.tot[t]}`), ''] : []),
+    `*Total: ${d.total}*`].join('\n');
+}
+function imprimirLista(e, a) {
+  const d = datosLista(a, e._res);
+  const fecha = capital(fechaLarga(e.fecha)) + (e.hora ? ' · ' + hora(e.hora) : '') + (e.lugar ? ' · ' + e.lugar : '');
+  const hoy = new Date().toLocaleDateString('es-ES');
+  const div = document.createElement('div'); div.id = 'impresion';
+  div.innerHTML = `<header class="im-cab"><img src="icons/logo.png" alt=""><div class="im-t"><div class="im-k">Academia Blackstars</div><h1>${esc(a.nombre)}</h1><div class="im-s">${esc(e.titulo)} · ${esc(fecha)}</div><div class="im-s">Lista sacada de la app el ${hoy}</div></div></header>
+    <div class="im-res"><div><b>${d.personas}</b><span>personas han pedido</span></div><div><b>${d.total}</b><span>en total</span></div>${a.con_talla ? `<div><b>${d.orden.length}</b><span>tallas distintas</span></div>` : ''}</div>
+    <h2>Quién ha pedido qué</h2>
+    ${d.grupos.map(([cl, l]) => `<div class="im-bloque"><div class="im-bh"><b>${esc(cl)}</b><span>${l.length} persona${l.length === 1 ? '' : 's'}</span></div>
+      <table><thead><tr><th>Nombre</th><th class="r">${a.con_talla ? 'Talla' : ''}</th><th class="r c">Cant.</th></tr></thead><tbody>
+      ${l.map((x) => `<tr><td>${esc(x.nombre)}</td><td class="r">${a.con_talla ? Object.keys(x.tallas).map((t) => `<span class="im-talla">${esc(t)}${x.tallas[t] > 1 && Object.keys(x.tallas).length > 1 ? ' ×' + x.tallas[t] : ''}</span>`).join(' ') : ''}</td><td class="r c">${x.cantidad}</td></tr>`).join('')}</tbody></table></div>`).join('')}
+    ${a.con_talla ? `<h2>Total por talla (para hacer el pedido)</h2><div class="im-tot"><table><thead><tr><th>Talla</th><th class="r">Cantidad</th></tr></thead><tbody>
+      ${d.orden.map((t) => `<tr><td><span class="im-talla">${esc(t)}</span></td><td class="r big">${d.tot[t]}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="r">${d.total}</td></tr></tfoot></table></div>` : `<div class="im-tot"><table><tfoot><tr><td>Total</td><td class="r">${d.total}</td></tr></tfoot></table></div>`}`;
+  document.getElementById('impresion')?.remove(); document.body.appendChild(div);
+  const titulo = document.title; document.title = `${a.nombre} - ${e.titulo}`;   // nombre del PDF al guardarlo
+  const fin = () => { document.title = titulo; div.remove(); window.removeEventListener('afterprint', fin); };
+  window.addEventListener('afterprint', fin);
+  const img = div.querySelector('img');
+  const ir = () => setTimeout(() => window.print(), 50);
+  img.complete ? ir() : (img.onload = img.onerror = ir);
+}
+function activarListasVenta(e, ventas) {
+  e._res = ventas.res || [];
+  const art = (id) => (ventas.arts || []).find((a) => a.id === id);
+  $app.querySelectorAll('[data-lista-pdf]').forEach((b) => b.onclick = () => imprimirLista(e, art(b.dataset.listaPdf)));
+  $app.querySelectorAll('[data-lista-copiar]').forEach((b) => b.onclick = async () => {
+    const t = textoLista(e, art(b.dataset.listaCopiar));
+    try { await navigator.clipboard.writeText(t); aviso('Lista copiada: pégala en WhatsApp o Instagram'); } catch (er) { prompt('Copia la lista:', t); }
+  });
 }
 // Botones "Cobrar" de la ficha del evento: se elige la forma de pago y entra en caja
 function activarCobros() {

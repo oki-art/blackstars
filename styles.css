@@ -742,3 +742,39 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .can-orden button{width:52px;height:52px;border-radius:50%;border:1px solid rgba(118,80,224,0.3);background:#fff;font:700 20px Sora,sans-serif;color:var(--morado3);cursor:pointer}
 .can-orden button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;border:0;box-shadow:0 8px 20px rgba(90,59,196,.3)}
 .campo label.can-subir{font-size:15px;font-weight:500;color:var(--morado3)}
+
+/* Lista de camisetas para imprimir / guardar en PDF (solo se ve al imprimir) */
+.vt-listas{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.vt-listas .btn{flex:1;min-width:140px;min-height:44px;font-size:14px}
+#impresion{display:none}
+@media print{
+  @page{size:A4;margin:14mm 14mm 16mm}
+  body{background:#fff!important}
+  body>*:not(#impresion){display:none!important}
+  #impresion{display:block;font-family:'DM Sans',sans-serif;color:#1F1D2B;font-size:10.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #impresion *{box-sizing:border-box}
+  .im-cab{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,#F8F6FB,#E9E5F2);border:1px solid rgba(70,55,140,.12)}
+  .im-cab img{width:54px;height:54px;border-radius:50%;box-shadow:0 0 0 4px rgba(118,80,224,.15)}
+  .im-k{font-size:8pt;letter-spacing:.16em;text-transform:uppercase;color:#6B6881;font-weight:700}
+  #impresion h1{font-family:'Sora',sans-serif;font-size:17pt;margin:2px 0;color:#3E3763}
+  .im-s{color:#6B6881;font-size:9.5pt}
+  .im-res{display:flex;gap:10px;margin:14px 0 6px}
+  .im-res div{flex:1;border:1px solid rgba(70,55,140,.12);border-radius:12px;padding:9px 12px}
+  .im-res b{display:block;font-family:'Sora',sans-serif;font-size:15pt;color:#5A3BC4}
+  .im-res span{font-size:8.5pt;color:#6B6881}
+  #impresion h2{font-family:'Sora',sans-serif;font-size:11.5pt;color:#3E3763;margin:16px 0 8px}
+  .im-bloque{border:1px solid rgba(70,55,140,.14);border-radius:12px;margin-bottom:10px;overflow:hidden;break-inside:avoid}
+  .im-bh{display:flex;justify-content:space-between;align-items:baseline;padding:8px 12px;background:rgba(118,80,224,.07)}
+  .im-bh b{font-family:'Sora',sans-serif;font-size:10.5pt;color:#4F34B5}
+  .im-bh span{font-size:9pt;color:#6B6881}
+  #impresion table{width:100%;border-collapse:collapse}
+  #impresion th{font-size:8pt;text-transform:uppercase;letter-spacing:.1em;color:#6B6881;text-align:left;padding:6px 12px;border-bottom:1px solid rgba(70,55,140,.12)}
+  #impresion td{padding:6px 12px;border-bottom:1px solid rgba(70,55,140,.07)}
+  #impresion tr:last-child td{border-bottom:0}
+  #impresion .r{text-align:right} #impresion .c{width:60px}
+  .im-talla{display:inline-block;background:rgba(118,80,224,.10);color:#4F34B5;font-weight:700;border-radius:999px;padding:2px 10px;font-size:9.5pt}
+  .im-tot{border:2px solid #F2C48D;border-radius:14px;padding:4px 0;break-inside:avoid;width:60%}
+  .im-tot .big{font-family:'Sora',sans-serif;font-weight:700;font-size:13pt;color:#3E3763}
+  .im-tot tfoot td{border-top:2px solid #F2C48D;font-family:'Sora',sans-serif;font-weight:700;font-size:11pt;color:#3E3763}
+  #impresion footer{margin-top:14px;font-size:8pt;color:#6B6881;text-align:center}
+}
