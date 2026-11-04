@@ -1403,7 +1403,7 @@ function bolsasCaja(movs) {
   return `<div class="bolsas">${bolsa('efectivo', '💶', 'Efectivo', b.efectivo)}${bolsa('banco', '🏦', 'Banco', b.banco)}</div>`;
 }
 // Ingresos en tres montones: mensualidades (cuotas de clase), eventos (actuaciones, festivales, camisetas…) y extras (escuela amiga, otros)
-const grupoIngreso = (x) => { const a = apartadoDe(x); return a === 'mensualidad' ? 'mensualidad' : a === 'evento' || a === 'ventas' ? 'eventos' : 'extras'; };
+const grupoIngreso = (x) => { const a = apartadoDe(x); return a === 'mensualidad' ? 'mensualidad' : a === 'evento' || a === 'ventas' ? 'eventos' : a === 'escuela_amiga' ? 'amiga' : 'extras'; };
 // Las tres tarjetas de arriba son también el filtro: Ingresos (solo ingresos), Gastos (solo gastos), Balance (todo)
 const TIPOS_CAJA = ['ingreso', 'gasto', 'todo'];
 const tipoCaja = (params) => TIPOS_CAJA.includes(params.get('t')) ? params.get('t') : 'todo';
@@ -1589,7 +1589,7 @@ function cajaVentas(movs, pendientes, { conFecha, volver } = {}) {
   return totalCaja('ventas', 'Total eventos', `${n} cobro${n === 1 ? '' : 's'}`, nPen ? `Faltan ${nPen} por cobrar` : '', total + ts) + tarjetas + (sueltos.length ? cajaPorClase(sueltos, { conFecha, volver }) : '');
 }
 // Lo que se ve debajo del calendario según la tarjeta de arriba y el botón elegido
-const SUBCAJA = { ingreso: [['mensualidad', 'Mensualidad'], ['eventos', 'Eventos'], ['total', 'Total']], gasto: [['extras', 'Extras'], ['cambio', 'Cambio']] };
+const SUBCAJA = { ingreso: [['mensualidad', 'Mensualidad'], ['amiga', 'Amiga'], ['eventos', 'Eventos'], ['total', 'Total']], gasto: [['extras', 'Extras'], ['cambio', 'Cambio']] };
 const subCaja = (params, t) => { const l = SUBCAJA[t] || [], s = params.get('s'); return l.some(([k]) => k === s) ? s : l.length ? l[0][0] : ''; };
 const filtrosCaja = (base, t, s) => SUBCAJA[t] ? `<div class="filtros">${SUBCAJA[t].map(([k, txt]) => `<button data-ir="${base}&t=${t}&s=${k}" class="${s === k ? 'on' : ''}">${txt}</button>`).join('')}</div>` : '';
 // Resumen en filas: Mensualidades 400 € ›, Eventos 90 € ›…
@@ -1603,22 +1603,23 @@ function cajaCambio(cambios, editar) {
   return totalCaja('cambio', 'Cambio fuera de la caja', fuera.length ? `${fuera.length} sin devolver` : 'Todo devuelto', 'No cuenta como gasto', tf)
     + (filas ? `<div class="tarjeta reservas">${filas}</div>` : vacio('No se ha sacado cambio este mes.'));
 }
-function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], cambios = [], base, c }) {
+function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], cambios = [], base, c, amiga = null }) {
   const [i, o] = sumaCaja(movs), ing = movs.filter((x) => x.tipo === 'ingreso'), gas = movs.filter((x) => x.tipo === 'gasto' && !esCambio(x));
   // En "Todo", el resumen enseña la caja general por apartados y Pilates en una fila aparte
   const pil = c === 'todo' ? movs.filter(esPilatesMov) : [], gen = c === 'todo' ? movs.filter((x) => !esPilatesMov(x)) : movs;
   const por = (g) => gen.filter((x) => x.tipo === 'ingreso' && grupoIngreso(x) === g), suma = (l) => sumaCaja(l)[0];
-  const [men, evs, ext] = ['mensualidad', 'eventos', 'extras'].map(por), fuera = cambios.filter((x) => !x.devuelto_en).reduce((t, x) => t + +x.importe, 0);
+  const [men, evs, ext, ami] = ['mensualidad', 'eventos', 'extras', 'amiga'].map(por), fuera = cambios.filter((x) => !x.devuelto_en).reduce((t, x) => t + +x.importe, 0);
   const ir = (tt, ss) => `${base}&t=${tt}&s=${ss}`;
   if (t === 'ingreso' && s === 'mensualidad') {
     const men = ing.filter((x) => grupoIngreso(x) === 'mensualidad'), sueltas = men.filter((x) => !esCuota(x));
     return `<div class="lista">${cajaMensualidad(men, ins, volver)}${sueltas.length ? `<div class="seccion">Otras mensualidades</div>${cajaPorClase(sueltas, { conFecha, volver })}` : ''}</div>`;
   }
+  if (t === 'ingreso' && s === 'amiga') return `<div class="lista">${cajaAmiga(ing.filter((x) => grupoIngreso(x) === 'amiga'), amiga, { conFecha, volver })}</div>`;
   if (t === 'ingreso' && s === 'eventos') return `<div class="lista">${cajaVentas(ing.filter((x) => grupoIngreso(x) === 'eventos'), pendientes, { conFecha, volver })}${puedeEditar('eventos') ? `<a class="btn pri" href="#/evento/nuevo?venta=1">${ico('mas')} Nueva venta o evento</a>` : ''}</div>`;
   if (t === 'ingreso') {
-    const [mt, et, xt] = ['mensualidad', 'eventos', 'extras'].map((g) => ing.filter((x) => grupoIngreso(x) === g));
+    const [mt, et, xt, at] = ['mensualidad', 'eventos', 'extras', 'amiga'].map((g) => ing.filter((x) => grupoIngreso(x) === g));
     return `<div class="lista">${totalCaja('solo', 'Total ingresos del mes', lineaBolsas(ing), '', i)}
-    <div class="tarjeta reservas">${filaResumen('Mensualidades', `${mt.length} cobro${mt.length === 1 ? '' : 's'}`, eur(suma(mt)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', `${et.length} cobro${et.length === 1 ? '' : 's'}`, eur(suma(et)), ir('ingreso', 'eventos'))}</div>
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', `${mt.length} cobro${mt.length === 1 ? '' : 's'}`, eur(suma(mt)), ir('ingreso', 'mensualidad'))}${at.length ? filaResumen('Escuela amiga', `${at.length} cobro${at.length === 1 ? '' : 's'}`, eur(suma(at)), ir('ingreso', 'amiga')) : ''}${filaResumen('Eventos', `${et.length} cobro${et.length === 1 ? '' : 's'}`, eur(suma(et)), ir('ingreso', 'eventos'))}</div>
     ${xt.length ? `<div class="seccion">Extras · ${eur(suma(xt))}</div>${cajaPorClase(xt, { conFecha, volver })}` : ''}</div>`;
   }
   if (t === 'gasto' && s === 'cambio') return `<div class="lista">${cajaCambio(cambios, puedeEditar('caja'))}</div>`;
@@ -1626,7 +1627,30 @@ function cajaMes(movs, t, s, ins, { conFecha = true, volver, pendientes = [], ca
   // Balance: todo junto
   const cont = gen.filter(esContab), [, co] = sumaCaja(cont), [gi, go] = sumaCaja(gen), [pi, po] = sumaCaja(pil), neto = (v) => (v < 0 ? '−' : '+') + eur(Math.abs(v));
   return `<div class="lista">${totalCaja('balance', 'Balance del mes', c === 'todo' ? `General ${eur(gi - go)} · Pilates ${eur(pi - po)}` : `Ingresos ${eur(i)} · Gastos ${eur(o)}`, fuera ? `Cambio fuera: ${eur(fuera)} (no cuenta)` : '', i - o)}${bolsasCaja(movs)}
-    <div class="tarjeta reservas">${filaResumen('Mensualidades', [faltanMens(men, ins), lineaBolsas(men)].filter(Boolean).join(' · '), '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${filaResumen('Eventos', lineaBolsas(evs), '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', ['Escuela amiga y otros', lineaBolsas(ext)].filter(Boolean).join(' · '), '+' + eur(suma(ext)), ir('ingreso', 'total'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${cont.length || veContab() ? filaResumen(`Contabilidad${candadoCaja}`, ['Pagos al equipo y compras', lineaBolsas(cont, 1)].filter(Boolean).join(' · '), '−' + eur(co), `#/contabilidad?mes=${(base.match(/mes=([\d-]+)/) || [0, hoyISO().slice(0, 7)])[1]}`, 'out') : ''}${filaResumen('Gastos', [c === 'todo' ? 'Caja general' : '', lineaBolsas(gen.filter((x) => x.tipo === 'gasto' && !esContab(x)), 1)].filter(Boolean).join(' · ') || 'Limpieza, papelería, decoración…', '−' + eur(go - co), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
+    <div class="tarjeta reservas">${filaResumen('Mensualidades', [faltanMens(men, ins), lineaBolsas(men)].filter(Boolean).join(' · '), '+' + eur(suma(men)), ir('ingreso', 'mensualidad'))}${c === 'todo' ? filaResumen(`Pilates${candadoCaja}`, `Cobros ${eur(pi)} · gastos ${eur(po)}`, neto(pi - po), base.replace('c=todo', 'c=pilates'), pi - po < 0 ? 'out' : 'in') : ''}${ami.length ? filaResumen('Escuela amiga', ['Lo que nos pagan', lineaBolsas(ami)].filter(Boolean).join(' · '), '+' + eur(suma(ami)), ir('ingreso', 'amiga')) : ''}${filaResumen('Eventos', lineaBolsas(evs), '+' + eur(suma(evs)), ir('ingreso', 'eventos'))}${filaResumen('Extras', ['Otros ingresos', lineaBolsas(ext)].filter(Boolean).join(' · '), '+' + eur(suma(ext)), ir('ingreso', 'total'))}${cont.length || veContab() ? filaResumen(`Contabilidad${candadoCaja}`, ['Pagos al equipo y compras', lineaBolsas(cont, 1)].filter(Boolean).join(' · '), '−' + eur(co), `#/contabilidad?mes=${(base.match(/mes=([\d-]+)/) || [0, hoyISO().slice(0, 7)])[1]}`, 'out') : ''}${filaResumen('Gastos', [c === 'todo' ? 'Caja general' : '', lineaBolsas(gen.filter((x) => x.tipo === 'gasto' && !esContab(x)), 1)].filter(Boolean).join(' · ') || 'Limpieza, papelería, decoración…', '−' + eur(go - co), c === 'todo' ? `${base.replace('c=todo', 'c=general')}&t=gasto&s=extras` : ir('gasto', 'extras'), 'out')}${fuera ? filaResumen('Cambio fuera', 'Se repone a fin de mes', eur(fuera), ir('gasto', 'cambio'), '') : ''}</div></div>`;
+}
+// Cajón Escuela amiga: una tarjeta por escuela con lo que nos ha pagado; si lleva lista, cada alumna con su cuota
+// (mes completo o medio mes) o pendiente, el total de alumnas y lo cobrado a todas. La lista solo la ve quien ve la contabilidad.
+function cajaAmiga(movs, info, { conFecha, volver }) {
+  const { pagos = [], clases = [], escuelas = [] } = info || {};
+  const ids = [...new Set([...movs.map((x) => x.escuela_amiga_id), ...pagos.map((p) => p.persona.slice(2))].filter(Boolean))];
+  const nombreDe = (id) => { const cl = clases.filter((c) => c.escuela_amiga_id === id && c.activa), e = escuelas.find((x) => x.id === id);
+    return cl.length === 1 ? cl[0].nombre : e ? e.nombre : (movs.find((x) => x.escuela_amiga_id === id && x.escuelas_amigas) || { escuelas_amigas: { nombre: 'Escuela amiga' } }).escuelas_amigas.nombre; };
+  const total = suma0(movs);
+  const tarjetas = ids.map((id) => {
+    const l = movs.filter((x) => x.escuela_amiga_id === id), p = pagos.find((x) => x.persona === 'a:' + id), e = escuelas.find((x) => x.id === id) || {};
+    const det = (p && p.detalle) || [], pag = det.filter((x) => x.pagado), cobradoAl = redondeo(pag.reduce((a, x) => a + +x.importe, 0)), nuestro = suma0(l);
+    const sub = det.length ? `${det.length} alumnas · ${pag.length} pagadas · cobrado a alumnas ${eur(cobradoAl)}` : `${l.length} cobro${l.length === 1 ? '' : 's'}`;
+    const filas = det.slice().sort((a, b) => (b.pagado - a.pagado) || a.nombre.localeCompare(b.nombre, 'es')).map((x) => `<div class="mov ${x.pagado ? '' : 'falta'}"><span class="mov-tipo ${x.pagado ? 'bg-in' : ''}"></span>
+      <span class="txt"><span class="tit">${esc(x.nombre)}</span><span class="det">${x.tipo === 'medio' ? 'Medio mes' : 'Mes completo'}${x.telefono ? ' · ' + esc(x.telefono) : ''}</span></span><b class="${x.pagado ? 'in' : ''}">${x.pagado ? eur(x.importe) : 'Pendiente'}</b></div>`).join('');
+    const pie = det.length ? `<div class="amiga-pie"><span>Cobrado a ${pag.length} de ${det.length} alumnas</span><b>${eur(cobradoAl)}</b>
+        <span>Para Blackstars · ${pctTxt(e.porcentaje_nuestro)}</span><b class="in">${eur(redondeo(cobradoAl * (+e.porcentaje_nuestro || 0) / 100))}</b>
+        <span>Para la escuela amiga</span><b>${eur(redondeo(cobradoAl - cobradoAl * (+e.porcentaje_nuestro || 0) / 100))}</b></div>` : '';
+    return `<details class="caja-clase externa"><summary class="cc-cab"><span><h3>${esc(nombreDe(id))}</h3><small>${sub}</small></span>
+      <span class="cc-tot">${nuestro ? `<b class="in">+${eur(nuestro)}</b>` : '<b class="gris">Sin cobrar</b>'}</span><span class="cc-flecha">${ico('sig', 20)}</span></summary>
+      <div class="cc-movs">${filas}${pie}${l.length ? `<div class="amiga-mov">Entrada en caja</div>${l.map((x) => movCaja(x, { conFecha, volver })).join('')}` : ''}</div></details>`;
+  }).join('');
+  return totalCaja('solo', 'Escuela amiga', 'Lo que nos pagan las escuelas amigas', lineaBolsas(movs), total) + (tarjetas || vacio('Este mes no hay cobros de escuela amiga.'));
 }
 // Caja de Pilates: lo cobrado en sus clases y sus gastos, sin nada de la caja general
 function cajaMesPilates(movs, t, ins, { conFecha = true, volver, base }) {
@@ -1658,10 +1682,13 @@ async function pantallaCaja(params) {
   // Cambio: el de este mes y el que siga fuera de meses anteriores
   // Reservas de eventos aún sin cobrar (para el cajón de eventos y ventas)
   // Alumnas inscritas en algún momento del mes (para saber quién falta por pagar)
-  const [todos, privadas, cambios, pendientes, ins0] = await Promise.all([
+  const [todos, privadas, cambios, pendientes, amiga, ins0] = await Promise.all([
     leerCaja((r) => r.gte('fecha', ini).lt('fecha', fin).order('fecha').order('creado_en')), clasesPrivadas(),
     !pilates && t !== 'ingreso' && !cajaSinApartados ? intentar(() => q(sb.from(S.admin ? 'caja_con_autor' : 'caja').select('*').eq('apartado', 'cambio').or(`devuelto_en.is.null,fecha.gte.${ini}`).lt('fecha', fin).order('fecha'))) : [],
     !pilates && t === 'ingreso' && sc === 'eventos' ? intentar(() => q(sb.from('evento_reservas').select('id,evento_id,cantidad,importe,comprador,alumnas(nombre,apellidos),evento_articulos(nombre),eventos(titulo)').eq('estado', 'reservada'))) : [],
+    !pilates && t === 'ingreso' && sc === 'amiga' ? Promise.all([veContab() ? intentar(() => q(sb.from('pagos_equipo').select('*').eq('mes', mes).like('persona', 'a:%'))) : [],
+      intentar(() => q(sb.from('clases').select('id,nombre,escuela_amiga_id,activa').not('escuela_amiga_id', 'is', null))), intentar(() => q(sb.from('escuelas_amigas').select('*')))])
+      .then(([pagos, clases, escuelas]) => ({ pagos, clases, escuelas })) : null,
     necesitaIns ? intentar(() => q(sb.from('inscripciones').select('id,fecha_alta,clase_id,alumna_id,alumnas(nombre,apellidos,cuota),clases(nombre)').lt('fecha_alta', fin).or(`fecha_baja.is.null,fecha_baja.gte.${ini}`))) : null]);
   S.privadas = privadas;
   // Para cobrar desde la lista de pendientes: este mes, con fecha de hoy; otro mes, el día 1 de ese mes
@@ -1695,7 +1722,7 @@ async function pantallaCaja(params) {
     ${!pilates && veContab() ? `<a class="contab-enlace" href="#/contabilidad?mes=${mes}"><span>${ico('candado', 18)}</span><span class="txt"><b>Contabilidad mensual</b><small>Pagos al equipo y compras</small></span>${ico('sig', 18)}</a>` : ''}
     <div class="seccion">Movimientos del mes</div>
     ${pilates ? cajaMesPilates(movs, t, ins, { volver, base })
-    : `${filtrosCaja(base, t, sc)}${cajaMes(movs, t, sc, ins, { volver, pendientes, cambios, base, c })}`}
+    : `${filtrosCaja(base, t, sc)}${cajaMes(movs, t, sc, ins, { volver, pendientes, cambios, base, c, amiga })}`}
   </main>`, 'caja', mas);
   activarCobroRapido();
   $app.querySelectorAll('[data-devuelto]').forEach((b) => b.onclick = async () => {
