@@ -81,9 +81,9 @@ main.cont{padding:6px 20px 0;display:flex;flex-direction:column;gap:14px}
 .campo{display:flex;flex-direction:column;gap:6px}
 .campo label{font-size:13px;font-weight:700;color:var(--texto2)}
 .campo label.check{align-items:center;font-size:15px;font-weight:500;color:var(--texto);margin-top:6px}
-.campo input,.campo select,.campo textarea{width:100%;min-height:48px;padding:12px 14px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-size:16px;outline:none}
+.campo input,.campo select,.campo textarea,.lista-ext-nueva input,.lista-ext-nueva select{width:100%;min-height:48px;padding:12px 14px;border-radius:14px;border:1px solid rgba(70,55,140,0.18);background:#fff;font-size:16px;outline:none}
 .campo textarea{min-height:96px;resize:vertical}
-.campo input:focus,.campo select:focus,.campo textarea:focus{border-color:var(--morado);box-shadow:0 0 0 3px rgba(118,80,224,0.15)}
+.campo input:focus,.campo select:focus,.campo textarea:focus,.lista-ext-nueva input:focus,.lista-ext-nueva select:focus{border-color:var(--morado);box-shadow:0 0 0 3px rgba(118,80,224,0.15)}
 .campo .ayuda{font-size:12px;color:var(--texto2)}
 .check{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid rgba(70,55,140,0.18);cursor:pointer}
 .check input{width:22px;height:22px;margin:0;flex:none;accent-color:var(--morado)}
@@ -802,14 +802,27 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .precio-num{position:relative;display:block}
 .precio-num input{width:100%;padding-right:34px}
 .precio-num i{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--texto2);pointer-events:none}
-.lista-ext-clase{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto2);margin:10px 0 4px}
-.lista-ext{display:grid;grid-template-columns:1fr 150px auto;gap:6px;align-items:center;background:#fff;border:1px solid var(--borde);border-radius:12px;padding:6px 6px 6px 12px;margin-bottom:6px}
-.lista-ext .nom{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lista-ext select{min-height:40px;font-size:13px;padding:6px 8px}
-.lista-ext.medio{background:#FBF6EC}
-.lista-ext.no{background:#F4F3F7}.lista-ext.no .nom{color:var(--texto2);text-decoration:line-through}
-.lista-ext-nueva{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
-.lista-ext-nueva input{grid-column:1/-1}
-.lista-ext-nueva .btn{grid-column:1/-1}
+.chip.verde{background:#E3F3EA;color:#1F8A5C}
+.lista-card{background:#fff;border:1px solid var(--borde);border-radius:16px;box-shadow:var(--sombra);margin-top:6px}
+.lista-card summary{list-style:none;display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;min-height:56px}
+.lista-card summary::-webkit-details-marker{display:none}
+.lista-card summary>svg{transition:transform .15s;color:var(--texto2);flex:none}
+.lista-card[open] summary>svg{transform:rotate(90deg)}
+.lc-tit{flex:1;display:flex;flex-direction:column;min-width:0}
+.lc-tit b{font-family:'Sora',sans-serif;font-size:15px}
+.lc-tit small{font-size:12px;color:var(--texto2)}
+.lc-chips{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.lc-chips .chip{font-size:11px;white-space:nowrap}
+.lc-cuerpo{padding:0 10px 12px;border-top:1px solid var(--borde)}
+.lista-ext{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center;border-bottom:1px solid var(--borde);padding:8px 2px}
+.lista-ext .nom{display:flex;flex-direction:column;min-width:0}
+.lista-ext .nom b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lista-ext .nom small{font-size:12px;color:var(--texto2)}
+.lc-pago{min-height:36px;border-radius:999px;border:1px solid var(--borde);background:#F4F3F7;color:var(--texto2);font-weight:700;font-size:12px;padding:0 12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+.lista-ext.pagada .lc-pago{background:#E3F3EA;border-color:#BFE3CE;color:#1F8A5C}
+.lista-ext-nueva{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
+.lista-ext-nueva b{grid-column:1/-1;font-size:13px}
+.lista-ext-nueva input:first-of-type,.lista-ext-nueva .btn{grid-column:1/-1}
 .lista-ext-total{margin-top:10px}
 .check[hidden]{display:none}
+.lista-ext-nueva input,.lista-ext-nueva select{min-width:0;box-sizing:border-box}

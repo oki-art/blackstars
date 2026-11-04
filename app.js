@@ -2041,52 +2041,57 @@ async function formCobroAmiga(params) {
   // Escuela "por porcentaje": se ponen cuántas alumnas pagaron mes completo y cuántas medio mes, y nuestra parte sale sola
   const escuelaSel = () => r ? r.persona.slice(2) : (document.getElementById('c_esc') || {}).value;
   const pctBox = document.getElementById('c_pct_box'), cComp = document.getElementById('c_ncomp'), cMed = document.getElementById('c_nmed'), cCant = document.getElementById('c_cant');
-  // Escuela con lista de nombres: a cada alumna se le marca Mes completo / Medio mes / No paga (por defecto, mes completo)
-  const listaBox = document.getElementById('c_lista_box'), marcas = {};
-  ((r && r.detalle) || []).forEach((x) => { marcas[x.id] = x.tipo; });
+  // Escuela con lista de nombres: cada alumna tiene su nombre, teléfono y cuota (mes completo o medio mes);
+  // cada mes se marca quién ha pagado. La lista va en una tarjeta plegada con pagadas y pendientes.
+  const listaBox = document.getElementById('c_lista_box'), pagadas = new Set(((r && r.detalle) || []).filter((x) => x.pagado).map((x) => x.id));
+  let listaAbierta = false;
   const conLista = () => { const e = resumenes.find((x) => x.id === escuelaSel()); return esPorcentaje(e) && e.con_lista ? e : null; };
-  const importeDe = (e, t) => t === 'medio' ? +e.precio_medio_alumna || 0 : t === 'no' ? 0 : +e.precio_alumna || 0;
+  const cuotaDe = (e, a) => a.tipo_cuota === 'medio' ? +e.precio_medio_alumna || 0 : +e.precio_alumna || 0;
   const detalleLista = () => { const e = conLista(); if (!e) return [];
-    return listaAl.filter((a) => a.escuela_amiga_id === e.id).map((a) => { const t = marcas[a.id] || 'completo', c = clasesExt.find((x) => x.id === a.clase_id);
-      return { id: a.id, nombre: a.nombre, clase: c ? c.nombre : '', tipo: t, importe: importeDe(e, t) }; }); };
+    return listaAl.filter((a) => a.escuela_amiga_id === e.id).map((a) => ({ id: a.id, nombre: a.nombre, telefono: a.telefono || '', tipo: a.tipo_cuota || 'completo', importe: cuotaDe(e, a), pagado: pagadas.has(a.id) })); };
   const pintarLista = (tocar = true) => {
     const e = conLista(); listaBox.hidden = !e; if (!e) return;
-    const det = detalleLista(), p = +e.porcentaje_nuestro || 0, t = redondeo(det.reduce((a, x) => a + x.importe, 0)), nos = redondeo(t * p / 100);
-    const nc = det.filter((x) => x.tipo === 'completo').length, nm = det.filter((x) => x.tipo === 'medio').length;
-    const clases = clasesExt.filter((c) => c.escuela_amiga_id === e.id && c.activa);
-    const grupos = [...clases.map((c) => [c.id, c.nombre]), ['', 'Sin clase']].map(([cid, cn]) => [cn, det.filter((x) => (listaAl.find((a) => a.id === x.id).clase_id || '') === cid)]).filter(([, l]) => l.length);
-    const opc = (x) => [['completo', `Completo ${eur(+e.precio_alumna || 0)}`], ['medio', `Medio mes ${eur(+e.precio_medio_alumna || 0)}`], ['no', 'No paga']]
-      .map(([v, tx]) => `<option value="${v}" ${x.tipo === v ? 'selected' : ''}>${tx}</option>`).join('');
-    listaBox.innerHTML = `<div class="campo"><label>Sus alumnas este mes</label>
-      ${grupos.map(([cn, l]) => `<div class="lista-ext-clase">${esc(cn)}</div>${l.map((x) => `<div class="lista-ext ${x.tipo}"><span class="nom">${esc(x.nombre)}</span>
-        <select data-marca="${x.id}" ${dis} aria-label="Lo que paga ${esc(x.nombre)}">${opc(x)}</select>
-        ${!bloqueado ? `<button type="button" class="ins-editar" data-quitar-al="${x.id}" aria-label="Quitar a ${esc(x.nombre)}">${ico('papelera', 16)}</button>` : ''}</div>`).join('')}`).join('') || vacio('Aún no hay alumnas en la lista.')}
-      ${!bloqueado ? `<div class="lista-ext-nueva"><input id="al_nom" placeholder="Nombre y apellidos" autocomplete="off">
-        ${clases.length ? `<select id="al_clase" aria-label="Clase">${clases.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>` : ''}
-        <button type="button" class="btn sec" id="al_add">${ico('mas', 18)} Añadir alumna</button></div>` : ''}
+    const det = detalleLista().sort((x, y) => (x.pagado - y.pagado) || x.nombre.localeCompare(y.nombre, 'es'));
+    const pag = det.filter((x) => x.pagado), p = +e.porcentaje_nuestro || 0;
+    const t = redondeo(pag.reduce((s2, x) => s2 + x.importe, 0)), nos = redondeo(t * p / 100);
+    const nc = pag.filter((x) => x.tipo !== 'medio').length, nm = pag.length - nc;
+    const nombreClase = (clasesExt.find((c) => c.escuela_amiga_id === e.id && c.activa) || {}).nombre || e.nombre;
+    listaBox.innerHTML = `<details class="lista-card" ${listaAbierta ? 'open' : ''}><summary>
+        <span class="lc-tit"><b>Alumnas de ${esc(nombreClase)}</b><small>${det.length} en la lista · toca para ver</small></span>
+        <span class="lc-chips"><span class="chip verde">${pag.length} pagadas</span><span class="chip gris">${det.length - pag.length} pendientes</span></span>${ico('sig', 18)}</summary>
+      <div class="lc-cuerpo">
+        ${det.map((x) => `<div class="lista-ext ${x.pagado ? 'pagada' : ''}"><span class="nom"><b>${esc(x.nombre)}</b><small>${esc(x.telefono || 'sin teléfono')} · ${x.tipo === 'medio' ? 'Medio' : 'Completo'} ${eur(x.importe)}</small></span>
+          <button type="button" class="lc-pago" data-pago="${x.id}" ${dis}>${x.pagado ? `${ico('check', 14)} Pagado` : 'Pendiente'}</button>
+          ${!bloqueado ? `<button type="button" class="ins-editar" data-quitar-al="${x.id}" aria-label="Quitar a ${esc(x.nombre)}">${ico('papelera', 16)}</button>` : ''}</div>`).join('') || vacio('Aún no hay alumnas en la lista.')}
+        ${!bloqueado ? `<div class="lista-ext-nueva"><b>Añadir alumna</b><input id="al_nom" placeholder="Nombre y apellidos" autocomplete="off"><input id="al_tel" type="tel" placeholder="Teléfono" autocomplete="off">
+          <select id="al_cuota" aria-label="Cuota mensual"><option value="completo">Completo ${eur(+e.precio_alumna || 0)}</option><option value="medio">Medio ${eur(+e.precio_medio_alumna || 0)}</option></select>
+          <button type="button" class="btn sec" id="al_add">${ico('mas', 18)} Añadir</button></div>` : ''}
+      </div></details>
       <div class="tarjeta reparto lista-ext-total">
-        <div class="rep-cuenta">${[nc ? `${nc} × ${eur(+e.precio_alumna || 0)}` : '', nm ? `${nm} × ${eur(+e.precio_medio_alumna || 0)}` : ''].filter(Boolean).join(' + ') || '0 alumnas'} = <b>${eur(t)}</b></div>
+        <div class="rep-cuenta">Pagado: ${[nc ? `${nc} × ${eur(+e.precio_alumna || 0)}` : '', nm ? `${nm} × ${eur(+e.precio_medio_alumna || 0)}` : ''].filter(Boolean).join(' + ') || 'nadie aún'} = <b>${eur(t)}</b></div>
         <div class="rep-barra" aria-hidden="true"><span style="width:${p}%"></span></div>
         <div class="rep-filas"><div class="rep-nos"><small>Blackstars · ${pctTxt(p)}</small><b>${eur(nos)}</b></div><div class="rep-ella"><small>Escuela amiga · ${pctTxt(100 - p)}</small><b>${eur(redondeo(t - nos))}</b></div></div>
-      </div></div>`;
+      </div>`;
     if (tocar && !bloqueado) cCant.value = nos || '';
-    listaBox.querySelectorAll('[data-marca]').forEach((sl) => sl.onchange = () => { marcas[sl.dataset.marca] = sl.value; pintarLista(); });
+    listaBox.querySelector('details').addEventListener('toggle', (ev) => { listaAbierta = ev.target.open; });
+    listaBox.querySelectorAll('[data-pago]').forEach((b) => b.onclick = () => { const k = b.dataset.pago; if (pagadas.has(k)) pagadas.delete(k); else pagadas.add(k); pintarLista(); });
     listaBox.querySelectorAll('[data-quitar-al]').forEach((b) => b.onclick = async () => {
-      const a = listaAl.find((x) => x.id === b.dataset.quitarAl); if (!confirm(`¿Quitar a ${a.nombre} de la lista? Lo de meses anteriores se queda guardado.`)) return;
-      try { await q(sb.from('escuela_alumnas').update({ activa: false }).eq('id', a.id)); listaAl = listaAl.filter((x) => x.id !== a.id); await contarClase(a.clase_id); pintarLista(); }
+      const al = listaAl.find((x) => x.id === b.dataset.quitarAl); if (!confirm(`¿Quitar a ${al.nombre} de la lista? Lo de meses anteriores se queda guardado.`)) return;
+      try { await q(sb.from('escuela_alumnas').update({ activa: false }).eq('id', al.id)); listaAl = listaAl.filter((x) => x.id !== al.id); pagadas.delete(al.id); await contarLista(e); pintarLista(); }
       catch (er) { aviso(traducirError(er), true); }
     });
     const ba = document.getElementById('al_add');
     if (ba) ba.onclick = async () => {
-      const nom = document.getElementById('al_nom').value.trim(), cs = document.getElementById('al_clase'); if (!nom) { aviso('Escribe el nombre', true); return; }
+      const nom = document.getElementById('al_nom').value.trim(); if (!nom) { aviso('Escribe el nombre', true); return; }
       ba.disabled = true;
-      try { const n = await q(sb.from('escuela_alumnas').insert({ escuela_amiga_id: e.id, clase_id: cs ? cs.value : null, nombre: nom }).select('*').single());
-        listaAl.push(n); await contarClase(n.clase_id); pintarLista(); document.getElementById('al_nom').focus(); }
+      try { const n = await q(sb.from('escuela_alumnas').insert({ escuela_amiga_id: e.id, nombre: nom, telefono: document.getElementById('al_tel').value.trim() || null, tipo_cuota: document.getElementById('al_cuota').value }).select('*').single());
+        listaAl.push(n); await contarLista(e); pintarLista(); aviso(`${nom} añadida`); }
       catch (er) { aviso(traducirError(er), true); ba.disabled = false; }
     };
   };
-  // El número de alumnas de la clase sigue a la lista, para que la ficha de la escuela cuadre
-  const contarClase = async (cid) => { if (!cid) return; await intentar(() => q(sb.from('clases').update({ alumnas_externas: listaAl.filter((a) => a.clase_id === cid).length }).eq('id', cid))); };
+  // Si la escuela tiene una sola clase, su número de alumnas sigue a la lista (para que la ficha cuadre)
+  const contarLista = async (e) => { const cl = clasesExt.filter((c) => c.escuela_amiga_id === e.id && c.activa); if (cl.length !== 1) return;
+    await intentar(() => q(sb.from('clases').update({ alumnas_externas: listaAl.filter((a) => a.escuela_amiga_id === e.id).length }).eq('id', cl[0].id))); };
   const calcular = (tocar = true) => {
     const e = resumenes.find((x) => x.id === escuelaSel()) || {}, p = +e.porcentaje_nuestro || 0;
     const pc = +e.precio_alumna || 0, pm = +e.precio_medio_alumna || 0, nc = Math.max(0, +cComp.value || 0), nm = Math.max(0, +cMed.value || 0);
@@ -3789,7 +3794,7 @@ async function pantallaEscuela(id) {
   pintar(cabecera(e.nombre, { volver: '#/escuelas', sub: e.activa ? 'Activa' : 'Inactiva' }) + `<main class="cont">
     ${esPorcentaje(res) ? `<div class="totales"><div><small>Alumnas</small><b>${res.n_alumnas}</b></div><div><small>Total cobrado</small><b>${eur(res.total_alumnas)}</b></div><div><small>Para nosotros</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>
       ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}
-      <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; ${e.con_lista ? 'quién paga qué se marca cada mes en Contabilidad, con sus nombres.' : 'cuántas son se pone cada mes en Contabilidad.'}</div>
+      <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; ${e.con_lista ? 'cada mes se marca en Contabilidad quién ha pagado.' : 'cuántas son se pone cada mes en Contabilidad.'}</div>
       ${e.con_lista && veContab() ? `<a class="btn sec" href="#/contabilidad/amiga?mes=${hoyISO().slice(0, 7)}&esc=${id}">${ico('alumnas', 18)} Sus alumnas y el cobro de este mes</a>` : ''}`
     : `<div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>`}
     <div class="tarjeta"><dl class="datos"><dt>Contacto</dt><dd>${esc(e.contacto || '—')}</dd><dt>Teléfono</dt><dd>${esc(e.telefono || '—')}</dd><dt>Correo</dt><dd>${esc(e.email || '—')}</dd>${e.notas ? `<dt>Notas</dt><dd>${esc(e.notas)}</dd>` : ''}</dl></div>
@@ -3882,7 +3887,7 @@ async function formEscuela(id) {
         <div class="ayuda">Para cambiar el precio de medio mes, elígelo en el desplegable y escribe el nuevo.</div></div>` },
       { k: 'precio_alumna', tipo: 'oculto', def: 35 }, { k: 'precio_medio_alumna', tipo: 'oculto', def: 20 },
       { k: 'porcentaje_nuestro', label: 'Porcentaje para Blackstars (%)', tipo: 'numero', def: 35, ayuda: 'El resto se lo queda la escuela amiga.' },
-      { k: 'con_lista', label: 'Apuntar a sus alumnas con nombre (para marcar cada mes quién paga mes completo o medio mes)', tipo: 'bool', def: false },
+      { k: 'con_lista', label: 'Llevar lista de sus alumnas (nombre, teléfono y cuota; cada mes se marca quién ha pagado)', tipo: 'bool', def: false },
       { k: 'reparto_html', tipo: 'html', html: '<div id="reparto-vivo"></div>' },
       { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
     ],
