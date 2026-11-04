@@ -3010,10 +3010,13 @@ function bloqueObjetivo(e, ob, nomProf) {
   const mensaje = (pid, codigo) => { const pila = nom(pid).split(' ')[0]; return hayCupon(e)
     ? `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase en ${mesCupon(e)}, di este código en la escuela y tendrá ${eur(e.cupon_euros)} de descuento en la cuota de ${mesCupon(e)}: ${codigo}`
     : `¡Hola! Soy ${pila}, profesora de la Academia Blackstars. Si tu peque se apunta a clase, di este código en la escuela: ${codigo}`; };
+  // Invitación a clase de prueba gratis, de parte de la academia, con el nombre de la niña y el código de su profesora
+  const invitacion = (i, codigo) => { const pila = nom(i.profesora_id).split(' ')[0], nina = String(i.nombre || '').trim().split(/\s+/)[0];
+    return `¡Muy buenas! Somos la Academia Blackstars y estamos encantados de saludarte ⭐\n\nComo estuviste hablando con nuestra profesora ${pila}, te hemos guardado un código exclusivo solo para ${nina ? '*' + nina + '*' : 'ti'}: *${codigo}*\n\nVen a probar una clase GRATIS y, si te apuntas, di el código en la escuela ${hayCupon(e) ? `para canjear tu descuento de ${eur(e.cupon_euros)} en la cuota` : 'para que sepamos que vienes de su parte'}.\n\n¡Te esperamos! Únete a Blackstars 💜`; };
   const codDe = (pid) => (ob.codigos.find((c) => c.profesora_id === pid) || {}).codigo;
   // Botón para mandar el código por WhatsApp al teléfono de esa interesada
   const waInt = (i) => { const t = String(i.telefono || '').replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1'), cod = codDe(i.profesora_id);
-    return !i.validada_en && t && cod ? `<button class="obj-wa-btn" data-wa="https://wa.me/${t}?text=${encodeURIComponent(mensaje(i.profesora_id, cod))}" aria-label="Enviar el código por WhatsApp a ${esc(i.tutor_nombre || i.nombre)}">${ico('wa', 20)}</button>` : ''; };
+    return !i.validada_en && t && cod ? `<button class="obj-wa-btn" data-wa="https://wa.me/${t}?text=${encodeURIComponent(invitacion(i, cod))}" aria-label="Enviar invitación a clase gratis por WhatsApp a ${esc(i.tutor_nombre || i.nombre)}">${ico('wa', 18)} Invitar</button>` : ''; };
   const filaInt = (i, editable) => fila({ href: editable && !i.validada_en ? `#/interesada/${i.id}` : `#/evento/${id}`, tit: i.nombre, det: esc(tel(i) + (i.nota ? ' · ' + i.nota : '') + (i.cupon_caja_id ? ` · cupón usado (−${eur(e.cupon_euros)})` : '')), der: `<span class="obj-der">${chip(i)}${waInt(i)}</span>` });
   const mio = ob.yo && ob.codigos.find((c) => c.profesora_id === ob.yo);
   // Lo que ve cada profesora: su código, el cupón de la familia, el WhatsApp y lo que lleva (la administración lo ve igual dentro de cada profesora)
