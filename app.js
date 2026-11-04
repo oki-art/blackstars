@@ -2007,9 +2007,13 @@ async function formPagoEquipo(params) {
 // Escuela amiga en la contabilidad: elige la escuela y escribe a mano lo que paga este mes; al cobrar entra como ingreso en Caja
 async function formCobroAmiga(params) {
   if (!veContab()) return sinPermiso();
+  let listaAl = [], clasesExt = [];
   const mes = mesContab(params), volver = `#/contabilidad?mes=${mes}`, ed = editaContab(), k0 = params.get('k');
-  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*')))]);
+  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*'))), intentar(() => q(sb.from('escuelas_amigas').select('*'))), intentar(() => q(sb.from('escuela_alumnas').select('*').eq('activa', true).order('nombre'))),
+    intentar(() => q(sb.from('clases').select('id,nombre,escuela_amiga_id,activa').not('escuela_amiga_id', 'is', null)))])
+    .then(([a, b, c, ea, al, cl]) => { listaAl = al; clasesExt = cl; return [a, b, c.map((x) => Object.assign({}, ea.find((y) => y.id === x.id) || {}, x))]; });
   let r = k0 ? d.amigas.find((x) => x.persona === k0) : null;
+  if (!r && params.get('esc')) r = d.amigas.find((x) => x.persona === 'a:' + params.get('esc')) || null;
   if (k0 && !r) { aviso('No encuentro esa escuela en este mes', true); location.hash = volver; return; }
   if (!r && !ed) return sinPermiso();
   const pago = r && r.caja_id ? d.pagos[r.caja_id] : null, bloqueado = !ed || !!pago, dis = bloqueado ? 'disabled' : '';
@@ -2017,10 +2021,14 @@ async function formCobroAmiga(params) {
   const libres = escuelas.filter(([id]) => !ya.has('a:' + id));
   const mesTxt = nombreMes(mes + '-01').split(' ')[0].toLowerCase();
   pintar(cabecera(r ? r.nombre : 'Añadir escuela amiga', { volver, sub: `Contabilidad · ${nombreMes(mes + '-01')}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
-    ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></div>`
+    ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}" ${id === params.get('esc') ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`
       : `${vacio('No hay escuelas amigas libres. Créala antes en Más › Escuelas amigas.')}`}
     <div class="campo"><label for="c_cant">Cantidad de ${mesTxt} (€) *</label><input id="c_cant" class="contab-grande" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(pago ? pago.importe : r && r.cuota != null ? r.cuota : '')}" ${dis} required></div>
-    <div class="campo" id="c_pct_box" hidden><label for="c_total">Lo que han cobrado a sus alumnas este mes (€)</label><input id="c_total" type="number" step="0.01" min="0" inputmode="decimal" ${dis}><div class="ayuda" id="c_pct_ayuda"></div></div>
+    <div class="campo" id="c_pct_box" hidden><label>Sus alumnas este mes</label>
+      <div class="rep-alumnas"><label><span>Mes completo<small id="c_pc"></small></span><input id="c_ncomp" type="number" step="1" min="0" inputmode="numeric" ${dis}></label>
+        <label><span>Medio mes<small id="c_pm"></small></span><input id="c_nmed" type="number" step="1" min="0" inputmode="numeric" ${dis}></label></div>
+      <div class="ayuda" id="c_pct_ayuda"></div></div>
+    <div id="c_lista_box" hidden></div>
     ${r && r.anterior != null ? `<div class="contab-auto">El mes pasado fueron ${eur(r.anterior)}</div>` : ''}
     ${pago ? `<div class="contab-pagado ${esBanco(pago) ? 'banco' : 'efectivo'}">${ico('check', 16)} Cobrado el ${esc(fechaCorta(pago.fecha))} · ${esBanco(pago) ? 'Banco' : 'Efectivo'} · ${eur(pago.importe)}</div>
         ${ed ? '<button type="button" class="btn sec ancho" id="deshacer">Deshacer el cobro</button><div class="ayuda">Para cambiar la cantidad, deshaz antes el cobro: se quita el ingreso de la Caja.</div>' : ''}`
@@ -2030,29 +2038,85 @@ async function formCobroAmiga(params) {
     ${r && r.guardada && ed && !pago ? `<button type="button" class="btn peligro ancho" id="quitar">${ico('papelera', 18)} Quitar de la contabilidad</button>` : ''}
   </form></main>`, 'caja');
   const form = document.getElementById('frm');
-  // Escuela "por porcentaje": se escribe lo que han cobrado y la cantidad para nosotros sale sola
+  // Escuela "por porcentaje": se ponen cuántas alumnas pagaron mes completo y cuántas medio mes, y nuestra parte sale sola
   const escuelaSel = () => r ? r.persona.slice(2) : (document.getElementById('c_esc') || {}).value;
-  const pctBox = document.getElementById('c_pct_box'), cTotal = document.getElementById('c_total'), cCant = document.getElementById('c_cant');
-  const calcular = () => {
-    const e = resumenes.find((x) => x.id === escuelaSel()), p = +(e && e.porcentaje_nuestro) || 0;
-    const t = Number(String(cTotal.value).replace(',', '.')) || 0;
-    document.getElementById('c_pct_ayuda').textContent = `${pctTxt(p)} para Blackstars = ${eur(redondeo(t * p / 100))} · el resto (${eur(redondeo(t - t * p / 100))}) para la escuela amiga.`;
-    if (!bloqueado) cCant.value = redondeo(t * p / 100) || '';
+  const pctBox = document.getElementById('c_pct_box'), cComp = document.getElementById('c_ncomp'), cMed = document.getElementById('c_nmed'), cCant = document.getElementById('c_cant');
+  // Escuela con lista de nombres: cada alumna tiene su nombre, teléfono y cuota (mes completo o medio mes);
+  // cada mes se marca quién ha pagado. La lista va en una tarjeta plegada con pagadas y pendientes.
+  const listaBox = document.getElementById('c_lista_box'), pagadas = new Set(((r && r.detalle) || []).filter((x) => x.pagado).map((x) => x.id));
+  let listaAbierta = false;
+  const conLista = () => { const e = resumenes.find((x) => x.id === escuelaSel()); return esPorcentaje(e) && e.con_lista ? e : null; };
+  const cuotaDe = (e, a) => a.tipo_cuota === 'medio' ? +e.precio_medio_alumna || 0 : +e.precio_alumna || 0;
+  const detalleLista = () => { const e = conLista(); if (!e) return [];
+    return listaAl.filter((a) => a.escuela_amiga_id === e.id).map((a) => ({ id: a.id, nombre: a.nombre, telefono: a.telefono || '', tipo: a.tipo_cuota || 'completo', importe: cuotaDe(e, a), pagado: pagadas.has(a.id) })); };
+  const pintarLista = (tocar = true) => {
+    const e = conLista(); listaBox.hidden = !e; if (!e) return;
+    const det = detalleLista().sort((x, y) => (x.pagado - y.pagado) || x.nombre.localeCompare(y.nombre, 'es'));
+    const pag = det.filter((x) => x.pagado), p = +e.porcentaje_nuestro || 0;
+    const t = redondeo(pag.reduce((s2, x) => s2 + x.importe, 0)), nos = redondeo(t * p / 100);
+    const nc = pag.filter((x) => x.tipo !== 'medio').length, nm = pag.length - nc;
+    const nombreClase = (clasesExt.find((c) => c.escuela_amiga_id === e.id && c.activa) || {}).nombre || e.nombre;
+    listaBox.innerHTML = `<details class="lista-card" ${listaAbierta ? 'open' : ''}><summary>
+        <span class="lc-tit"><b>Alumnas de ${esc(nombreClase)}</b><small>${det.length} en la lista · toca para ver</small></span>
+        <span class="lc-chips"><span class="chip verde">${pag.length} pagadas</span><span class="chip gris">${det.length - pag.length} pendientes</span></span>${ico('sig', 18)}</summary>
+      <div class="lc-cuerpo">
+        ${det.map((x) => `<div class="lista-ext ${x.pagado ? 'pagada' : ''}"><span class="nom"><b>${esc(x.nombre)}</b><small>${esc(x.telefono || 'sin teléfono')} · ${x.tipo === 'medio' ? 'Medio' : 'Completo'} ${eur(x.importe)}</small></span>
+          <button type="button" class="lc-pago" data-pago="${x.id}" ${dis}>${x.pagado ? `${ico('check', 14)} Pagado` : 'Pendiente'}</button>
+          ${!bloqueado ? `<button type="button" class="ins-editar" data-quitar-al="${x.id}" aria-label="Quitar a ${esc(x.nombre)}">${ico('papelera', 16)}</button>` : ''}</div>`).join('') || vacio('Aún no hay alumnas en la lista.')}
+        ${!bloqueado ? `<div class="lista-ext-nueva"><b>Añadir alumna</b><input id="al_nom" placeholder="Nombre y apellidos" autocomplete="off"><input id="al_tel" type="tel" placeholder="Teléfono" autocomplete="off">
+          <select id="al_cuota" aria-label="Cuota mensual"><option value="completo">Completo ${eur(+e.precio_alumna || 0)}</option><option value="medio">Medio ${eur(+e.precio_medio_alumna || 0)}</option></select>
+          <button type="button" class="btn sec" id="al_add">${ico('mas', 18)} Añadir</button></div>` : ''}
+      </div></details>
+      <div class="tarjeta reparto lista-ext-total">
+        <div class="rep-cuenta">Pagado: ${[nc ? `${nc} × ${eur(+e.precio_alumna || 0)}` : '', nm ? `${nm} × ${eur(+e.precio_medio_alumna || 0)}` : ''].filter(Boolean).join(' + ') || 'nadie aún'} = <b>${eur(t)}</b></div>
+        <div class="rep-barra" aria-hidden="true"><span style="width:${p}%"></span></div>
+        <div class="rep-filas"><div class="rep-nos"><small>Blackstars · ${pctTxt(p)}</small><b>${eur(nos)}</b></div><div class="rep-ella"><small>Escuela amiga · ${pctTxt(100 - p)}</small><b>${eur(redondeo(t - nos))}</b></div></div>
+      </div>`;
+    if (tocar && !bloqueado) cCant.value = nos || '';
+    listaBox.querySelector('details').addEventListener('toggle', (ev) => { listaAbierta = ev.target.open; });
+    listaBox.querySelectorAll('[data-pago]').forEach((b) => b.onclick = () => { const k = b.dataset.pago; if (pagadas.has(k)) pagadas.delete(k); else pagadas.add(k); pintarLista(); });
+    listaBox.querySelectorAll('[data-quitar-al]').forEach((b) => b.onclick = async () => {
+      const al = listaAl.find((x) => x.id === b.dataset.quitarAl); if (!confirm(`¿Quitar a ${al.nombre} de la lista? Lo de meses anteriores se queda guardado.`)) return;
+      try { await q(sb.from('escuela_alumnas').update({ activa: false }).eq('id', al.id)); listaAl = listaAl.filter((x) => x.id !== al.id); pagadas.delete(al.id); await contarLista(e); pintarLista(); }
+      catch (er) { aviso(traducirError(er), true); }
+    });
+    const ba = document.getElementById('al_add');
+    if (ba) ba.onclick = async () => {
+      const nom = document.getElementById('al_nom').value.trim(); if (!nom) { aviso('Escribe el nombre', true); return; }
+      ba.disabled = true;
+      try { const n = await q(sb.from('escuela_alumnas').insert({ escuela_amiga_id: e.id, nombre: nom, telefono: document.getElementById('al_tel').value.trim() || null, tipo_cuota: document.getElementById('al_cuota').value }).select('*').single());
+        listaAl.push(n); await contarLista(e); pintarLista(); aviso(`${nom} añadida`); }
+      catch (er) { aviso(traducirError(er), true); ba.disabled = false; }
+    };
+  };
+  // Si la escuela tiene una sola clase, su número de alumnas sigue a la lista (para que la ficha cuadre)
+  const contarLista = async (e) => { const cl = clasesExt.filter((c) => c.escuela_amiga_id === e.id && c.activa); if (cl.length !== 1) return;
+    await intentar(() => q(sb.from('clases').update({ alumnas_externas: listaAl.filter((a) => a.escuela_amiga_id === e.id).length }).eq('id', cl[0].id))); };
+  const calcular = (tocar = true) => {
+    const e = resumenes.find((x) => x.id === escuelaSel()) || {}, p = +e.porcentaje_nuestro || 0;
+    const pc = +e.precio_alumna || 0, pm = +e.precio_medio_alumna || 0, nc = Math.max(0, +cComp.value || 0), nm = Math.max(0, +cMed.value || 0);
+    const t = redondeo(nc * pc + nm * pm), nos = redondeo(t * p / 100);
+    document.getElementById('c_pct_ayuda').innerHTML = `${[nc ? `${nc} × ${eur(pc)}` : '', nm ? `${nm} × ${eur(pm)}` : ''].filter(Boolean).join(' + ') || '0 alumnas'} = <b>${eur(t)}</b><br>${pctTxt(p)} para Blackstars = <b>${eur(nos)}</b> · el resto (${eur(redondeo(t - nos))}) para la escuela amiga.`;
+    if (tocar && !bloqueado) cCant.value = nos || '';
   };
   const mirarModo = (inicio) => {
     const e = resumenes.find((x) => x.id === escuelaSel());
-    pctBox.hidden = !esPorcentaje(e); if (pctBox.hidden) return;
-    const p = +e.porcentaje_nuestro || 0, ya = Number(cCant.value) || 0;
-    cTotal.value = inicio && ya && p ? redondeo(ya * 100 / p) : e.total_alumnas || '';
-    calcular();
+    pintarLista(!(inicio && Number(cCant.value) > 0));
+    pctBox.hidden = !esPorcentaje(e) || !!e.con_lista; if (pctBox.hidden) return;
+    document.getElementById('c_pc').textContent = ` · ${eur(+e.precio_alumna || 0)}`;
+    document.getElementById('c_pm').textContent = ` · ${eur(+e.precio_medio_alumna || 0)}`;
+    cComp.value = +e.n_alumnas || 0; cMed.value = 0;
+    calcular(!(inicio && Number(cCant.value) > 0));   // si ya había una cantidad guardada, no se cambia hasta que se toquen las alumnas
   };
-  if (cTotal) { cTotal.addEventListener('input', calcular); const se = document.getElementById('c_esc'); if (se) se.addEventListener('change', () => mirarModo(false)); mirarModo(true); }
+  if (cComp) { [cComp, cMed].forEach((x) => x.addEventListener('input', () => calcular())); const se = document.getElementById('c_esc'); if (se) se.addEventListener('change', () => mirarModo(false)); mirarModo(true); }
   const guardar = async () => {
     const cant = Number(String(document.getElementById('c_cant').value).replace(',', '.'));
     if (!(cant > 0)) throw new Error('Escribe la cantidad del mes');
     let persona = r && r.persona, nombre = r && r.nombre;
     if (!r) { const sel = document.getElementById('c_esc'); persona = 'a:' + sel.value; nombre = sel.options[sel.selectedIndex].text; }
-    return q(sb.from('pagos_equipo').upsert({ mes, persona, nombre, tipo: 'fija', cuota: cant, dias_falta: 0, pluses: [], total: cant }, { onConflict: 'mes,persona' }).select('*').single());
+    const fila = { mes, persona, nombre, tipo: 'fija', cuota: cant, dias_falta: 0, pluses: [], total: cant };
+    if (conLista()) fila.detalle = detalleLista();
+    return q(sb.from('pagos_equipo').upsert(fila, { onConflict: 'mes,persona' }).select('*').single());
   };
   const ocupado = (b) => { if (b.disabled) return true; b.disabled = true; return false; };
   form.onsubmit = async (ev) => {
@@ -3729,11 +3793,13 @@ async function pantallaEscuela(id) {
   const mes = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   pintar(cabecera(e.nombre, { volver: '#/escuelas', sub: e.activa ? 'Activa' : 'Inactiva' }) + `<main class="cont">
     ${esPorcentaje(res) ? `<div class="totales"><div><small>Alumnas</small><b>${res.n_alumnas}</b></div><div><small>Total cobrado</small><b>${eur(res.total_alumnas)}</b></div><div><small>Para nosotros</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>
-      ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}`
+      ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}
+      <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; ${e.con_lista ? 'cada mes se marca en Contabilidad quién ha pagado.' : 'cuántas son se pone cada mes en Contabilidad.'}</div>
+      ${e.con_lista && veContab() ? `<a class="btn sec" href="#/contabilidad/amiga?mes=${hoyISO().slice(0, 7)}&esc=${id}">${ico('alumnas', 18)} Sus alumnas y el cobro de este mes</a>` : ''}`
     : `<div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>`}
     <div class="tarjeta"><dl class="datos"><dt>Contacto</dt><dd>${esc(e.contacto || '—')}</dd><dt>Teléfono</dt><dd>${esc(e.telefono || '—')}</dd><dt>Correo</dt><dd>${esc(e.email || '—')}</dd>${e.notas ? `<dt>Notas</dt><dd>${esc(e.notas)}</dd>` : ''}</dl></div>
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
-      ${puedeEditar('caja') && +res.cuota_mensual > 0 ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes + (esPorcentaje(res) ? ` (${pctTxt(res.porcentaje_nuestro)} de ${eur(res.total_alumnas)})` : ''))}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
+      ${puedeEditar('caja') && +res.cuota_mensual > 0 && !e.con_lista ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes + (esPorcentaje(res) ? ` (${pctTxt(res.porcentaje_nuestro)} de ${eur(res.total_alumnas)})` : ''))}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
     ${puedeVer('clases') ? `<div class="seccion">Sus clases en nuestra sala</div>
       <div class="lista">${clases.sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => fila({ href: `#/clase/${c.id}`, ini: iniciales(c.nombre), tit: c.nombre, det: esc(`${textoHorario(c)} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: (c.activa ? '' : '<span class="chip gris">Inactiva</span>') + (S.admin ? `<button class="ins-editar" data-ir="#/clase/${c.id}/borrar" aria-label="Borrar clase">${ico('papelera', 18)}</button>` : '') })).join('') || vacio('Sin clases registradas.')}</div>
       ${puedeEditar('clases') ? `<a class="btn sec" href="#/escuela/${id}/clase/nueva">${ico('mas')} Añadir clase externa</a>` : ''}` : ''}
@@ -3814,17 +3880,24 @@ async function formEscuela(id) {
       { k: 'modo_html', tipo: 'html', html: `<div class="campo"><label>¿Cómo nos paga?</label><div class="modo-cobro"><button type="button" data-modo="horas">${ico('reloj', 18)} Por horas</button><button type="button" data-modo="porcentaje"><b>%</b> Por porcentaje</button></div></div>` },
       { k: 'modo_cobro', tipo: 'oculto', def: 'horas' },
       { k: 'tarifa_hora_semana', label: 'Tarifa (€ al mes por cada hora semanal)', tipo: 'dinero', def: 40, ayuda: 'Ejemplo: 2,5 h a la semana × 40 € = 100 € al mes.' },
-      { k: 'precio_alumna', label: 'Lo que paga cada alumna al mes (€)', tipo: 'dinero', def: 30, ayuda: 'Se multiplica por las alumnas de sus clases.' },
+      // Una sola caja: el desplegable elige mes completo o medio mes y el número es el precio de ese (los dos se guardan)
+      { k: 'precio_html', tipo: 'html', html: `<div class="campo" id="caja-precio"><label for="p_valor">Lo que paga cada alumna</label>
+        <div class="precio-desp"><select id="p_cual" aria-label="Mes completo o medio mes"><option value="precio_alumna">Mes completo</option><option value="precio_medio_alumna">Medio mes</option></select>
+          <span class="precio-num"><input id="p_valor" type="number" step="0.01" min="0" inputmode="decimal"><i>€</i></span></div>
+        <div class="ayuda">Para cambiar el precio de medio mes, elígelo en el desplegable y escribe el nuevo.</div></div>` },
+      { k: 'precio_alumna', tipo: 'oculto', def: 35 }, { k: 'precio_medio_alumna', tipo: 'oculto', def: 20 },
       { k: 'porcentaje_nuestro', label: 'Porcentaje para Blackstars (%)', tipo: 'numero', def: 35, ayuda: 'El resto se lo queda la escuela amiga.' },
+      { k: 'con_lista', label: 'Llevar lista de sus alumnas (nombre, teléfono y cuota; cada mes se marca quién ha pagado)', tipo: 'bool', def: false },
       { k: 'reparto_html', tipo: 'html', html: '<div id="reparto-vivo"></div>' },
       { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
     ],
     transformar: (d) => {
       const p = d.modo_cobro === 'porcentaje';
+      ['precio_alumna', 'precio_medio_alumna'].forEach((k) => { d[k] = d[k] == null || d[k] === '' ? null : Number(String(d[k]).replace(',', '.')); });
       if (p && !(d.precio_alumna > 0)) throw new Error('Escribe lo que paga cada alumna');
       if (p && !(d.porcentaje_nuestro >= 0 && d.porcentaje_nuestro <= 100)) throw new Error('El porcentaje tiene que estar entre 0 y 100');
       if (!p && d.tarifa_hora_semana == null) throw new Error('Escribe la tarifa por hora');
-      return Object.assign(d, { modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
+      return Object.assign(d, { con_lista: p && !!d.con_lista, modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, precio_medio_alumna: d.precio_medio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
     }
   });
   const form = document.getElementById('frm'); if (!form) return;
@@ -3832,12 +3905,16 @@ async function formEscuela(id) {
   const pintarModo = () => {
     const p = modo.value === 'porcentaje';
     form.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === modo.value));
-    caja('tarifa_hora_semana').hidden = p; caja('precio_alumna').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
+    caja('tarifa_hora_semana').hidden = p; document.getElementById('caja-precio').hidden = !p; form.elements.con_lista.closest('.check').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
     const v = (k) => Number(String(form.elements[k].value).replace(',', '.')) || 0;
     document.getElementById('reparto-vivo').innerHTML = p ? `<div class="ayuda" style="margin:0 0 6px">${id ? 'Con las alumnas que tiene ahora:' : 'Ejemplo con 10 alumnas:'}</div>${repartoHtml(id ? nAlumnas : 10, v('precio_alumna'), v('porcentaje_nuestro'))}` : '';
   };
   form.querySelectorAll('[data-modo]').forEach((b) => b.onclick = () => { modo.value = b.dataset.modo; pintarModo(); });
-  ['precio_alumna', 'porcentaje_nuestro'].forEach((k) => form.elements[k].addEventListener('input', pintarModo));
+  const pCual = document.getElementById('p_cual'), pValor = document.getElementById('p_valor');
+  pCual.onchange = () => { pValor.value = form.elements[pCual.value].value; };
+  pValor.addEventListener('input', () => { form.elements[pCual.value].value = pValor.value; pintarModo(); });
+  pCual.onchange();
+  form.elements.porcentaje_nuestro.addEventListener('input', pintarModo);
   pintarModo();
 }
 const formClaseExterna = (escuela, id) => formClase(id, escuela);
