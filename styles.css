@@ -826,3 +826,7 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .lista-ext-total{margin-top:10px}
 .check[hidden]{display:none}
 .lista-ext-nueva input,.lista-ext-nueva select{min-width:0;box-sizing:border-box}
+.cc-tot b.gris{color:var(--texto2);font-size:13px}
+.amiga-pie{display:grid;grid-template-columns:1fr auto;gap:4px 10px;background:#FBF6EC;border-radius:12px;padding:10px 12px;margin:8px 0;font-size:13px}
+.amiga-pie b{font-family:'Sora',sans-serif;text-align:right}
+.amiga-mov{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto2);margin:10px 0 4px}
