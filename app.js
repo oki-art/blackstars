@@ -257,6 +257,7 @@ function sinPermiso() {
 function campoHtml(c, valor) {
   if (c.tipo === 'html') return c.html;
   const id = 'f_' + c.k, v = valor ?? c.def ?? '';
+  if (c.tipo === 'oculto') return `<input type="hidden" id="${id}" name="${c.k}" value="${esc(v)}">`;
   const req = c.req ? 'required' : '';
   let input;
   if (c.tipo === 'textarea') input = `<textarea id="${id}" name="${c.k}" ${req} ${c.formato ? 'data-con-formato' : ''} placeholder="${esc(c.ph || '')}">${esc(v)}</textarea>`
@@ -2007,7 +2008,7 @@ async function formPagoEquipo(params) {
 async function formCobroAmiga(params) {
   if (!veContab()) return sinPermiso();
   const mes = mesContab(params), volver = `#/contabilidad?mes=${mes}`, ed = editaContab(), k0 = params.get('k');
-  const [d, escuelas] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas)]);
+  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*')))]);
   let r = k0 ? d.amigas.find((x) => x.persona === k0) : null;
   if (k0 && !r) { aviso('No encuentro esa escuela en este mes', true); location.hash = volver; return; }
   if (!r && !ed) return sinPermiso();
@@ -2019,6 +2020,7 @@ async function formCobroAmiga(params) {
     ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></div>`
       : `${vacio('No hay escuelas amigas libres. Créala antes en Más › Escuelas amigas.')}`}
     <div class="campo"><label for="c_cant">Cantidad de ${mesTxt} (€) *</label><input id="c_cant" class="contab-grande" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(pago ? pago.importe : r && r.cuota != null ? r.cuota : '')}" ${dis} required></div>
+    <div class="campo" id="c_pct_box" hidden><label for="c_total">Lo que han cobrado a sus alumnas este mes (€)</label><input id="c_total" type="number" step="0.01" min="0" inputmode="decimal" ${dis}><div class="ayuda" id="c_pct_ayuda"></div></div>
     ${r && r.anterior != null ? `<div class="contab-auto">El mes pasado fueron ${eur(r.anterior)}</div>` : ''}
     ${pago ? `<div class="contab-pagado ${esBanco(pago) ? 'banco' : 'efectivo'}">${ico('check', 16)} Cobrado el ${esc(fechaCorta(pago.fecha))} · ${esBanco(pago) ? 'Banco' : 'Efectivo'} · ${eur(pago.importe)}</div>
         ${ed ? '<button type="button" class="btn sec ancho" id="deshacer">Deshacer el cobro</button><div class="ayuda">Para cambiar la cantidad, deshaz antes el cobro: se quita el ingreso de la Caja.</div>' : ''}`
@@ -2028,6 +2030,23 @@ async function formCobroAmiga(params) {
     ${r && r.guardada && ed && !pago ? `<button type="button" class="btn peligro ancho" id="quitar">${ico('papelera', 18)} Quitar de la contabilidad</button>` : ''}
   </form></main>`, 'caja');
   const form = document.getElementById('frm');
+  // Escuela "por porcentaje": se escribe lo que han cobrado y la cantidad para nosotros sale sola
+  const escuelaSel = () => r ? r.persona.slice(2) : (document.getElementById('c_esc') || {}).value;
+  const pctBox = document.getElementById('c_pct_box'), cTotal = document.getElementById('c_total'), cCant = document.getElementById('c_cant');
+  const calcular = () => {
+    const e = resumenes.find((x) => x.id === escuelaSel()), p = +(e && e.porcentaje_nuestro) || 0;
+    const t = Number(String(cTotal.value).replace(',', '.')) || 0;
+    document.getElementById('c_pct_ayuda').textContent = `${pctTxt(p)} para Blackstars = ${eur(redondeo(t * p / 100))} · el resto (${eur(redondeo(t - t * p / 100))}) para la escuela amiga.`;
+    if (!bloqueado) cCant.value = redondeo(t * p / 100) || '';
+  };
+  const mirarModo = (inicio) => {
+    const e = resumenes.find((x) => x.id === escuelaSel());
+    pctBox.hidden = !esPorcentaje(e); if (pctBox.hidden) return;
+    const p = +e.porcentaje_nuestro || 0, ya = Number(cCant.value) || 0;
+    cTotal.value = inicio && ya && p ? redondeo(ya * 100 / p) : e.total_alumnas || '';
+    calcular();
+  };
+  if (cTotal) { cTotal.addEventListener('input', calcular); const se = document.getElementById('c_esc'); if (se) se.addEventListener('change', () => mirarModo(false)); mirarModo(true); }
   const guardar = async () => {
     const cant = Number(String(document.getElementById('c_cant').value).replace(',', '.'));
     if (!(cant > 0)) throw new Error('Escribe la cantidad del mes');
@@ -3693,7 +3712,7 @@ async function pantallaEscuelas() {
   const l = await q(sb.from('escuela_amiga_resumen').select('*').order('nombre'));
   pintar(cabecera('Escuelas amigas', { volver: volverDe('escuelas_amigas'), sub: 'Clases externas, cuota y coincidencias' }) + `<main class="cont">
     <div class="lista">${l.map((e) => fila({ href: `#/escuela/${e.id}`, iconoHtml: `<span class="ini">${ico('escuela', 18)}</span>`, tit: e.nombre,
-      det: `${(+e.horas_semana).toLocaleString('es-ES')} h/semana · ${e.n_clases} clases · ${e.n_alumnas} alumnas`, der: `<span class="chip oro">${eur(e.cuota_mensual)}/mes</span>` })).join('') || vacio('Aún no hay escuelas amigas.')}</div>
+      det: esPorcentaje(e) ? `${pctTxt(e.porcentaje_nuestro)} para nosotros · ${e.n_alumnas} alumnas` : `${(+e.horas_semana).toLocaleString('es-ES')} h/semana · ${e.n_clases} clases · ${e.n_alumnas} alumnas`, der: `<span class="chip oro">${eur(e.cuota_mensual)}/mes</span>` })).join('') || vacio('Aún no hay escuelas amigas.')}</div>
     ${fila({ href: '#/coincidencias', tit: 'Coincidencias', det: 'Alumnas que van a las dos escuelas', iconoHtml: `<span class="ini">${ico('alumnas', 18)}</span>`, der: ico('sig') })}
   </main>`, 'mas', puedeEditar('escuelas_amigas') ? '#/escuela/nueva' : null);
 }
@@ -3709,10 +3728,12 @@ async function pantallaEscuela(id) {
   const ed = puedeEditar('escuelas_amigas');
   const mes = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   pintar(cabecera(e.nombre, { volver: '#/escuelas', sub: e.activa ? 'Activa' : 'Inactiva' }) + `<main class="cont">
-    <div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>
+    ${esPorcentaje(res) ? `<div class="totales"><div><small>Alumnas</small><b>${res.n_alumnas}</b></div><div><small>Total cobrado</small><b>${eur(res.total_alumnas)}</b></div><div><small>Para nosotros</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>
+      ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}`
+    : `<div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>`}
     <div class="tarjeta"><dl class="datos"><dt>Contacto</dt><dd>${esc(e.contacto || '—')}</dd><dt>Teléfono</dt><dd>${esc(e.telefono || '—')}</dd><dt>Correo</dt><dd>${esc(e.email || '—')}</dd>${e.notas ? `<dt>Notas</dt><dd>${esc(e.notas)}</dd>` : ''}</dl></div>
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
-      ${puedeEditar('caja') && +res.cuota_mensual > 0 ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes)}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
+      ${puedeEditar('caja') && +res.cuota_mensual > 0 ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes + (esPorcentaje(res) ? ` (${pctTxt(res.porcentaje_nuestro)} de ${eur(res.total_alumnas)})` : ''))}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
     ${puedeVer('clases') ? `<div class="seccion">Sus clases en nuestra sala</div>
       <div class="lista">${clases.sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => fila({ href: `#/clase/${c.id}`, ini: iniciales(c.nombre), tit: c.nombre, det: esc(`${textoHorario(c)} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: (c.activa ? '' : '<span class="chip gris">Inactiva</span>') + (S.admin ? `<button class="ins-editar" data-ir="#/clase/${c.id}/borrar" aria-label="Borrar clase">${ico('papelera', 18)}</button>` : '') })).join('') || vacio('Sin clases registradas.')}</div>
       ${puedeEditar('clases') ? `<a class="btn sec" href="#/escuela/${id}/clase/nueva">${ico('mas')} Añadir clase externa</a>` : ''}` : ''}
@@ -3767,14 +3788,58 @@ async function pantallaBorrarEscuela(id) {
     } catch (er) { aviso(traducirError(er), true); b.disabled = false; }
   };
 }
-const formEscuela = (id) => pantallaForm({
-  titulo: id ? 'Editar escuela' : 'Nueva escuela amiga', tabla: 'escuelas_amigas', modulo: 'escuelas_amigas', id, volver: id ? `#/escuela/${id}` : '#/escuelas', despues: (r) => `#/escuela/${r.id}`,
-  campos: [
-    { k: 'nombre', label: 'Nombre', req: true }, { k: 'contacto', label: 'Persona de contacto' }, { k: 'telefono', label: 'Teléfono', tipo: 'tel' }, { k: 'email', label: 'Correo', tipo: 'email' },
-    { k: 'tarifa_hora_semana', label: 'Tarifa (€ al mes por cada hora semanal)', tipo: 'dinero', req: true, def: 40, ayuda: 'Ejemplo: 2,5 h a la semana × 40 € = 100 € al mes.' },
-    { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
-  ]
-});
+// Cómo nos paga la escuela amiga: "por horas" (horas semanales × tarifa) o "por porcentaje" (de lo que cobran a sus alumnas)
+const esPorcentaje = (e) => e && e.modo_cobro === 'porcentaje';
+const pctTxt = (n) => `${(+n || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`;
+const redondeo = (n) => Math.round((+n || 0) * 100) / 100;
+function repartoHtml(alumnas, precio, nuestro) {
+  const total = redondeo((+alumnas || 0) * (+precio || 0)), p = Math.min(100, Math.max(0, +nuestro || 0));
+  const para = redondeo(total * p / 100);
+  return `<div class="tarjeta reparto">
+    <div class="rep-cuenta">${+alumnas || 0} alumnas × ${eur(+precio || 0)} = <b>${eur(total)}</b></div>
+    <div class="rep-barra" aria-hidden="true"><span style="width:${p}%"></span></div>
+    <div class="rep-filas">
+      <div class="rep-nos"><small>Blackstars · ${pctTxt(p)}</small><b>${eur(para)}</b></div>
+      <div class="rep-ella"><small>Escuela amiga · ${pctTxt(100 - p)}</small><b>${eur(redondeo(total - para))}</b></div>
+    </div></div>`;
+}
+async function formEscuela(id) {
+  // Las alumnas de sus clases, para enseñar el reparto con números de verdad mientras se escribe
+  const res = id ? await intentar(() => q(sb.from('escuela_amiga_resumen').select('n_alumnas').eq('id', id).single())) : null;
+  const nAlumnas = res && !Array.isArray(res) ? +res.n_alumnas || 0 : 0;
+  await pantallaForm({
+    titulo: id ? 'Editar escuela' : 'Nueva escuela amiga', tabla: 'escuelas_amigas', modulo: 'escuelas_amigas', id, volver: id ? `#/escuela/${id}` : '#/escuelas', despues: (r) => `#/escuela/${r.id}`,
+    campos: [
+      { k: 'nombre', label: 'Nombre', req: true }, { k: 'contacto', label: 'Persona de contacto' }, { k: 'telefono', label: 'Teléfono', tipo: 'tel' }, { k: 'email', label: 'Correo', tipo: 'email' },
+      { k: 'modo_html', tipo: 'html', html: `<div class="campo"><label>¿Cómo nos paga?</label><div class="modo-cobro"><button type="button" data-modo="horas">${ico('reloj', 18)} Por horas</button><button type="button" data-modo="porcentaje"><b>%</b> Por porcentaje</button></div></div>` },
+      { k: 'modo_cobro', tipo: 'oculto', def: 'horas' },
+      { k: 'tarifa_hora_semana', label: 'Tarifa (€ al mes por cada hora semanal)', tipo: 'dinero', def: 40, ayuda: 'Ejemplo: 2,5 h a la semana × 40 € = 100 € al mes.' },
+      { k: 'precio_alumna', label: 'Lo que paga cada alumna al mes (€)', tipo: 'dinero', def: 30, ayuda: 'Se multiplica por las alumnas de sus clases.' },
+      { k: 'porcentaje_nuestro', label: 'Porcentaje para Blackstars (%)', tipo: 'numero', def: 35, ayuda: 'El resto se lo queda la escuela amiga.' },
+      { k: 'reparto_html', tipo: 'html', html: '<div id="reparto-vivo"></div>' },
+      { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
+    ],
+    transformar: (d) => {
+      const p = d.modo_cobro === 'porcentaje';
+      if (p && !(d.precio_alumna > 0)) throw new Error('Escribe lo que paga cada alumna');
+      if (p && !(d.porcentaje_nuestro >= 0 && d.porcentaje_nuestro <= 100)) throw new Error('El porcentaje tiene que estar entre 0 y 100');
+      if (!p && d.tarifa_hora_semana == null) throw new Error('Escribe la tarifa por hora');
+      return Object.assign(d, { modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
+    }
+  });
+  const form = document.getElementById('frm'); if (!form) return;
+  const modo = form.elements.modo_cobro, caja = (k) => document.getElementById('f_' + k).closest('.campo');
+  const pintarModo = () => {
+    const p = modo.value === 'porcentaje';
+    form.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === modo.value));
+    caja('tarifa_hora_semana').hidden = p; caja('precio_alumna').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
+    const v = (k) => Number(String(form.elements[k].value).replace(',', '.')) || 0;
+    document.getElementById('reparto-vivo').innerHTML = p ? `<div class="ayuda" style="margin:0 0 6px">${id ? 'Con las alumnas que tiene ahora:' : 'Ejemplo con 10 alumnas:'}</div>${repartoHtml(id ? nAlumnas : 10, v('precio_alumna'), v('porcentaje_nuestro'))}` : '';
+  };
+  form.querySelectorAll('[data-modo]').forEach((b) => b.onclick = () => { modo.value = b.dataset.modo; pintarModo(); });
+  ['precio_alumna', 'porcentaje_nuestro'].forEach((k) => form.elements[k].addEventListener('input', pintarModo));
+  pintarModo();
+}
 const formClaseExterna = (escuela, id) => formClase(id, escuela);
 async function pantallaCoincidencias() {
   if (!puedeVer('escuelas_amigas')) return sinPermiso();
