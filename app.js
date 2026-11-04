@@ -2007,9 +2007,13 @@ async function formPagoEquipo(params) {
 // Escuela amiga en la contabilidad: elige la escuela y escribe a mano lo que paga este mes; al cobrar entra como ingreso en Caja
 async function formCobroAmiga(params) {
   if (!veContab()) return sinPermiso();
+  let listaAl = [], clasesExt = [];
   const mes = mesContab(params), volver = `#/contabilidad?mes=${mes}`, ed = editaContab(), k0 = params.get('k');
-  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*'))), intentar(() => q(sb.from('escuelas_amigas').select('*')))]).then(([a, b, c, ea]) => [a, b, c.map((x) => Object.assign({}, ea.find((y) => y.id === x.id) || {}, x))]);
+  const [d, escuelas, resumenes] = await Promise.all([datosContab(mes), intentar(opcionesEscuelas), intentar(() => q(sb.from('escuela_amiga_resumen').select('*'))), intentar(() => q(sb.from('escuelas_amigas').select('*'))), intentar(() => q(sb.from('escuela_alumnas').select('*').eq('activa', true).order('nombre'))),
+    intentar(() => q(sb.from('clases').select('id,nombre,escuela_amiga_id,activa').not('escuela_amiga_id', 'is', null)))])
+    .then(([a, b, c, ea, al, cl]) => { listaAl = al; clasesExt = cl; return [a, b, c.map((x) => Object.assign({}, ea.find((y) => y.id === x.id) || {}, x))]; });
   let r = k0 ? d.amigas.find((x) => x.persona === k0) : null;
+  if (!r && params.get('esc')) r = d.amigas.find((x) => x.persona === 'a:' + params.get('esc')) || null;
   if (k0 && !r) { aviso('No encuentro esa escuela en este mes', true); location.hash = volver; return; }
   if (!r && !ed) return sinPermiso();
   const pago = r && r.caja_id ? d.pagos[r.caja_id] : null, bloqueado = !ed || !!pago, dis = bloqueado ? 'disabled' : '';
@@ -2017,13 +2021,14 @@ async function formCobroAmiga(params) {
   const libres = escuelas.filter(([id]) => !ya.has('a:' + id));
   const mesTxt = nombreMes(mes + '-01').split(' ')[0].toLowerCase();
   pintar(cabecera(r ? r.nombre : 'Añadir escuela amiga', { volver, sub: `Contabilidad · ${nombreMes(mes + '-01')}` }) + `<main class="cont"><form class="form tarjeta" id="frm">
-    ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('')}</select></div>`
+    ${r ? '' : libres.length ? `<div class="campo"><label for="c_esc">Escuela *</label><select id="c_esc" required>${libres.map(([id, n]) => `<option value="${esc(id)}" ${id === params.get('esc') ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`
       : `${vacio('No hay escuelas amigas libres. Créala antes en Más › Escuelas amigas.')}`}
     <div class="campo"><label for="c_cant">Cantidad de ${mesTxt} (€) *</label><input id="c_cant" class="contab-grande" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(pago ? pago.importe : r && r.cuota != null ? r.cuota : '')}" ${dis} required></div>
     <div class="campo" id="c_pct_box" hidden><label>Sus alumnas este mes</label>
       <div class="rep-alumnas"><label><span>Mes completo<small id="c_pc"></small></span><input id="c_ncomp" type="number" step="1" min="0" inputmode="numeric" ${dis}></label>
         <label><span>Medio mes<small id="c_pm"></small></span><input id="c_nmed" type="number" step="1" min="0" inputmode="numeric" ${dis}></label></div>
       <div class="ayuda" id="c_pct_ayuda"></div></div>
+    <div id="c_lista_box" hidden></div>
     ${r && r.anterior != null ? `<div class="contab-auto">El mes pasado fueron ${eur(r.anterior)}</div>` : ''}
     ${pago ? `<div class="contab-pagado ${esBanco(pago) ? 'banco' : 'efectivo'}">${ico('check', 16)} Cobrado el ${esc(fechaCorta(pago.fecha))} · ${esBanco(pago) ? 'Banco' : 'Efectivo'} · ${eur(pago.importe)}</div>
         ${ed ? '<button type="button" class="btn sec ancho" id="deshacer">Deshacer el cobro</button><div class="ayuda">Para cambiar la cantidad, deshaz antes el cobro: se quita el ingreso de la Caja.</div>' : ''}`
@@ -2036,6 +2041,52 @@ async function formCobroAmiga(params) {
   // Escuela "por porcentaje": se ponen cuántas alumnas pagaron mes completo y cuántas medio mes, y nuestra parte sale sola
   const escuelaSel = () => r ? r.persona.slice(2) : (document.getElementById('c_esc') || {}).value;
   const pctBox = document.getElementById('c_pct_box'), cComp = document.getElementById('c_ncomp'), cMed = document.getElementById('c_nmed'), cCant = document.getElementById('c_cant');
+  // Escuela con lista de nombres: a cada alumna se le marca Mes completo / Medio mes / No paga (por defecto, mes completo)
+  const listaBox = document.getElementById('c_lista_box'), marcas = {};
+  ((r && r.detalle) || []).forEach((x) => { marcas[x.id] = x.tipo; });
+  const conLista = () => { const e = resumenes.find((x) => x.id === escuelaSel()); return esPorcentaje(e) && e.con_lista ? e : null; };
+  const importeDe = (e, t) => t === 'medio' ? +e.precio_medio_alumna || 0 : t === 'no' ? 0 : +e.precio_alumna || 0;
+  const detalleLista = () => { const e = conLista(); if (!e) return [];
+    return listaAl.filter((a) => a.escuela_amiga_id === e.id).map((a) => { const t = marcas[a.id] || 'completo', c = clasesExt.find((x) => x.id === a.clase_id);
+      return { id: a.id, nombre: a.nombre, clase: c ? c.nombre : '', tipo: t, importe: importeDe(e, t) }; }); };
+  const pintarLista = (tocar = true) => {
+    const e = conLista(); listaBox.hidden = !e; if (!e) return;
+    const det = detalleLista(), p = +e.porcentaje_nuestro || 0, t = redondeo(det.reduce((a, x) => a + x.importe, 0)), nos = redondeo(t * p / 100);
+    const nc = det.filter((x) => x.tipo === 'completo').length, nm = det.filter((x) => x.tipo === 'medio').length;
+    const clases = clasesExt.filter((c) => c.escuela_amiga_id === e.id && c.activa);
+    const grupos = [...clases.map((c) => [c.id, c.nombre]), ['', 'Sin clase']].map(([cid, cn]) => [cn, det.filter((x) => (listaAl.find((a) => a.id === x.id).clase_id || '') === cid)]).filter(([, l]) => l.length);
+    const opc = (x) => [['completo', `Completo ${eur(+e.precio_alumna || 0)}`], ['medio', `Medio mes ${eur(+e.precio_medio_alumna || 0)}`], ['no', 'No paga']]
+      .map(([v, tx]) => `<option value="${v}" ${x.tipo === v ? 'selected' : ''}>${tx}</option>`).join('');
+    listaBox.innerHTML = `<div class="campo"><label>Sus alumnas este mes</label>
+      ${grupos.map(([cn, l]) => `<div class="lista-ext-clase">${esc(cn)}</div>${l.map((x) => `<div class="lista-ext ${x.tipo}"><span class="nom">${esc(x.nombre)}</span>
+        <select data-marca="${x.id}" ${dis} aria-label="Lo que paga ${esc(x.nombre)}">${opc(x)}</select>
+        ${!bloqueado ? `<button type="button" class="ins-editar" data-quitar-al="${x.id}" aria-label="Quitar a ${esc(x.nombre)}">${ico('papelera', 16)}</button>` : ''}</div>`).join('')}`).join('') || vacio('Aún no hay alumnas en la lista.')}
+      ${!bloqueado ? `<div class="lista-ext-nueva"><input id="al_nom" placeholder="Nombre y apellidos" autocomplete="off">
+        ${clases.length ? `<select id="al_clase" aria-label="Clase">${clases.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>` : ''}
+        <button type="button" class="btn sec" id="al_add">${ico('mas', 18)} Añadir alumna</button></div>` : ''}
+      <div class="tarjeta reparto lista-ext-total">
+        <div class="rep-cuenta">${[nc ? `${nc} × ${eur(+e.precio_alumna || 0)}` : '', nm ? `${nm} × ${eur(+e.precio_medio_alumna || 0)}` : ''].filter(Boolean).join(' + ') || '0 alumnas'} = <b>${eur(t)}</b></div>
+        <div class="rep-barra" aria-hidden="true"><span style="width:${p}%"></span></div>
+        <div class="rep-filas"><div class="rep-nos"><small>Blackstars · ${pctTxt(p)}</small><b>${eur(nos)}</b></div><div class="rep-ella"><small>Escuela amiga · ${pctTxt(100 - p)}</small><b>${eur(redondeo(t - nos))}</b></div></div>
+      </div></div>`;
+    if (tocar && !bloqueado) cCant.value = nos || '';
+    listaBox.querySelectorAll('[data-marca]').forEach((sl) => sl.onchange = () => { marcas[sl.dataset.marca] = sl.value; pintarLista(); });
+    listaBox.querySelectorAll('[data-quitar-al]').forEach((b) => b.onclick = async () => {
+      const a = listaAl.find((x) => x.id === b.dataset.quitarAl); if (!confirm(`¿Quitar a ${a.nombre} de la lista? Lo de meses anteriores se queda guardado.`)) return;
+      try { await q(sb.from('escuela_alumnas').update({ activa: false }).eq('id', a.id)); listaAl = listaAl.filter((x) => x.id !== a.id); await contarClase(a.clase_id); pintarLista(); }
+      catch (er) { aviso(traducirError(er), true); }
+    });
+    const ba = document.getElementById('al_add');
+    if (ba) ba.onclick = async () => {
+      const nom = document.getElementById('al_nom').value.trim(), cs = document.getElementById('al_clase'); if (!nom) { aviso('Escribe el nombre', true); return; }
+      ba.disabled = true;
+      try { const n = await q(sb.from('escuela_alumnas').insert({ escuela_amiga_id: e.id, clase_id: cs ? cs.value : null, nombre: nom }).select('*').single());
+        listaAl.push(n); await contarClase(n.clase_id); pintarLista(); document.getElementById('al_nom').focus(); }
+      catch (er) { aviso(traducirError(er), true); ba.disabled = false; }
+    };
+  };
+  // El número de alumnas de la clase sigue a la lista, para que la ficha de la escuela cuadre
+  const contarClase = async (cid) => { if (!cid) return; await intentar(() => q(sb.from('clases').update({ alumnas_externas: listaAl.filter((a) => a.clase_id === cid).length }).eq('id', cid))); };
   const calcular = (tocar = true) => {
     const e = resumenes.find((x) => x.id === escuelaSel()) || {}, p = +e.porcentaje_nuestro || 0;
     const pc = +e.precio_alumna || 0, pm = +e.precio_medio_alumna || 0, nc = Math.max(0, +cComp.value || 0), nm = Math.max(0, +cMed.value || 0);
@@ -2045,7 +2096,8 @@ async function formCobroAmiga(params) {
   };
   const mirarModo = (inicio) => {
     const e = resumenes.find((x) => x.id === escuelaSel());
-    pctBox.hidden = !esPorcentaje(e); if (pctBox.hidden) return;
+    pintarLista(!(inicio && Number(cCant.value) > 0));
+    pctBox.hidden = !esPorcentaje(e) || !!e.con_lista; if (pctBox.hidden) return;
     document.getElementById('c_pc').textContent = ` · ${eur(+e.precio_alumna || 0)}`;
     document.getElementById('c_pm').textContent = ` · ${eur(+e.precio_medio_alumna || 0)}`;
     cComp.value = +e.n_alumnas || 0; cMed.value = 0;
@@ -2057,7 +2109,9 @@ async function formCobroAmiga(params) {
     if (!(cant > 0)) throw new Error('Escribe la cantidad del mes');
     let persona = r && r.persona, nombre = r && r.nombre;
     if (!r) { const sel = document.getElementById('c_esc'); persona = 'a:' + sel.value; nombre = sel.options[sel.selectedIndex].text; }
-    return q(sb.from('pagos_equipo').upsert({ mes, persona, nombre, tipo: 'fija', cuota: cant, dias_falta: 0, pluses: [], total: cant }, { onConflict: 'mes,persona' }).select('*').single());
+    const fila = { mes, persona, nombre, tipo: 'fija', cuota: cant, dias_falta: 0, pluses: [], total: cant };
+    if (conLista()) fila.detalle = detalleLista();
+    return q(sb.from('pagos_equipo').upsert(fila, { onConflict: 'mes,persona' }).select('*').single());
   };
   const ocupado = (b) => { if (b.disabled) return true; b.disabled = true; return false; };
   form.onsubmit = async (ev) => {
@@ -3735,11 +3789,12 @@ async function pantallaEscuela(id) {
   pintar(cabecera(e.nombre, { volver: '#/escuelas', sub: e.activa ? 'Activa' : 'Inactiva' }) + `<main class="cont">
     ${esPorcentaje(res) ? `<div class="totales"><div><small>Alumnas</small><b>${res.n_alumnas}</b></div><div><small>Total cobrado</small><b>${eur(res.total_alumnas)}</b></div><div><small>Para nosotros</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>
       ${repartoHtml(res.n_alumnas, res.precio_alumna, res.porcentaje_nuestro)}
-      <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; cuántas son se pone cada mes en Contabilidad.</div>`
+      <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; ${e.con_lista ? 'quién paga qué se marca cada mes en Contabilidad, con sus nombres.' : 'cuántas son se pone cada mes en Contabilidad.'}</div>
+      ${e.con_lista && veContab() ? `<a class="btn sec" href="#/contabilidad/amiga?mes=${hoyISO().slice(0, 7)}&esc=${id}">${ico('alumnas', 18)} Sus alumnas y el cobro de este mes</a>` : ''}`
     : `<div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>`}
     <div class="tarjeta"><dl class="datos"><dt>Contacto</dt><dd>${esc(e.contacto || '—')}</dd><dt>Teléfono</dt><dd>${esc(e.telefono || '—')}</dd><dt>Correo</dt><dd>${esc(e.email || '—')}</dd>${e.notas ? `<dt>Notas</dt><dd>${esc(e.notas)}</dd>` : ''}</dl></div>
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
-      ${puedeEditar('caja') && +res.cuota_mensual > 0 ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes + (esPorcentaje(res) ? ` (${pctTxt(res.porcentaje_nuestro)} de ${eur(res.total_alumnas)})` : ''))}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
+      ${puedeEditar('caja') && +res.cuota_mensual > 0 && !e.con_lista ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes + (esPorcentaje(res) ? ` (${pctTxt(res.porcentaje_nuestro)} de ${eur(res.total_alumnas)})` : ''))}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
     ${puedeVer('clases') ? `<div class="seccion">Sus clases en nuestra sala</div>
       <div class="lista">${clases.sort((a, b) => ordenClase(a) - ordenClase(b)).map((c) => fila({ href: `#/clase/${c.id}`, ini: iniciales(c.nombre), tit: c.nombre, det: esc(`${textoHorario(c)} · ${c.profesora_externa || 'sin profesora'} · ${c.alumnas_externas ?? 0} alumnas`), der: (c.activa ? '' : '<span class="chip gris">Inactiva</span>') + (S.admin ? `<button class="ins-editar" data-ir="#/clase/${c.id}/borrar" aria-label="Borrar clase">${ico('papelera', 18)}</button>` : '') })).join('') || vacio('Sin clases registradas.')}</div>
       ${puedeEditar('clases') ? `<a class="btn sec" href="#/escuela/${id}/clase/nueva">${ico('mas')} Añadir clase externa</a>` : ''}` : ''}
@@ -3827,6 +3882,7 @@ async function formEscuela(id) {
         <div class="ayuda">Para cambiar el precio de medio mes, elígelo en el desplegable y escribe el nuevo.</div></div>` },
       { k: 'precio_alumna', tipo: 'oculto', def: 35 }, { k: 'precio_medio_alumna', tipo: 'oculto', def: 20 },
       { k: 'porcentaje_nuestro', label: 'Porcentaje para Blackstars (%)', tipo: 'numero', def: 35, ayuda: 'El resto se lo queda la escuela amiga.' },
+      { k: 'con_lista', label: 'Apuntar a sus alumnas con nombre (para marcar cada mes quién paga mes completo o medio mes)', tipo: 'bool', def: false },
       { k: 'reparto_html', tipo: 'html', html: '<div id="reparto-vivo"></div>' },
       { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
     ],
@@ -3836,7 +3892,7 @@ async function formEscuela(id) {
       if (p && !(d.precio_alumna > 0)) throw new Error('Escribe lo que paga cada alumna');
       if (p && !(d.porcentaje_nuestro >= 0 && d.porcentaje_nuestro <= 100)) throw new Error('El porcentaje tiene que estar entre 0 y 100');
       if (!p && d.tarifa_hora_semana == null) throw new Error('Escribe la tarifa por hora');
-      return Object.assign(d, { modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, precio_medio_alumna: d.precio_medio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
+      return Object.assign(d, { con_lista: p && !!d.con_lista, modo_cobro: p ? 'porcentaje' : 'horas', tarifa_hora_semana: d.tarifa_hora_semana ?? 0, precio_alumna: d.precio_alumna ?? 0, precio_medio_alumna: d.precio_medio_alumna ?? 0, porcentaje_nuestro: d.porcentaje_nuestro ?? 0 });
     }
   });
   const form = document.getElementById('frm'); if (!form) return;
@@ -3844,7 +3900,7 @@ async function formEscuela(id) {
   const pintarModo = () => {
     const p = modo.value === 'porcentaje';
     form.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === modo.value));
-    caja('tarifa_hora_semana').hidden = p; document.getElementById('caja-precio').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
+    caja('tarifa_hora_semana').hidden = p; document.getElementById('caja-precio').hidden = !p; form.elements.con_lista.closest('.check').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
     const v = (k) => Number(String(form.elements[k].value).replace(',', '.')) || 0;
     document.getElementById('reparto-vivo').innerHTML = p ? `<div class="ayuda" style="margin:0 0 6px">${id ? 'Con las alumnas que tiene ahora:' : 'Ejemplo con 10 alumnas:'}</div>${repartoHtml(id ? nAlumnas : 10, v('precio_alumna'), v('porcentaje_nuestro'))}` : '';
   };

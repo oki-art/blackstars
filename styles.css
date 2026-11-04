@@ -802,3 +802,14 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .precio-num{position:relative;display:block}
 .precio-num input{width:100%;padding-right:34px}
 .precio-num i{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--texto2);pointer-events:none}
+.lista-ext-clase{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto2);margin:10px 0 4px}
+.lista-ext{display:grid;grid-template-columns:1fr 150px auto;gap:6px;align-items:center;background:#fff;border:1px solid var(--borde);border-radius:12px;padding:6px 6px 6px 12px;margin-bottom:6px}
+.lista-ext .nom{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lista-ext select{min-height:40px;font-size:13px;padding:6px 8px}
+.lista-ext.medio{background:#FBF6EC}
+.lista-ext.no{background:#F4F3F7}.lista-ext.no .nom{color:var(--texto2);text-decoration:line-through}
+.lista-ext-nueva{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.lista-ext-nueva input{grid-column:1/-1}
+.lista-ext-nueva .btn{grid-column:1/-1}
+.lista-ext-total{margin-top:10px}
+.check[hidden]{display:none}
