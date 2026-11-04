@@ -778,3 +778,20 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
   .im-tot tfoot td{border-top:2px solid #F2C48D;font-family:'Sora',sans-serif;font-weight:700;font-size:11pt;color:#3E3763}
   #impresion footer{margin-top:14px;font-size:8pt;color:#6B6881;text-align:center}
 }
+/* Escuela amiga: por horas o por porcentaje */
+.modo-cobro{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.modo-cobro button{min-height:48px;border-radius:14px;border:1px solid var(--borde);background:#fff;font-family:'Sora',sans-serif;font-weight:700;font-size:14px;color:var(--texto);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.modo-cobro button b{font-size:17px}
+.modo-cobro button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;border-color:transparent}
+.reparto{display:flex;flex-direction:column;gap:10px}
+.rep-cuenta{font-size:14px;color:var(--texto2)}
+.rep-cuenta b{font-family:'Sora',sans-serif;color:var(--texto);font-size:16px}
+.rep-barra{height:12px;border-radius:999px;background:#F2C48D;overflow:hidden}
+.rep-barra span{display:block;height:100%;background:linear-gradient(90deg,var(--morado),var(--morado2));border-radius:999px 0 0 999px}
+.rep-filas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rep-filas>div{border-radius:12px;padding:8px 10px}
+.rep-filas small{display:block;font-size:11px;font-weight:700;color:var(--texto2)}
+.rep-filas b{font-family:'Sora',sans-serif;font-size:18px}
+.rep-nos{background:#F4F0FD}.rep-nos b{color:var(--morado2)}
+.rep-ella{background:#FBF1E3}.rep-ella b{color:#3E3763}
+.campo[hidden]{display:none}
