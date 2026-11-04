@@ -798,3 +798,7 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .rep-alumnas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .rep-alumnas label{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:13px;color:var(--texto)}
 .rep-alumnas label small{font-weight:400;color:var(--texto2)}
+.precio-desp{display:grid;grid-template-columns:1fr 130px;gap:8px}
+.precio-num{position:relative;display:block}
+.precio-num input{width:100%;padding-right:34px}
+.precio-num i{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--texto2);pointer-events:none}

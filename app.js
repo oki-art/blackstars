@@ -3820,14 +3820,19 @@ async function formEscuela(id) {
       { k: 'modo_html', tipo: 'html', html: `<div class="campo"><label>¿Cómo nos paga?</label><div class="modo-cobro"><button type="button" data-modo="horas">${ico('reloj', 18)} Por horas</button><button type="button" data-modo="porcentaje"><b>%</b> Por porcentaje</button></div></div>` },
       { k: 'modo_cobro', tipo: 'oculto', def: 'horas' },
       { k: 'tarifa_hora_semana', label: 'Tarifa (€ al mes por cada hora semanal)', tipo: 'dinero', def: 40, ayuda: 'Ejemplo: 2,5 h a la semana × 40 € = 100 € al mes.' },
-      { k: 'precio_alumna', label: 'Mes completo: lo que paga cada alumna (€)', tipo: 'dinero', def: 35, ayuda: 'Se multiplica por las alumnas de sus clases.' },
-      { k: 'precio_medio_alumna', label: 'Medio mes: lo que paga cada alumna (€)', tipo: 'dinero', def: 20, ayuda: 'Para las que solo vienen medio mes. Cuántas son se pone cada mes en Contabilidad.' },
+      // Una sola caja: el desplegable elige mes completo o medio mes y el número es el precio de ese (los dos se guardan)
+      { k: 'precio_html', tipo: 'html', html: `<div class="campo" id="caja-precio"><label for="p_valor">Lo que paga cada alumna</label>
+        <div class="precio-desp"><select id="p_cual" aria-label="Mes completo o medio mes"><option value="precio_alumna">Mes completo</option><option value="precio_medio_alumna">Medio mes</option></select>
+          <span class="precio-num"><input id="p_valor" type="number" step="0.01" min="0" inputmode="decimal"><i>€</i></span></div>
+        <div class="ayuda">Para cambiar el precio de medio mes, elígelo en el desplegable y escribe el nuevo.</div></div>` },
+      { k: 'precio_alumna', tipo: 'oculto', def: 35 }, { k: 'precio_medio_alumna', tipo: 'oculto', def: 20 },
       { k: 'porcentaje_nuestro', label: 'Porcentaje para Blackstars (%)', tipo: 'numero', def: 35, ayuda: 'El resto se lo queda la escuela amiga.' },
       { k: 'reparto_html', tipo: 'html', html: '<div id="reparto-vivo"></div>' },
       { k: 'activa', label: 'Activa', tipo: 'bool', def: true }, { k: 'notas', label: 'Notas', tipo: 'textarea' }
     ],
     transformar: (d) => {
       const p = d.modo_cobro === 'porcentaje';
+      ['precio_alumna', 'precio_medio_alumna'].forEach((k) => { d[k] = d[k] == null || d[k] === '' ? null : Number(String(d[k]).replace(',', '.')); });
       if (p && !(d.precio_alumna > 0)) throw new Error('Escribe lo que paga cada alumna');
       if (p && !(d.porcentaje_nuestro >= 0 && d.porcentaje_nuestro <= 100)) throw new Error('El porcentaje tiene que estar entre 0 y 100');
       if (!p && d.tarifa_hora_semana == null) throw new Error('Escribe la tarifa por hora');
@@ -3839,12 +3844,16 @@ async function formEscuela(id) {
   const pintarModo = () => {
     const p = modo.value === 'porcentaje';
     form.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === modo.value));
-    caja('tarifa_hora_semana').hidden = p; caja('precio_alumna').hidden = !p; caja('precio_medio_alumna').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
+    caja('tarifa_hora_semana').hidden = p; document.getElementById('caja-precio').hidden = !p; caja('porcentaje_nuestro').hidden = !p;
     const v = (k) => Number(String(form.elements[k].value).replace(',', '.')) || 0;
     document.getElementById('reparto-vivo').innerHTML = p ? `<div class="ayuda" style="margin:0 0 6px">${id ? 'Con las alumnas que tiene ahora:' : 'Ejemplo con 10 alumnas:'}</div>${repartoHtml(id ? nAlumnas : 10, v('precio_alumna'), v('porcentaje_nuestro'))}` : '';
   };
   form.querySelectorAll('[data-modo]').forEach((b) => b.onclick = () => { modo.value = b.dataset.modo; pintarModo(); });
-  ['precio_alumna', 'porcentaje_nuestro'].forEach((k) => form.elements[k].addEventListener('input', pintarModo));
+  const pCual = document.getElementById('p_cual'), pValor = document.getElementById('p_valor');
+  pCual.onchange = () => { pValor.value = form.elements[pCual.value].value; };
+  pValor.addEventListener('input', () => { form.elements[pCual.value].value = pValor.value; pintarModo(); });
+  pCual.onchange();
+  form.elements.porcentaje_nuestro.addEventListener('input', pintarModo);
   pintarModo();
 }
 const formClaseExterna = (escuela, id) => formClase(id, escuela);
