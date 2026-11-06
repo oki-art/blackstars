@@ -835,3 +835,71 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .plazas i{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font:700 14px Sora,sans-serif;font-style:normal;background:#fff;border:2px solid rgba(118,80,224,.35);color:var(--morado3)}
 .plazas i.usada{background:var(--morado);border-color:var(--morado);color:#fff}
 .plazas-txt{text-align:center;font-weight:700;color:var(--morado3);font-size:14px}
+/* Limpieza: lista diaria con cajones y checks, historial e inventario de productos */
+.lp-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#fff;border:1px solid var(--borde);border-radius:999px;padding:5px;box-shadow:var(--sombra)}
+.lp-tabs button{min-height:44px;border:0;border-radius:999px;background:transparent;font-weight:700;color:var(--texto2);display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.lp-tabs button.on{background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff}
+.lp-pt{display:inline-block;width:22px;height:22px;line-height:22px;border-radius:50%;background:var(--gasto);color:#fff;font-size:12px;text-align:center}
+.lp-cuerpo{display:flex;flex-direction:column;gap:14px}
+.lp-res{display:flex;flex-direction:column;gap:10px}
+.lp-fila{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.lp-res .num{font-family:'Sora',sans-serif;font-size:30px;font-weight:700;color:var(--morado3)}
+.lp-res .num small{font-size:15px;color:var(--texto2);font-weight:500}
+.lp-res .lp-fila>b{color:var(--texto2)}
+.lp-barra{display:block;height:10px;border-radius:99px;background:#EEEAF6;overflow:hidden}
+.lp-barra i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--morado),var(--morado2))}
+.lp-barra.ok i{background:#1FA855}
+.lp-caj{background:#fff;border:1px solid var(--borde);border-left:5px solid var(--morado);border-radius:18px;box-shadow:var(--sombra);overflow:hidden}
+.lp-caj.hecho{border-left-color:#1FA855}
+.lp-caj.super{border-left-color:var(--dorado);background:#FFFCF6}
+.lp-caj summary{list-style:none;display:flex;align-items:center;gap:12px;padding:14px 16px;min-height:64px;cursor:pointer}
+.lp-caj summary::-webkit-details-marker{display:none}
+.lp-n{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-family:'Sora',sans-serif;font-weight:700;background:#F1ECFD;color:var(--morado3);flex:none}
+.hecho .lp-n{background:#1FA855;color:#fff}
+.super:not(.hecho) .lp-n{background:var(--oro2);color:var(--negro)}
+.lp-t{flex:1;min-width:0;display:flex;flex-direction:column}
+.lp-t b{font-family:'Sora',sans-serif;font-size:16px;font-weight:600}
+.lp-t small{color:var(--texto2);font-size:13px}
+.lp-c{font-family:'Sora',sans-serif;font-weight:700;font-size:14px;padding:4px 10px;border-radius:99px;background:#F1ECFD;color:var(--morado3);white-space:nowrap}
+.hecho .lp-c,.lp-c.ok{background:#E3F6EA;color:#17803F}
+.super:not(.hecho) .lp-c{background:#FBEBD3;color:#8F6A1C}
+.lp-fl{transition:transform .2s;color:var(--morado3);display:grid}
+.lp-caj[open] .lp-fl{transform:rotate(180deg)}
+.lp-items{border-top:1px solid var(--borde);padding:6px 12px 12px;display:flex;flex-direction:column}
+.lp-it{display:flex;gap:12px;align-items:flex-start;padding:10px 4px;min-height:52px;border:0;border-bottom:1px dashed var(--borde);background:none;text-align:left;width:100%;cursor:pointer}
+div.lp-it{cursor:default}
+.lp-it:last-child{border-bottom:0}
+.lp-box{width:28px;height:28px;border-radius:9px;border:2px solid #CFC6EA;flex:none;display:grid;place-items:center;background:#fff;margin-top:1px}
+.lp-it.ok .lp-box{background:#1FA855;border-color:#1FA855;color:#fff}
+.lp-txt{flex:1;line-height:1.35}
+.lp-it.ok .lp-txt{color:var(--texto2);text-decoration:line-through;text-decoration-color:rgba(0,0,0,.25)}
+.lp-quien{display:block;font-size:12px;color:#17803F;margin-top:3px;font-weight:600}
+.lp-it.ok .lp-quien{text-decoration:none}
+.lp-sec{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#B07A3C;margin:6px 2px -4px}
+.nota-lp{font-size:13px;color:var(--texto2);text-align:center;margin:0}
+.lp-dia{display:flex;align-items:center;gap:12px}
+.lp-dia .d{width:52px;text-align:center;flex:none;display:flex;flex-direction:column}
+.lp-dia .d b{font-family:'Sora',sans-serif;font-size:22px;line-height:1.1}
+.lp-dia .d small{font-size:11px;text-transform:uppercase;color:var(--texto2);font-weight:700}
+.lp-dia .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.lp-dia .info>small{color:var(--texto2);font-size:13px}
+.lp-falta{font-size:13px;color:var(--gasto)}
+.iv-res{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.iv-res div{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:10px;text-align:center;box-shadow:var(--sombra)}
+.iv-res b{font-family:'Sora',sans-serif;font-size:24px;display:block}
+.iv-res b.r{color:var(--gasto)}.iv-res b.n{color:#C27D0E}.iv-res b.v{color:#1FA855}
+.iv-res small{font-size:12px;font-weight:700;color:var(--texto2)}
+.iv-p{display:flex;flex-direction:column;gap:10px;border-left:5px solid #1FA855}
+.iv-p.poco{border-left-color:#E59A1E}
+.iv-p.ago{border-left-color:var(--gasto);background:#FFF8F8}
+.iv-top{display:flex;align-items:center;gap:10px}
+.iv-top b{font-family:'Sora',sans-serif;font-size:16px;flex:1;min-width:0}
+.iv-top small{color:var(--texto2);font-size:12px;white-space:nowrap}
+.iv-borrar{width:36px;height:36px;border-radius:50%;border:1px solid var(--borde);background:#fff;color:var(--texto2);display:grid;place-items:center;flex:none;cursor:pointer}
+.iv-est{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.iv-est button{min-height:44px;border-radius:12px;border:1px solid var(--borde);background:#fff;font-weight:700;font-size:13px;color:var(--texto2);cursor:pointer;padding:0 4px}
+.iv-est button:disabled{cursor:default}
+.iv-est .hay.on{background:#1FA855;color:#fff;border-color:#1FA855}
+.iv-est .poco.on{background:#E59A1E;color:#fff;border-color:#E59A1E}
+.iv-est .agotado.on{background:var(--gasto);color:#fff;border-color:var(--gasto)}
+.iv-form{display:flex;flex-direction:column;gap:12px}
