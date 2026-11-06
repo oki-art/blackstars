@@ -4616,18 +4616,137 @@ const pila = (n) => String(n || '').trim().split(/\s+/)[0] || 'Alguien';
 const LIMP_EST = { agotado: 0, poco: 1, hay: 2 };
 const tabsLimpieza = (t, agot) => `<div class="lp-tabs"><button data-ir="#/limpieza" class="${t === 'lista' ? 'on' : ''}">Lista</button><button data-ir="#/limpieza?t=inv" class="${t === 'inv' ? 'on' : ''}">Inventario${agot ? ` <span class="lp-pt">${agot}</span>` : ''}</button></div>`;
 
+/* Días de limpieza: todos los viernes salen solos; limpieza_cambios (038) guarda los días movidos, quitados y extra */
+const isoDe = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const sumaDias = (iso, n) => { const d = aFecha(iso); d.setDate(d.getDate() + n); return isoDe(d); };
+function viernesDelMes(mes) {
+  const d = aFecha(mes), m = d.getMonth(), r = [];
+  while (d.getDay() !== 5) d.setDate(d.getDate() + 1);
+  while (d.getMonth() === m) { r.push(isoDe(d)); d.setDate(d.getDate() + 7); }
+  return r;
+}
+// Días del mes con limpieza: [{ fecha, viernes, id, tipo: 'viernes' | 'cambiado' | 'extra' }] y los viernes quitados
+function diasLimpieza(mes, C) {
+  const pm = mes.slice(0, 7), porV = {}; C.forEach((c) => { if (c.viernes) porV[c.viernes] = c; });
+  const dias = [], quitados = [];
+  viernesDelMes(mes).forEach((v) => { const c = porV[v]; if (!c) dias.push({ fecha: v, viernes: v, tipo: 'viernes' }); else if (!c.nueva) quitados.push({ viernes: v, id: c.id, c }); });
+  C.forEach((c) => { if (c.nueva && c.nueva.slice(0, 7) === pm) dias.push({ fecha: c.nueva, viernes: c.viernes, id: c.id, tipo: c.viernes ? 'cambiado' : 'extra', c }); });
+  dias.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return { dias, quitados };
+}
+const cargarCambios = () => sb.from('limpieza_cambios').select('*').then(({ data, error }) => error ? null : data || []);
+const diaCorto = (iso) => capital(aFecha(iso).toLocaleDateString('es-ES', { weekday: 'short' }).replace('.', ''));
+const diaLargo = (iso) => aFecha(iso).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', '');
+
+// Pantalla "Días de limpieza" del mes, con Cambiar en cada día y Añadir un día extra
+async function pantallaLimpiezaDias(params) {
+  const mes = mesParam(params), ed = puedeEditar('limpieza'), hoy = hoyISO();
+  const mesMas = (n) => { const x = aFecha(mes); x.setMonth(x.getMonth() + n); return mesCorto(mesDe(x)); };
+  const d = aFecha(mes); d.setMonth(d.getMonth() + 1);
+  const [C, chk] = await Promise.all([cargarCambios(), intentar(() => q(sb.from('limpieza_checks').select('fecha,tarea').gte('fecha', mes).lt('fecha', mesDe(d))))]);
+  if (!C) return pintar(cabecera('Días de limpieza', { volver: '#/limpieza' }) + `<main class="cont">${vacio('Falta pegar el paso 038 en Supabase para poder cambiar los días.')}</main>`, 'inicio');
+  const { dias, quitados } = diasLimpieza(mes, C), N = {};
+  chk.forEach((c) => { if (!c.tarea.startsWith('super')) N[c.fecha] = (N[c.fecha] || 0) + 1; });
+  const filas = [...dias.map((x) => ({ ...x, f: x.fecha })), ...quitados.map((x) => ({ ...x, f: x.viernes, quitado: true }))].sort((a, b) => a.f.localeCompare(b.f));
+  const enlace = (x) => `#/limpieza?t=cambiar&${x.viernes ? 'v=' + x.viernes : 'id=' + x.id}`;
+  const fila = (x) => {
+    const fd = aFecha(x.f), n = N[x.f] || 0;
+    const tit = x.quitado ? 'Viernes · sin limpieza' : x.tipo === 'viernes' ? capital(fd.toLocaleDateString('es-ES', { weekday: 'long' })) : capital(fd.toLocaleDateString('es-ES', { weekday: 'long' })) + (x.tipo === 'extra' ? ' · día extra' : ' · cambiado');
+    const det = x.quitado ? 'Esta semana no hay limpieza' : n ? `${n} de ${LIMP_TOTAL} hechas` : x.f < hoy ? 'No se hizo' : x.f === hoy ? 'Hoy toca limpieza' : x.tipo === 'cambiado' ? `Antes era el viernes ${aFecha(x.viernes).getDate()}` : 'Toca limpieza';
+    const tag = n >= LIMP_TOTAL ? '<span class="dl-tag t-ok">Hecha</span>' : '';
+    const puede = ed && !n && (x.f >= hoy || x.quitado);
+    return `<div class="tarjeta dl-fila ${x.quitado ? 'dl-quitado' : x.tipo !== 'viernes' ? 'dl-mov' : ''}"><span class="d"><small>${diaCorto(x.f)}</small><b>${fd.getDate()}</b><small>${fd.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')}</small></span>
+      <span class="info"><b>${tit}</b><small class="${!n && x.f < hoy && !x.quitado ? 'lp-falta' : ''}">${det}${x.c && x.c.creado_nombre ? ` · lo cambió ${esc(pila(x.c.creado_nombre))}` : ''}</small></span>${tag}${puede ? `<button class="dl-btn" data-ir="${enlace(x)}">Cambiar</button>` : ''}</div>`;
+  };
+  pintar(cabecera('Días de limpieza', { volver: '#/limpieza', sub: 'Todos los viernes, salvo cambios' }) + `<main class="cont">
+    <div class="ls-mes"><button data-ir="#/limpieza?t=dias&mes=${mesMas(-1)}" aria-label="Mes anterior">${ico('volver', 18)}</button><b>${nombreMes(mes)}</b><button data-ir="#/limpieza?t=dias&mes=${mesMas(1)}" aria-label="Mes siguiente" class="gira">${ico('volver', 18)}</button></div>
+    ${filas.map(fila).join('') || vacio('Este mes no hay días de limpieza.')}
+    ${ed ? `<button class="btn sec ancho" data-ir="#/limpieza?t=cambiar&extra=${mesCorto(mes)}">${ico('mas')} Añadir un día extra</button>` : ''}
+    <p class="nota-lp">Cada mes salen solos todos los viernes.</p>
+  </main>`, 'inicio');
+}
+
+// Cambiar el día de una limpieza (un viernes o un día extra), quitarla esa semana o añadir un día extra
+async function pantallaLimpiezaCambiar(params) {
+  if (!puedeEditar('limpieza')) return sinPermiso();
+  const C = await cargarCambios();
+  if (!C) return pintar(cabecera('Cambiar día', { volver: '#/limpieza?t=dias' }) + `<main class="cont">${vacio('Falta pegar el paso 038 en Supabase para poder cambiar los días.')}</main>`, false);
+  const hoy = hoyISO(), v = /^\d{4}-\d{2}-\d{2}$/.test(params.get('v') || '') ? params.get('v') : null;
+  const c = v ? C.find((x) => x.viernes === v) : C.find((x) => x.id === params.get('id'));
+  const extraMes = params.get('extra'), esExtra = !v && !!(c || extraMes);
+  if (!v && !c && !extraMes) return sinPermiso();
+  const actual = v ? (c ? c.nueva : v) : c ? c.nueva : null;
+  const base = actual || v || (extraMes && extraMes >= hoy.slice(0, 7) ? (extraMes === hoy.slice(0, 7) ? hoy : extraMes + '-01') : hoy);
+  let sel = actual && actual >= hoy ? actual : null, mesVer = (sel || base).slice(0, 7) + '-01';
+  const volver = `#/limpieza?t=dias&mes=${(v || actual || base).slice(0, 7)}`;
+  const tit = v ? `Limpieza del viernes ${aFecha(v).getDate()} de ${aFecha(v).toLocaleDateString('es-ES', { month: 'long' })}` : c ? `Día extra del ${diaLargo(c.nueva)}` : 'Añadir un día extra';
+  pintar(cabecera(esExtra && !c ? 'Día extra' : 'Cambiar día', { volver, sub: tit }) + `<main class="cont">
+    <div class="tarjeta dl-calcaja"><b class="dl-cal-t">¿Qué día se hace?</b>
+      <div class="ls-mes dl-mes"><button type="button" id="cal-ant" aria-label="Mes anterior">${ico('volver', 18)}</button><b id="cal-mes"></b><button type="button" id="cal-sig" aria-label="Mes siguiente" class="gira">${ico('volver', 18)}</button></div>
+      <div class="cal" id="cal"></div>
+      ${v ? `<div class="leyenda"><span><i class="lv"></i>Viernes de siempre</span><span><i class="ln"></i>Día elegido</span></div>` : ''}</div>
+    <div class="tarjeta dl-resumen" id="dl-res"></div>
+    <button class="btn pri ancho" id="dl-guardar">Guardar</button>
+    ${v && (!c || c.nueva) ? '<button class="btn sec ancho" id="dl-quitar">Esta semana no hay limpieza</button>' : ''}
+    ${v && c ? `<button class="btn sec ancho" id="dl-volver">Volver al viernes ${aFecha(v).getDate()}</button>` : ''}
+    ${!v && c ? `<button class="btn peligro ancho" id="dl-borrar">${ico('papelera', 18)} Quitar este día extra</button>` : ''}
+  </main>`, false);
+  const cal = document.getElementById('cal');
+  const pintarCal = () => {
+    const d = aFecha(mesVer), m = d.getMonth(), hueco = (d.getDay() + 6) % 7, cel = [];
+    for (let i = 0; i < hueco; i++) cel.push('<span></span>');
+    while (d.getMonth() === m) { const iso = isoDe(d), cls = [d.getDay() === 5 ? 'vie' : '', iso === v ? 'orig' : '', iso === sel ? 'sel' : '', iso < hoy ? 'pasado' : '', iso === hoy ? 'hoy' : ''].filter(Boolean).join(' ');
+      cel.push(`<button type="button" data-f="${iso}" class="${cls}" ${iso < hoy ? 'disabled' : ''}>${d.getDate()}</button>`); d.setDate(d.getDate() + 1); }
+    cal.innerHTML = ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((x) => `<span class="dow">${x}</span>`).join('') + cel.join('');
+    document.getElementById('cal-mes').textContent = nombreMes(mesVer);
+    document.getElementById('dl-res').innerHTML = sel ? `<b>${v ? `Viernes ${aFecha(v).getDate()} → ` : ''}${diaLargo(sel)}</b><small>${v ? (sel === v ? 'Se queda en su viernes.' : 'Solo cambia esta semana. Los demás viernes siguen igual.') : 'Ese día también habrá limpieza.'}</small>` : '<small>Toca el día en el calendario.</small>';
+    document.getElementById('dl-guardar').disabled = !sel;
+  };
+  const moverMes = (n) => { const d = aFecha(mesVer); d.setMonth(d.getMonth() + n); mesVer = mesDe(d); pintarCal(); };
+  document.getElementById('cal-ant').onclick = () => moverMes(-1);
+  document.getElementById('cal-sig').onclick = () => moverMes(1);
+  cal.onclick = (ev) => { const b = ev.target.closest('[data-f]'); if (!b || b.disabled) return; sel = b.dataset.f; pintarCal(); };
+  pintarCal();
+  const hecho = (msg) => { VISTAS.clear(); aviso(msg); location.hash = volver; };
+  const accion = async (btn, f) => { if (btn.disabled) return; btn.disabled = true; try { await f(); } catch (e) { aviso(traducirError(e), true); btn.disabled = false; } };
+  const g = document.getElementById('dl-guardar');
+  g.onclick = () => accion(g, async () => {
+    if (v) {
+      if (sel === v) { if (c) await q(sb.from('limpieza_cambios').delete().eq('id', c.id)); }
+      else if (c) await q(sb.from('limpieza_cambios').update({ nueva: sel }).eq('id', c.id));
+      else await q(sb.from('limpieza_cambios').insert({ viernes: v, nueva: sel }));
+    } else if (c) await q(sb.from('limpieza_cambios').update({ nueva: sel }).eq('id', c.id));
+    else await q(sb.from('limpieza_cambios').insert({ nueva: sel }));
+    hecho('Día guardado');
+  });
+  const qu = document.getElementById('dl-quitar');
+  if (qu) qu.onclick = () => accion(qu, async () => {
+    if (c) await q(sb.from('limpieza_cambios').update({ nueva: null }).eq('id', c.id)); else await q(sb.from('limpieza_cambios').insert({ viernes: v, nueva: null }));
+    hecho('Esta semana no hay limpieza');
+  });
+  const vu = document.getElementById('dl-volver');
+  if (vu) vu.onclick = () => accion(vu, async () => { await q(sb.from('limpieza_cambios').delete().eq('id', c.id)); hecho('Vuelve a ser el viernes'); });
+  const bo = document.getElementById('dl-borrar');
+  if (bo) bo.onclick = () => { if (confirm('¿Quitar este día extra de limpieza?')) accion(bo, async () => { await q(sb.from('limpieza_cambios').delete().eq('id', c.id)); hecho('Día quitado'); }); };
+}
+
 async function pantallaLimpieza(params) {
   if (!puedeVer('limpieza')) return sinPermiso();
   const t = params.get('t') || 'lista';
   if (t === 'inv') return pantallaLimpiezaInventario();
   if (t === 'hist') return pantallaLimpiezaHistorial(params);
+  if (t === 'dias') return pantallaLimpiezaDias(params);
+  if (t === 'cambiar') return pantallaLimpiezaCambiar(params);
   const hoy = hoyISO(), dia = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : hoy;
   const ed = puedeEditar('limpieza') && dia === hoy;
-  let checks, agot;
+  let checks, agot, C, delMes;
+  const mesHoy = hoy.slice(0, 8) + '01', finMes = sumaDias(mesDe(new Date(aFecha(mesHoy).getFullYear(), aFecha(mesHoy).getMonth() + 1, 1)), 0);
   try {
-    [checks, agot] = await Promise.all([
+    [checks, agot, C, delMes] = await Promise.all([
       q(sb.from('limpieza_checks').select('tarea,hecho_nombre,hecho_en').eq('fecha', dia)),
-      sb.from('limpieza_productos').select('id', { count: 'exact', head: true }).eq('estado', 'agotado').then((r) => r.count || 0)
+      sb.from('limpieza_productos').select('id', { count: 'exact', head: true }).eq('estado', 'agotado').then((r) => r.count || 0),
+      dia === hoy ? cargarCambios() : null,
+      dia === hoy ? intentar(() => q(sb.from('limpieza_checks').select('fecha,tarea').gte('fecha', mesHoy).lt('fecha', finMes))) : []
     ]);
   } catch (e) {
     return pintar(cabecera('Limpieza', { volver: '#/inicio' }) + `<main class="cont">${vacio(traducirError(e) + ' Falta pegar el paso 037 en Supabase.')}</main>`, 'inicio');
@@ -4650,15 +4769,42 @@ async function pantallaLimpieza(params) {
       <div class="lp-sec">Detalles superlimpieza</div>${cajon(LIMPIEZA_SUPER, true)}`;
   };
   const otroDia = dia !== hoy;
+  // Días de limpieza del mes (todos los viernes, salvo cambios). Sin la 038, la lista sale todos los días como antes.
+  let tarjetaDias = '', tocaHoy = true, proxima = null;
+  if (!otroDia && C) {
+    const { dias } = diasLimpieza(mesHoy, C), N = {};
+    delMes.forEach((c) => { if (!c.tarea.startsWith('super')) N[c.fecha] = (N[c.fecha] || 0) + 1; });
+    tocaHoy = dias.some((x) => x.fecha === hoy) || checks.length > 0;
+    const sig = mesDe(new Date(aFecha(mesHoy).getFullYear(), aFecha(mesHoy).getMonth() + 1, 1));
+    proxima = [...dias, ...diasLimpieza(sig, C).dias].find((x) => x.fecha > hoy) || null;
+    const chip = (x) => { const n = N[x.fecha] || 0, fd = aFecha(x.fecha);
+      const [cls, txt] = x.fecha === hoy ? ['hoy', 'Hoy'] : n >= LIMP_TOTAL ? ['hecha', 'Hecha'] : n ? ['hecha', 'A medias'] : x.fecha < hoy ? ['nohecha', 'No se hizo'] : x.tipo === 'cambiado' ? ['mov', 'Cambiado'] : x.tipo === 'extra' ? ['mov', 'Extra'] : ['', '&nbsp;'];
+      return `<span class="dl-chip ${cls}"><small>${diaCorto(x.fecha)}</small><b>${fd.getDate()}</b><i>${txt}</i></span>`; };
+    tarjetaDias = `<a class="tarjeta dl-card" href="#/limpieza?t=dias"><span class="dl-cab"><b>Días de limpieza · ${aFecha(mesHoy).toLocaleDateString('es-ES', { month: 'long' })}</b><span class="dl-link">${puedeEditar('limpieza') ? 'Cambiar días' : 'Ver días'} ${ico('sig', 14)}</span></span>
+      <span class="dl-chips" style="grid-template-columns:repeat(${Math.min(Math.max(dias.length, 1), 5)},minmax(0,1fr))">${dias.map(chip).join('') || '<small>Este mes no hay días de limpieza.</small>'}</span></a>`;
+  }
+  const noToca = !otroDia && !tocaHoy;
   pintar(cabecera('Limpieza', { volver: otroDia ? '#/limpieza?t=hist&mes=' + dia.slice(0, 7) : '#/inicio', sub: capital(fechaLarga(dia)) + (otroDia ? ' · solo mirar' : '') }) + `<main class="cont">
     ${otroDia ? '' : tabsLimpieza('lista', agot)}
-    <div id="lp-cuerpo" class="lp-cuerpo">${cuerpo()}</div>
+    ${tarjetaDias}
+    ${noToca ? `<div class="dl-aviso"><span class="ic">${ico('clases', 22)}</span><span><b>Hoy no toca limpieza</b><small>${proxima ? `La próxima es el ${diaLargo(proxima.fecha)}.` : 'No hay ninguna limpieza próxima.'}</small></span></div>
+      ${ed && proxima ? `<button class="btn sec ancho" id="dl-hoy">Hacer la limpieza hoy</button><p class="nota-lp">Si se adelanta, la del ${diaLargo(proxima.fecha)} pasa a hoy.</p>` : ''}` : ''}
+    <div id="lp-cuerpo" class="lp-cuerpo" ${noToca ? 'hidden' : ''}>${noToca ? '' : cuerpo()}</div>
     ${otroDia ? '' : `<button class="btn sec ancho" data-ir="#/limpieza?t=hist">${ico('reloj')} Historial de días anteriores</button>`}
     ${otroDia ? '' : '<p class="nota-lp">Cada día empieza una lista nueva.</p>'}
   </main>`, 'inicio');
   const caja = document.getElementById('lp-cuerpo');
   caja.addEventListener('toggle', (ev) => { const d = ev.target; if (d.dataset && d.dataset.c) { if (d.open) abiertos.add(d.dataset.c); else abiertos.delete(d.dataset.c); } }, true);
-  if (!ed) return;
+  const bh = document.getElementById('dl-hoy');
+  if (bh) bh.onclick = async () => {
+    bh.disabled = true;
+    try {
+      if (proxima.c) await q(sb.from('limpieza_cambios').update({ nueva: hoy }).eq('id', proxima.c.id));
+      else await q(sb.from('limpieza_cambios').insert({ viernes: proxima.viernes, nueva: hoy }));
+      VISTAS.clear(); aviso('La limpieza se hace hoy'); router();
+    } catch (e) { aviso(traducirError(e), true); bh.disabled = false; }
+  };
+  if (!ed || noToca) return;
   let ocupada = false;
   caja.addEventListener('click', async (ev) => {
     const b = ev.target.closest('.lp-it[data-k]'); if (!b || ocupada) return;
