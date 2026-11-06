@@ -49,7 +49,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -111,7 +111,8 @@ function ico(nombre, t = 20) {
     trofeo: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>',
     nota: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>', reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     play: '<path d="M8 5v14l11-7z" fill="currentColor"/>', pausa: '<path d="M8 5v14M16 5v14"/>',
-    euro: '<path d="M17 6.5A7 7 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
+    euro: '<path d="M17 6.5A7 7 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    limpia: '<path d="M5 9h14l-1.6 11H6.6z"/><path d="M8 9a4 4 0 0 1 8 0"/><path d="M18 3l.6 1.4L20 5l-1.4.6L18 7l-.6-1.4L16 5l1.4-.6z"/>'
   }[nombre] || '';
   return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 }
@@ -501,7 +502,8 @@ async function pantallaInicio(vista = null) {
     ['iniciativas', '#/iniciativas', 'idea', 'Iniciativas', 'Ideas y propuestas', false],
     ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false],
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
-    ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false]
+    ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false],
+    ['limpieza', '#/limpieza', 'limpia', 'Limpieza', 'Lista e inventario', false]
   ]).filter((x) => x[0] === '*' || (x[5] ? editar(x[0]) : ver(x[0])));
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
@@ -592,14 +594,14 @@ async function salirVerComo() {
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
 // Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable, o recepción con la caja abierta) o Equipo
 const papel = (per) => esProfesora(per) ? 'Profesora'
-  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
+  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
   : per.caja && per.caja.puede_escribir ? 'Gestión' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
   caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
-  // Documentos, Pilates y Contabilidad no van en ninguna plantilla: solo los da la administración a mano
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad'].includes(m)).map(([m]) => [m, 2])) }
+  // Documentos, Pilates, Contabilidad y Limpieza no van en ninguna plantilla: solo los da la administración a mano
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza'].includes(m)).map(([m]) => [m, 2])) }
 };
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
@@ -689,7 +691,7 @@ async function formAcceso(params) {
 
 /* ---------- más ---------- */
 // Recepción y gestión tienen todo en los accesos del Inicio: en Más solo queda su ficha y la contraseña
-const EN_INICIO = ['*', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
+const EN_INICIO = ['*', 'limpieza', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
 // Las profesoras tienen Documentos, Logros, Eventos e Incidencias en el Inicio; Inscripciones no lo ven
 const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones'];
 // La administración también: en Más solo su ficha, Ver como profesora, Equipo y permisos y la contraseña
@@ -4595,6 +4597,157 @@ function diasDeClase(c, mes, festivos, anuladas) {
   return diasDelMes(mesCorto(mes)).filter((f) => ds.has(diaISO(aFecha(f))) && !festivos.has(f) && !anuladas.has(f));
 }
 const nombreLista = (a) => `${a.nombre}${a.apellidos ? ' ' + a.apellidos.trim().charAt(0) + '.' : ''}`;
+/* ---------- limpieza ---------- */
+/* Lista de limpieza (una nueva cada día) con cajones y checks, e inventario de productos de limpieza.
+   Solo la administración y quien tenga el permiso "Limpieza" (María). Quién marcó y a qué hora lo pone el servidor (037). */
+const LIMPIEZA = [
+  ['espejos', 'Espejos y cristaleras', ['Limpiar el espejo principal.', 'Limpiar cristales de ventanales, marcos y rieles donde se junta el polvo.']],
+  ['material', 'Material deportivo', ['Limpiar material deportivo.']],
+  ['muebles', 'Muebles y decoración', ['Quitar polvo de recepción, mesas, sillas, bancos y estanterías.', 'Despolvar plantas, macetas, cuadros, altavoces...', 'Desinfectar pomos, interruptores de luz y mandos a distancia.']],
+  ['escaleras', 'Escaleras', ['Barrer y fregar los peldaños de arriba hacia abajo.', 'Quitar polvo de los rodapiés/zócalos.', 'Desinfectar a fondo todo el pasamanos y la barandilla.']],
+  ['suelo', 'Suelo de la sala', ['Barrer minuciosamente (incluidas esquinas y bajo muebles). Mover todo para barrer.', 'Fregar, también debajo de muebles y decoración.']],
+  ['banos', 'Baños', ['Desinfectar inodoros, lavabos y grifería.', 'Limpiar espejo del baño.', 'Limpiar salpicaduras en azulejos.', 'Vaciar papeleras y reponer papel higiénico y jabón.', 'Fregar el suelo con desinfectante.']]
+];
+const LIMPIEZA_SUPER = ['super', 'Superlimpieza', ['Revisar techos y esquinas superiores para quitar telarañas (de vez en cuando).', 'Quitar el polvo acumulado encima de los enchufes y zócalos (siempre).', 'Sacudir cortinas.']];
+const LIMP_TOTAL = LIMPIEZA.reduce((s, c) => s + c[2].length, 0);
+const limpClave = (c, j) => `${c}-${j + 1}`;
+const horaDe = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const pila = (n) => String(n || '').trim().split(/\s+/)[0] || 'Alguien';
+const LIMP_EST = { agotado: 0, poco: 1, hay: 2 };
+const tabsLimpieza = (t, agot) => `<div class="lp-tabs"><button data-ir="#/limpieza" class="${t === 'lista' ? 'on' : ''}">Lista</button><button data-ir="#/limpieza?t=inv" class="${t === 'inv' ? 'on' : ''}">Inventario${agot ? ` <span class="lp-pt">${agot}</span>` : ''}</button></div>`;
+
+async function pantallaLimpieza(params) {
+  if (!puedeVer('limpieza')) return sinPermiso();
+  const t = params.get('t') || 'lista';
+  if (t === 'inv') return pantallaLimpiezaInventario();
+  if (t === 'hist') return pantallaLimpiezaHistorial(params);
+  const hoy = hoyISO(), dia = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : hoy;
+  const ed = puedeEditar('limpieza') && dia === hoy;
+  let checks, agot;
+  try {
+    [checks, agot] = await Promise.all([
+      q(sb.from('limpieza_checks').select('tarea,hecho_nombre,hecho_en').eq('fecha', dia)),
+      sb.from('limpieza_productos').select('id', { count: 'exact', head: true }).eq('estado', 'agotado').then((r) => r.count || 0)
+    ]);
+  } catch (e) {
+    return pintar(cabecera('Limpieza', { volver: '#/inicio' }) + `<main class="cont">${vacio(traducirError(e) + ' Falta pegar el paso 037 en Supabase.')}</main>`, 'inicio');
+  }
+  const M = {}; checks.forEach((c) => { M[c.tarea] = c; });
+  const abiertos = new Set();
+  const cajon = (c, extra) => {
+    const [k, nom, items] = c, n = items.filter((_, j) => M[limpClave(k, j)]).length, ok = n === items.length;
+    return `<details class="lp-caj ${ok ? 'hecho' : ''} ${extra ? 'super' : ''}" data-c="${k}" ${abiertos.has(k) ? 'open' : ''}><summary>
+      <span class="lp-n">${ok ? ico('check', 18) : extra ? ico('evento', 16) : LIMPIEZA.indexOf(c) + 1}</span>
+      <span class="lp-t"><b>${nom}</b><small>${ok ? 'Todo hecho' : extra ? 'Extra, no cuenta en el total' : n ? `Faltan ${items.length - n}` : 'Sin empezar'}</small></span>
+      <span class="lp-c">${n}/${items.length}</span><span class="lp-fl">${ico('abajo', 22)}</span></summary>
+      <div class="lp-items">${items.map((txt, j) => { const h = M[limpClave(k, j)];
+        return `<${ed ? 'button type="button"' : 'div'} class="lp-it ${h ? 'ok' : ''}" data-k="${limpClave(k, j)}"><span class="lp-box">${h ? ico('check', 18) : ''}</span><span class="lp-txt">${esc(txt)}${h ? `<small class="lp-quien">${esc(pila(h.hecho_nombre))} · ${horaDe(h.hecho_en)}</small>` : ''}</span></${ed ? 'button' : 'div'}>`; }).join('')}</div></details>`;
+  };
+  const cuerpo = () => {
+    const hechas = LIMPIEZA.reduce((s, [k, , it]) => s + it.filter((_, j) => M[limpClave(k, j)]).length, 0), pc = Math.round(hechas / LIMP_TOTAL * 100);
+    return `<div class="tarjeta lp-res"><div class="lp-fila"><span class="num">${hechas}<small> de ${LIMP_TOTAL} hechas</small></span><b>${pc} %</b></div><div class="lp-barra ${hechas === LIMP_TOTAL ? 'ok' : ''}"><i style="width:${pc}%"></i></div></div>
+      <div class="lp-sec">Tareas específicas</div>${LIMPIEZA.map((c) => cajon(c)).join('')}
+      <div class="lp-sec">Detalles superlimpieza</div>${cajon(LIMPIEZA_SUPER, true)}`;
+  };
+  const otroDia = dia !== hoy;
+  pintar(cabecera('Limpieza', { volver: otroDia ? '#/limpieza?t=hist&mes=' + dia.slice(0, 7) : '#/inicio', sub: capital(fechaLarga(dia)) + (otroDia ? ' · solo mirar' : '') }) + `<main class="cont">
+    ${otroDia ? '' : tabsLimpieza('lista', agot)}
+    <div id="lp-cuerpo" class="lp-cuerpo">${cuerpo()}</div>
+    ${otroDia ? '' : `<button class="btn sec ancho" data-ir="#/limpieza?t=hist">${ico('reloj')} Historial de días anteriores</button>`}
+    ${otroDia ? '' : '<p class="nota-lp">Cada día empieza una lista nueva.</p>'}
+  </main>`, 'inicio');
+  const caja = document.getElementById('lp-cuerpo');
+  caja.addEventListener('toggle', (ev) => { const d = ev.target; if (d.dataset && d.dataset.c) { if (d.open) abiertos.add(d.dataset.c); else abiertos.delete(d.dataset.c); } }, true);
+  if (!ed) return;
+  let ocupada = false;
+  caja.addEventListener('click', async (ev) => {
+    const b = ev.target.closest('.lp-it[data-k]'); if (!b || ocupada) return;
+    ocupada = true; const k = b.dataset.k;
+    try {
+      if (M[k]) { await q(sb.from('limpieza_checks').delete().eq('fecha', dia).eq('tarea', k)); delete M[k]; }
+      else { const r = await q(sb.from('limpieza_checks').upsert({ fecha: dia, tarea: k }, { onConflict: 'fecha,tarea' }).select('tarea,hecho_nombre,hecho_en').single()); M[k] = r; }
+      VISTAS.clear(); caja.innerHTML = cuerpo();
+    } catch (e) { aviso(traducirError(e), true); }
+    ocupada = false;
+  });
+}
+
+async function pantallaLimpiezaHistorial(params) {
+  const mes = mesParam(params), ini = mes, d = aFecha(mes); d.setMonth(d.getMonth() + 1); const fin = mesDe(d);
+  const mesMas = (n) => { const x = aFecha(mes); x.setMonth(x.getMonth() + n); return mesCorto(mesDe(x)); };
+  let checks;
+  try { checks = await q(sb.from('limpieza_checks').select('fecha,tarea,hecho_nombre,hecho_en').gte('fecha', ini).lt('fecha', fin).order('hecho_en')); }
+  catch (e) { return pintar(cabecera('Historial de limpieza', { volver: '#/limpieza' }) + `<main class="cont">${vacio(traducirError(e))}</main>`, 'inicio'); }
+  const D = {}; checks.forEach((c) => (D[c.fecha] = D[c.fecha] || []).push(c));
+  const dias = Object.keys(D).sort().reverse(), hoy = hoyISO();
+  const tarjeta = (f) => {
+    const l = D[f], hechas = new Set(l.map((c) => c.tarea)), n = LIMPIEZA.reduce((s, [k, , it]) => s + it.filter((_, j) => hechas.has(limpClave(k, j))).length, 0), ok = n === LIMP_TOTAL;
+    const quien = [...new Set(l.map((c) => pila(c.hecho_nombre)))].join(', ');
+    const faltan = LIMPIEZA.map(([k, nom, it]) => [nom, it.filter((_, j) => !hechas.has(limpClave(k, j))).length]).filter((x) => x[1]).map((x) => `${x[0]} (${x[1]})`).join(', ');
+    const fd = aFecha(f), dsem = f === hoy ? 'Hoy' : capital(fd.toLocaleDateString('es-ES', { weekday: 'short' }).replace('.', ''));
+    return `<a class="tarjeta lp-dia" href="${f === hoy ? '#/limpieza' : '#/limpieza?dia=' + f}"><span class="d"><small>${dsem}</small><b>${fd.getDate()}</b><small>${fd.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')}</small></span>
+      <span class="info"><span class="lp-fila"><b>${ok ? 'Completa' : `${n} de ${LIMP_TOTAL} hechas`}</b><span class="lp-c ${ok ? 'ok' : ''}">${n}/${LIMP_TOTAL}</span></span>
+      <span class="lp-barra ${ok ? 'ok' : ''}"><i style="width:${Math.round(n / LIMP_TOTAL * 100)}%"></i></span>
+      <small>${esc(quien)} · ${horaDe(l[0].hecho_en)} a ${horaDe(l[l.length - 1].hecho_en)}</small>${faltan ? `<span class="lp-falta">Faltan: ${esc(faltan)}</span>` : ''}</span></a>`;
+  };
+  pintar(cabecera('Historial de limpieza', { volver: '#/limpieza', sub: 'Lo que se ha hecho cada día' }) + `<main class="cont">
+    <div class="ls-mes"><button data-ir="#/limpieza?t=hist&mes=${mesMas(-1)}" aria-label="Mes anterior">${ico('volver', 18)}</button><b>${nombreMes(mes)}</b><button data-ir="#/limpieza?t=hist&mes=${mesMas(1)}" aria-label="Mes siguiente" class="gira">${ico('volver', 18)}</button></div>
+    ${dias.map(tarjeta).join('') || vacio('Este mes no se ha marcado ninguna limpieza.')}
+    ${dias.length ? '<p class="nota-lp">Toca un día para ver su lista con la hora de cada check.</p>' : ''}
+  </main>`, 'inicio');
+}
+
+async function pantallaLimpiezaInventario() {
+  const ed = puedeEditar('limpieza');
+  let P;
+  try { P = await q(sb.from('limpieza_productos').select('*')); }
+  catch (e) { return pintar(cabecera('Limpieza', { volver: '#/inicio' }) + `<main class="cont">${vacio(traducirError(e) + ' Falta pegar el paso 037 en Supabase.')}</main>`, 'inicio'); }
+  const ordenar = () => P.sort((a, b) => LIMP_EST[a.estado] - LIMP_EST[b.estado] || a.nombre.localeCompare(b.nombre, 'es'));
+  const cuando = (ts) => { const f = new Date(ts), hoy = hoyISO(), iso = `${f.getFullYear()}-${pad(f.getMonth() + 1)}-${pad(f.getDate())}`, ay = new Date(); ay.setDate(ay.getDate() - 1);
+    const ayer = `${ay.getFullYear()}-${pad(ay.getMonth() + 1)}-${pad(ay.getDate())}`;
+    return iso === hoy ? 'hoy ' + horaDe(ts) : iso === ayer ? 'ayer ' + horaDe(ts) : f.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }).replace('.', ''); };
+  const botones = (e, id) => `<div class="iv-est"${id ? ` data-id="${id}"` : ''}>${[['hay', 'Hay'], ['poco', 'Queda poco'], ['agotado', 'Agotado']].map(([v, t]) => `<button type="button" class="${v} ${e === v ? 'on' : ''}" data-e="${v}" ${ed ? '' : 'disabled'}>${t}</button>`).join('')}</div>`;
+  const cuerpo = () => {
+    ordenar(); const c = (e) => P.filter((p) => p.estado === e).length;
+    return `<div class="iv-res"><div><b class="r">${c('agotado')}</b><small>Agotados</small></div><div><b class="n">${c('poco')}</b><small>Queda poco</small></div><div><b class="v">${c('hay')}</b><small>Hay</small></div></div>
+      ${P.map((p) => `<div class="tarjeta iv-p ${p.estado === 'agotado' ? 'ago' : p.estado === 'poco' ? 'poco' : ''}"><div class="iv-top"><b>${esc(p.nombre)}</b><small>${esc(pila(p.modificado_nombre))} · ${cuando(p.modificado_en)}</small>${ed ? `<button type="button" class="iv-borrar" data-borrar="${p.id}" aria-label="Borrar ${esc(p.nombre)}">${ico('papelera', 18)}</button>` : ''}</div>${botones(p.estado, p.id)}</div>`).join('') || vacio('Todavía no hay productos. Añade el primero con el botón de abajo.')}`;
+  };
+  pintar(cabecera('Limpieza', { volver: '#/inicio', sub: 'Productos de limpieza' }) + `<main class="cont">
+    ${tabsLimpieza('inv', P.filter((p) => p.estado === 'agotado').length)}
+    ${ed ? `<button class="btn sec ancho" id="iv-nuevo">${ico('mas')} Añadir producto</button>
+    <form class="tarjeta iv-form" id="iv-form" hidden><div class="campo"><label for="iv-nom">Nombre del producto</label><input id="iv-nom" maxlength="80" placeholder="Por ejemplo: lejía, bayetas…" autocomplete="off"></div>
+      <div class="campo"><label>¿Cómo está?</label>${botones('hay')}</div><button class="btn pri ancho">Guardar producto</button></form>` : ''}
+    <div id="iv-cuerpo" class="lp-cuerpo">${cuerpo()}</div>
+    <p class="nota-lp">Lo agotado sube arriba.</p>
+  </main>`, 'inicio');
+  if (!ed) return;
+  const caja = document.getElementById('iv-cuerpo'), form = document.getElementById('iv-form');
+  const repintar = () => { VISTAS.clear(); caja.innerHTML = cuerpo(); const n = P.filter((p) => p.estado === 'agotado').length; const tab = document.querySelector('.lp-tabs button:last-child'); if (tab) tab.innerHTML = 'Inventario' + (n ? ` <span class="lp-pt">${n}</span>` : ''); };
+  document.getElementById('iv-nuevo').onclick = () => { form.hidden = !form.hidden; if (!form.hidden) document.getElementById('iv-nom').focus(); };
+  form.querySelector('.iv-est').onclick = (ev) => { const b = ev.target.closest('[data-e]'); if (!b) return; form.querySelectorAll('.iv-est button').forEach((x) => x.classList.toggle('on', x === b)); };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault(); const nom = document.getElementById('iv-nom').value.trim(); if (!nom) return aviso('Escribe el nombre del producto', true);
+    const est = (form.querySelector('.iv-est .on') || {}).dataset?.e || 'hay', btn = form.querySelector('.btn.pri'); btn.disabled = true;
+    try { P.push(await q(sb.from('limpieza_productos').insert({ nombre: nom, estado: est }).select('*').single())); form.reset(); form.hidden = true;
+      form.querySelectorAll('.iv-est button').forEach((x) => x.classList.toggle('on', x.dataset.e === 'hay')); repintar(); aviso('Producto añadido'); }
+    catch (e) { aviso(traducirError(e), true); }
+    btn.disabled = false;
+  };
+  let ocupada = false;
+  caja.addEventListener('click', async (ev) => {
+    if (ocupada) return;
+    const bo = ev.target.closest('[data-borrar]');
+    if (bo) { const p = P.find((x) => x.id === bo.dataset.borrar); if (!p || !confirm(`¿Borrar "${p.nombre}" del inventario?`)) return;
+      ocupada = true; try { await q(sb.from('limpieza_productos').delete().eq('id', p.id)); P = P.filter((x) => x !== p); repintar(); aviso('Borrado'); } catch (e) { aviso(traducirError(e), true); } ocupada = false; return; }
+    const b = ev.target.closest('.iv-est[data-id] [data-e]'); if (!b) return;
+    const p = P.find((x) => x.id === b.closest('.iv-est').dataset.id); if (!p || p.estado === b.dataset.e) return;
+    ocupada = true;
+    try { Object.assign(p, await q(sb.from('limpieza_productos').update({ estado: b.dataset.e }).eq('id', p.id).select('*').single())); repintar(); }
+    catch (e) { aviso(traducirError(e), true); }
+    ocupada = false;
+  });
+}
+
 async function pantallaLista(params) {
   if (!puedeVer('clases')) return sinPermiso();
   const mes = mesParam(params), dias0 = diasDelMes(mesCorto(mes)), ini = dias0[0], fin = dias0[dias0.length - 1];
@@ -4776,6 +4929,7 @@ async function router() {
       case 'vista': return await pantallaVista(p[1]);
       case 'estrellas': return await pantallaEstrellas(params);
       case 'lista': return await pantallaLista(params);
+      case 'limpieza': return await pantallaLimpieza(params);
       case 'logros':
         if (p[1] === 'reto') return await formReto(params);
         if (p[1] === 'profesora') return await pantallaLogrosProfesora(p[2], params);
