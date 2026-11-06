@@ -830,3 +830,8 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .amiga-pie{display:grid;grid-template-columns:1fr auto;gap:4px 10px;background:#FBF6EC;border-radius:12px;padding:10px 12px;margin:8px 0;font-size:13px}
 .amiga-pie b{font-family:'Sora',sans-serif;text-align:right}
 .amiga-mov{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto2);margin:10px 0 4px}
+/* Código de descuento de la escuela amiga: una bolita por plaza */
+.plazas{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.plazas i{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font:700 14px Sora,sans-serif;font-style:normal;background:#fff;border:2px solid rgba(118,80,224,.35);color:var(--morado3)}
+.plazas i.usada{background:var(--morado);border-color:var(--morado);color:#fff}
+.plazas-txt{text-align:center;font-weight:700;color:var(--morado3);font-size:14px}

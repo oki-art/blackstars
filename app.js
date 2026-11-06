@@ -3812,12 +3812,13 @@ async function pantallaEscuelas() {
 }
 async function pantallaEscuela(id) {
   if (!puedeVer('escuelas_amigas')) return sinPermiso();
-  const [e, res, clases, notas, coinc] = await Promise.all([
+  const [e, res, clases, notas, coinc, cod] = await Promise.all([
     q(sb.from('escuelas_amigas').select('*').eq('id', id).single()),
     q(sb.from('escuela_amiga_resumen').select('*').eq('id', id).single()),
     puedeVer('clases') ? intentar(() => q(sb.from('clases').select('*,' + SEL_HOR).eq('escuela_amiga_id', id))) : [],
     q(sb.from('notas_escuela_amiga').select('*').eq('escuela_amiga_id', id).order('fecha', { ascending: false })),
-    q(sb.from('coincidencias_escuela_amiga').select('*').eq('escuela_amiga_id', id))
+    q(sb.from('coincidencias_escuela_amiga').select('*').eq('escuela_amiga_id', id)),
+    leerCodigoEscuela(id)
   ]);
   const ed = puedeEditar('escuelas_amigas');
   const mes = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
@@ -3827,6 +3828,7 @@ async function pantallaEscuela(id) {
       <div class="ayuda" style="margin-top:-4px">Cuenta con todas a mes completo (${eur(+res.precio_alumna)}). Medio mes: ${eur(+e.precio_medio_alumna || 0)} por alumna; ${e.con_lista ? 'cada mes se marca en Contabilidad quién ha pagado.' : 'cuántas son se pone cada mes en Contabilidad.'}</div>
       ${e.con_lista && veContab() ? `<a class="btn sec" href="#/contabilidad/amiga?mes=${hoyISO().slice(0, 7)}&esc=${id}">${ico('alumnas', 18)} Sus alumnas y el cobro de este mes</a>` : ''}`
     : `<div class="totales"><div><small>Horas/sem.</small><b>${(+res.horas_semana).toLocaleString('es-ES')}</b></div><div><small>Tarifa</small><b>${eur(e.tarifa_hora_semana)}</b></div><div><small>Cuota/mes</small><b class="in">${eur(res.cuota_mensual)}</b></div></div>`}
+    ${bloqueCodigoEscuela(e, cod, ed)}
     <div class="tarjeta"><dl class="datos"><dt>Contacto</dt><dd>${esc(e.contacto || '—')}</dd><dt>Teléfono</dt><dd>${esc(e.telefono || '—')}</dd><dt>Correo</dt><dd>${esc(e.email || '—')}</dd>${e.notas ? `<dt>Notas</dt><dd>${esc(e.notas)}</dd>` : ''}</dl></div>
     <div class="botones">${ed ? `<a class="btn sec" href="#/escuela/${id}/editar">${ico('lapiz')} Editar</a>` : ''}
       ${puedeEditar('caja') && +res.cuota_mensual > 0 && !e.con_lista ? `<a class="btn verde" href="#/caja/nuevo?tipo=ingreso&importe=${res.cuota_mensual}&escuela=${id}&concepto=${encodeURIComponent('Cuota ' + e.nombre + ' ' + mes + (esPorcentaje(res) ? ` (${pctTxt(res.porcentaje_nuestro)} de ${eur(res.total_alumnas)})` : ''))}">${ico('euro')} Cobrar cuota</a>` : ''}</div>
@@ -3842,6 +3844,7 @@ async function pantallaEscuela(id) {
     ${S.admin ? `<a class="btn peligro" href="#/escuela/${id}/borrar">${ico('papelera', 18)} Borrar escuela</a>` : ''}
     ${autorDe(e)}
   </main>`, 'mas');
+  activarCodigoEscuela();
 }
 // Como al borrar una clase: se cuenta lo que tiene la escuela para decir qué se pierde y qué se queda
 async function pantallaBorrarEscuela(id) {
@@ -3975,6 +3978,132 @@ const formNotaEscuela = (escuela) => pantallaForm({
   transformar: (d) => Object.assign(d, { escuela_amiga_id: escuela }),
   campos: [{ k: 'fecha', label: 'Fecha', tipo: 'fecha', req: true, def: hoyISO() }, { k: 'texto', label: 'Nota', tipo: 'textarea', req: true }]
 });
+
+/* ---------- escuela amiga: código de descuento de bienvenida (migración 036) ----------
+   Ej.: OLIVIA5 · 5 € de descuento en la cuota del mes para las 5 primeras inscripciones de "Ritmos latinos" con Olivia.
+   Las interesadas se invitan por WhatsApp; al inscribirse se marcan y gastan una plaza (el servidor no deja pasar del límite). */
+async function leerCodigoEscuela(id) {
+  try {
+    const [c, ints] = await Promise.all([
+      q(sb.from('escuela_codigos').select('*').eq('escuela_amiga_id', id).maybeSingle()),
+      q(sb.from('escuela_interesadas').select('*').eq('escuela_amiga_id', id).order('creado_en'))
+    ]);
+    return { c, ints };
+  } catch (er) { return null; }   // falta pegar la 036
+}
+const telWa = (t) => String(t || '').replace(/\D/g, '').replace(/^(?!34)(\d{9})$/, '34$1');
+function mensajeBienvenida(c, nombre, quedan) {
+  const pila = String(nombre || '').trim().split(/\s+/)[0];
+  return `¡Hola${pila ? ', *' + pila + '*' : ''}! 💃 Bienvenida a la familia *Blackstars* ⭐\n\n*Tu cuerpo ya sabe bailar. Solo falta que lo dejes salir.* 🔥\n\n`
+    + `Te esperamos en nuestra clase de *${c.clase || 'baile'}*${c.profesora ? ` con la profesora *${c.profesora}*` : ''}: música, energía y buen rollo desde el primer paso. Aquí nadie viene sabiendo, todas venimos a disfrutar.\n\n`
+    + `🎁 *Regalo de bienvenida:* si te inscribes, tienes *${eur(c.euros)} de descuento* en la cuota del mes con el código *${c.codigo}*\n\n`
+    + `⏳ Solo para las *${c.plazas} primeras inscripciones*${quedan < c.plazas ? `… ¡y ya ${quedan === 1 ? 'queda *1*' : `quedan *${quedan}*`}!` : '.'}\n\n`
+    + `No lo dejes para mañana: la mejor versión de ti empieza bailando 💜\n¡Nos vemos en la pista!`;
+}
+function bloqueCodigoEscuela(e, cod, ed) {
+  if (!cod) return '';
+  const { c, ints } = cod, id = e.id;
+  if (!c) return ed ? `<a class="btn sec" href="#/escuela/${id}/codigo">${ico('trofeo', 18)} Crear código de descuento</a>` : '';
+  const usadas = ints.filter((i) => i.inscrita_en).length, quedan = Math.max(0, c.plazas - usadas);
+  const plazas = Array.from({ length: c.plazas }, (_, n) => `<i class="${n < usadas ? 'usada' : ''}">${n < usadas ? '✓' : n + 1}</i>`).join('');
+  const der = (i) => {
+    if (i.inscrita_en) return `<span class="chip ok">Inscrita · −${eur(c.euros)}</span>`;
+    const t = telWa(i.telefono), btn = t && quedan > 0 && c.activo && ed ? `<button class="obj-wa-btn" data-wa-int="${i.id}" data-wa="https://wa.me/${t}?text=${encodeURIComponent(mensajeBienvenida(c, i.nombre, quedan))}" aria-label="Invitar por WhatsApp a ${esc(i.nombre)}">${ico('wa', 18)} Invitar</button>` : '';
+    return `<span class="obj-der">${i.invitada_en ? '<span class="chip mor">Invitada</span>' : '<span class="chip gris">Pendiente</span>'}${btn}</span>`;
+  };
+  return `<div class="seccion">Código de descuento</div>
+    <div class="obj-ev"><div class="obj-et">${ico('trofeo', 18)} Código de bienvenida${c.activo ? '' : ' · pausado'}</div>
+      <h3>${eur(c.euros)} de descuento en la cuota del mes</h3>
+      <p>Para las alumnas nuevas${c.clase ? ` de <b>${esc(c.clase)}</b>` : ''}${c.profesora ? ` con <b>${esc(c.profesora)}</b>` : ''}. Solo las <b>${c.plazas} primeras inscripciones</b> formalizadas.</p>
+      <div class="obj-codigo"><small>Código</small><b style="font-size:${Math.min(32, Math.floor(230 / (String(c.codigo).length * 0.9)))}px">${esc(c.codigo)}</b></div>
+      <div class="plazas" aria-hidden="true">${plazas}</div>
+      <div class="plazas-txt">${quedan ? `Quedan ${quedan} de ${c.plazas} plazas con descuento` : `¡Agotado! Las ${c.plazas} plazas con descuento ya están cogidas`}</div>
+      ${ed ? `<a class="btn sec" href="#/escuela/${id}/codigo">${ico('lapiz', 18)} Cambiar código</a>` : ''}</div>
+    <div class="seccion">Interesadas (${ints.length})</div>
+    <div class="lista">${ints.map((i) => fila({ href: ed ? `#/escuela/${id}/interesada/${i.id}` : `#/escuela/${id}`, tit: i.nombre, det: esc([i.telefono, i.nota].filter(Boolean).join(' · ')), der: der(i) })).join('') || vacio('Aún no hay interesadas.')}</div>
+    ${ed ? `<a class="btn sec" href="#/escuela/${id}/interesada/nueva">${ico('mas')} Añadir interesada</a>
+      <div class="ayuda" style="font-size:13px;color:var(--texto2)">Al tocar «Invitar» se abre WhatsApp con el mensaje ya escrito. Cuando se apunte, entra en su nombre y márcala como inscrita: se gasta una plaza.</div>` : ''}`;
+}
+function activarCodigoEscuela() {
+  $app.querySelectorAll('[data-wa-int]').forEach((b) => b.onclick = (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    window.open(b.dataset.wa, '_blank', 'noopener');
+    sb.from('escuela_interesadas').update({ invitada_en: new Date().toISOString() }).eq('id', b.dataset.waInt).is('invitada_en', null).then(() => {});
+    const chip = b.parentNode.querySelector('.chip.gris'); if (chip) { chip.className = 'chip mor'; chip.textContent = 'Invitada'; }
+  });
+}
+async function formCodigoEscuela(id) {
+  if (!puedeEditar('escuelas_amigas')) return sinPermiso();
+  const [e, cod, clases] = await Promise.all([
+    q(sb.from('escuelas_amigas').select('id,nombre').eq('id', id).single()),
+    leerCodigoEscuela(id),
+    intentar(() => q(sb.from('clases').select('nombre,profesora_externa').eq('escuela_amiga_id', id).eq('activa', true)))
+  ]);
+  if (!cod) { aviso('Falta pegar el SQL 036 en Supabase', true); location.hash = `#/escuela/${id}`; return; }
+  const c = cod.c || {}, cl = clases[0] || {};
+  const prof = c.profesora ?? (cl.profesora_externa || ''), euros = c.euros ?? 5;
+  const volver = `#/escuela/${id}`;
+  pintar(cabecera('Código de descuento', { volver, sub: esc(e.nombre) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_prof">Profesora</label><input id="f_prof" maxlength="60" value="${esc(prof)}"></div>
+    <div class="campo"><label for="f_clase">Clase</label><input id="f_clase" maxlength="80" value="${esc(c.clase ?? (cl.nombre || ''))}"></div>
+    <div class="campo"><label for="f_euros">Descuento en la cuota del mes (€)</label><input id="f_euros" type="number" min="0" step="0.5" inputmode="decimal" required value="${+euros}"></div>
+    <div class="campo"><label for="f_plazas">Solo para las primeras… (inscripciones)</label><input id="f_plazas" type="number" min="1" max="100" inputmode="numeric" required value="${c.plazas ?? 5}"></div>
+    <div class="campo"><label for="f_cod">Código</label><input id="f_cod" class="obj-input" required maxlength="20" value="${esc(c.codigo || codigoDe(prof) + (+euros || ''))}"><div class="ayuda">Se crea solo con el nombre de la profesora y el descuento. Puedes cambiarlo.</div></div>
+    ${cod.c ? `<label class="check"><input type="checkbox" id="f_activo" ${c.activo ? 'checked' : ''}> Código en marcha (si lo quitas, no salen botones de Invitar)</label>` : ''}
+    <button class="btn pri ancho" type="submit">Guardar código</button>
+    <a class="btn sec ancho" href="${volver}">Cancelar</a></form>${autorDe(cod.c)}</main>`, false);
+  const $ = (x) => document.getElementById(x);
+  let tocado = !!cod.c;   // mientras no se toque el código, sigue al nombre y al descuento
+  $('f_cod').oninput = () => { tocado = true; };
+  const auto = () => { if (!tocado) $('f_cod').value = codigoDe($('f_prof').value) + (+$('f_euros').value || ''); };
+  $('f_prof').oninput = auto; $('f_euros').oninput = auto;
+  $('frm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const d = { escuela_amiga_id: id, profesora: $('f_prof').value.trim() || null, clase: $('f_clase').value.trim() || null, euros: +$('f_euros').value || 0,
+      plazas: Math.max(1, parseInt($('f_plazas').value, 10) || 5), codigo: $('f_cod').value.trim().toUpperCase().replace(/\s+/g, ''), activo: $('f_activo') ? $('f_activo').checked : true };
+    const btn = $('frm').querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      if (cod.c) await q(sb.from('escuela_codigos').update(d).eq('id', cod.c.id)); else await q(sb.from('escuela_codigos').insert(d));
+      aviso('Código guardado'); location.hash = volver;
+    } catch (er) { aviso(traducirError(er), true); btn.disabled = false; }
+  };
+}
+async function formInteresadaEscuela(id, iid) {
+  if (!puedeEditar('escuelas_amigas')) return sinPermiso();
+  const [e, reg, cod] = await Promise.all([
+    q(sb.from('escuelas_amigas').select('id,nombre').eq('id', id).single()),
+    iid ? q(sb.from('escuela_interesadas').select('*').eq('id', iid).single()) : null,
+    leerCodigoEscuela(id)
+  ]);
+  if (!cod) { aviso('Falta pegar el SQL 036 en Supabase', true); location.hash = `#/escuela/${id}`; return; }
+  const v = reg || {}, c = cod.c, volver = `#/escuela/${id}`;
+  const quedan = c ? Math.max(0, c.plazas - cod.ints.filter((i) => i.inscrita_en).length) : 0;
+  pintar(cabecera(iid ? v.nombre : 'Nueva interesada', { volver, sub: esc(e.nombre) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="f_nombre">Nombre *</label><input id="f_nombre" required maxlength="120" value="${esc(v.nombre || '')}"></div>
+    <div class="campo"><label for="f_tel">Teléfono (WhatsApp) *</label><input id="f_tel" type="tel" required value="${esc(v.telefono || '')}"></div>
+    <div class="campo"><label for="f_nota">Nota (opcional)</label><input id="f_nota" maxlength="300" value="${esc(v.nota || '')}"></div>
+    <button class="btn pri ancho" type="submit">Guardar</button>
+    ${iid && c ? (v.inscrita_en ? `<div class="obj-ok">${ico('check', 18)} Inscrita el ${fechaCorta(v.inscrita_en)} · −${eur(c.euros)} en la cuota</div><button class="btn sec ancho" type="button" id="desmarcar">Quitar inscripción (devuelve la plaza)</button>`
+      : quedan ? `<button class="btn verde ancho" type="button" id="inscrita">${ico('check', 18)} Se ha inscrito · usar 1 plaza (quedan ${quedan})</button>` : '<div class="obj-ok mal">Ya no quedan plazas con descuento.</div>') : ''}
+    ${iid ? '<button class="btn peligro ancho" type="button" id="borrar">Borrar</button>' : ''}</form>${autorDe(reg)}</main>`, false);
+  const $ = (x) => document.getElementById(x);
+  const guardar = async (extra = {}) => {
+    const tel = $('f_tel').value.trim();
+    if (tel.replace(/\D/g, '').length < 9) { aviso('El teléfono necesita al menos 9 números', true); return; }
+    const d = { nombre: $('f_nombre').value.trim(), telefono: tel, nota: $('f_nota').value.trim() || null, ...extra };
+    try {
+      if (iid) await q(sb.from('escuela_interesadas').update(d).eq('id', iid)); else await q(sb.from('escuela_interesadas').insert({ escuela_amiga_id: id, ...d }));
+      aviso('Guardado'); location.hash = volver;
+    } catch (er) { aviso(traducirError(er), true); }
+  };
+  $('frm').onsubmit = (ev) => { ev.preventDefault(); guardar(); };
+  if ($('inscrita')) $('inscrita').onclick = () => guardar({ inscrita_en: new Date().toISOString() });
+  if ($('desmarcar')) $('desmarcar').onclick = () => { if (confirm('¿Quitar la inscripción? Se devuelve la plaza con descuento.')) guardar({ inscrita_en: null }); };
+  if ($('borrar')) $('borrar').onclick = async () => {
+    if (!confirm(`¿Borrar a ${v.nombre} de las interesadas?`)) return;
+    try { await q(sb.from('escuela_interesadas').delete().eq('id', iid)); aviso('Borrada'); location.hash = volver; } catch (er) { aviso(traducirError(er), true); }
+  };
+}
 
 /* ---------- formularios (WhatsApp) ---------- */
 const CAMPOS_TIPO = [
@@ -4630,6 +4759,8 @@ async function router() {
         if (p[2] === 'borrar') return await pantallaBorrarEscuela(p[1]);
         if (p[2] === 'clase') return await formClaseExterna(p[1], p[3] === 'nueva' ? null : p[3]);
         if (p[2] === 'nota') return await formNotaEscuela(p[1]);
+        if (p[2] === 'codigo') return await formCodigoEscuela(p[1]);
+        if (p[2] === 'interesada') return await formInteresadaEscuela(p[1], p[3] === 'nueva' ? null : p[3]);
         return await pantallaEscuela(p[1]);
       case 'coincidencias': return await pantallaCoincidencias();
       case 'coincidencia': return await formCoincidencia(params);
