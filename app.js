@@ -4652,17 +4652,18 @@ async function pantallaLimpiezaDias(params) {
   const fila = (x) => {
     const fd = aFecha(x.f), n = N[x.f] || 0;
     const tit = x.quitado ? 'Viernes · sin limpieza' : x.tipo === 'viernes' ? capital(fd.toLocaleDateString('es-ES', { weekday: 'long' })) : capital(fd.toLocaleDateString('es-ES', { weekday: 'long' })) + (x.tipo === 'extra' ? ' · día extra' : ' · cambiado');
-    const det = x.quitado ? 'Esta semana no hay limpieza' : n ? `${n} de ${LIMP_TOTAL} hechas` : x.f < hoy ? 'No se hizo' : x.f === hoy ? 'Hoy toca limpieza' : x.tipo === 'cambiado' ? `Antes era el viernes ${aFecha(x.viernes).getDate()}` : 'Toca limpieza';
+    const det = x.quitado ? 'Esta semana no hay limpieza' : n ? `${n} de ${LIMP_TOTAL} hechas` : x.f < hoy ? 'Sin terminar' : x.f === hoy ? 'Hoy toca limpieza' : x.tipo === 'cambiado' ? `Antes era el viernes ${aFecha(x.viernes).getDate()}` : 'Lista preparada, sin empezar';
     const tag = n >= LIMP_TOTAL ? '<span class="dl-tag t-ok">Hecha</span>' : '';
     const puede = ed && !n && (x.f >= hoy || x.quitado);
     return `<div class="tarjeta dl-fila ${x.quitado ? 'dl-quitado' : x.tipo !== 'viernes' ? 'dl-mov' : ''}"><span class="d"><small>${diaCorto(x.f)}</small><b>${fd.getDate()}</b><small>${fd.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')}</small></span>
-      <span class="info"><b>${tit}</b><small class="${!n && x.f < hoy && !x.quitado ? 'lp-falta' : ''}">${det}${x.c && x.c.creado_nombre ? ` · lo cambió ${esc(pila(x.c.creado_nombre))}` : ''}</small></span>${tag}${puede ? `<button class="dl-btn" data-ir="${enlace(x)}">Cambiar</button>` : ''}</div>`;
+      <span class="info"><b>${tit}</b><small class="${!n && x.f < hoy && !x.quitado ? 'lp-falta' : ''}">${det}${x.c && x.c.creado_nombre ? ` · lo cambió ${esc(pila(x.c.creado_nombre))}` : ''}</small>${x.quitado ? '' : `<span class="dl-prog"><i style="width:${Math.round(n / LIMP_TOTAL * 100)}%"></i></span>`}</span>
+      <span class="dl-acc">${tag}${x.quitado ? '' : `<button class="dl-abrir" data-ir="#/limpieza?dia=${x.f}">Abrir lista</button>`}${puede ? `<button class="dl-cambiar" data-ir="${enlace(x)}">${x.quitado ? 'Cambiar' : 'Cambiar día'}</button>` : ''}</span></div>`;
   };
   pintar(cabecera('Días de limpieza', { volver: '#/limpieza', sub: 'Todos los viernes, salvo cambios' }) + `<main class="cont">
     <div class="ls-mes"><button data-ir="#/limpieza?t=dias&mes=${mesMas(-1)}" aria-label="Mes anterior">${ico('volver', 18)}</button><b>${nombreMes(mes)}</b><button data-ir="#/limpieza?t=dias&mes=${mesMas(1)}" aria-label="Mes siguiente" class="gira">${ico('volver', 18)}</button></div>
     ${filas.map(fila).join('') || vacio('Este mes no hay días de limpieza.')}
     ${ed ? `<button class="btn sec ancho" data-ir="#/limpieza?t=cambiar&extra=${mesCorto(mes)}">${ico('mas')} Añadir un día extra</button>` : ''}
-    <p class="nota-lp">Cada mes salen solos todos los viernes.</p>
+    <p class="nota-lp">Cada viernes tiene su lista preparada. Toca "Abrir lista" para marcarla.</p>
   </main>`, 'inicio');
 }
 
@@ -4730,6 +4731,14 @@ async function pantallaLimpiezaCambiar(params) {
   if (bo) bo.onclick = () => { if (confirm('¿Quitar este día extra de limpieza?')) accion(bo, async () => { await q(sb.from('limpieza_cambios').delete().eq('id', c.id)); hecho('Día quitado'); }); };
 }
 
+// Lo hecho y lo que falta de una lista (M = { clave: check })
+function cuentaLimpieza(M) {
+  const hechas = LIMPIEZA.reduce((s, [k, , it]) => s + it.filter((_, j) => M[limpClave(k, j)]).length, 0);
+  const faltan = LIMPIEZA.map(([k, nom, it]) => [nom, it.filter((_, j) => !M[limpClave(k, j)]).length]).filter((x) => x[1]);
+  return { hechas, faltan, texto: `${hechas} de ${LIMP_TOTAL} hechas` + (faltan.length ? ' · Faltan: ' + faltan.map((x) => `${x[0]} (${x[1]})`).join(', ') : ' · Todo hecho') };
+}
+const primeroMes = (iso, n = 0) => { const d = aFecha(iso.slice(0, 8) + '01'); d.setMonth(d.getMonth() + n); return isoDe(d); };
+
 async function pantallaLimpieza(params) {
   if (!puedeVer('limpieza')) return sinPermiso();
   const t = params.get('t') || 'lista';
@@ -4737,21 +4746,39 @@ async function pantallaLimpieza(params) {
   if (t === 'hist') return pantallaLimpiezaHistorial(params);
   if (t === 'dias') return pantallaLimpiezaDias(params);
   if (t === 'cambiar') return pantallaLimpiezaCambiar(params);
-  const hoy = hoyISO(), dia = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : hoy;
-  const ed = puedeEditar('limpieza') && dia === hoy;
-  let checks, agot, C, delMes;
-  const mesHoy = hoy.slice(0, 8) + '01', finMes = sumaDias(mesDe(new Date(aFecha(mesHoy).getFullYear(), aFecha(mesHoy).getMonth() + 1, 1)), 0);
+  if (t === 'informe') return pantallaLimpiezaInforme(params);
+  const hoy = hoyISO(), pedido = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : null;
+  const mesBase = primeroMes(pedido || hoy), antMes = primeroMes(mesBase, -1), sigMes = primeroMes(mesBase, 1), finRango = primeroMes(mesBase, 2);
+  let agot, C, enRango, INF;
   try {
-    [checks, agot, C, delMes] = await Promise.all([
-      q(sb.from('limpieza_checks').select('tarea,hecho_nombre,hecho_en').eq('fecha', dia)),
+    [agot, C, enRango, INF] = await Promise.all([
       sb.from('limpieza_productos').select('id', { count: 'exact', head: true }).eq('estado', 'agotado').then((r) => r.count || 0),
-      dia === hoy ? cargarCambios() : null,
-      dia === hoy ? intentar(() => q(sb.from('limpieza_checks').select('fecha,tarea').gte('fecha', mesHoy).lt('fecha', finMes))) : []
+      cargarCambios(),
+      q(sb.from('limpieza_checks').select('fecha,tarea').gte('fecha', antMes).lt('fecha', finRango)),
+      sb.from('limpieza_informes').select('*').gte('fecha', antMes).lt('fecha', finRango).then(({ data, error }) => error ? null : data || [])
     ]);
   } catch (e) {
     return pintar(cabecera('Limpieza', { volver: '#/inicio' }) + `<main class="cont">${vacio(traducirError(e) + ' Falta pegar el paso 037 en Supabase.')}</main>`, 'inicio');
   }
+  const N = {}; enRango.forEach((c) => { if (!c.tarea.startsWith('super')) N[c.fecha] = (N[c.fecha] || 0) + 1; });
+  const I = {}; (INF || []).forEach((x) => { I[x.fecha] = x; });
+  const diasMes = C ? diasLimpieza(mesBase, C).dias : [];
+  const dias = C ? [...diasLimpieza(antMes, C).dias, ...diasMes, ...diasLimpieza(sigMes, C).dias] : [];
+  // Qué lista se abre: la de hoy si toca; si no, la de la última semana si quedó sin terminar; si no, la próxima
+  let dia = pedido;
+  if (!dia) {
+    if (!C || dias.some((x) => x.fecha === hoy)) dia = hoy;
+    else {
+      const pend = dias.filter((x) => x.fecha < hoy && x.fecha >= sumaDias(hoy, -6) && !I[x.fecha] && (N[x.fecha] || 0) < LIMP_TOTAL).pop();
+      dia = pend ? pend.fecha : (dias.find((x) => x.fecha > hoy) || { fecha: hoy }).fecha;
+    }
+  }
+  let checks;
+  try { checks = await q(sb.from('limpieza_checks').select('tarea,hecho_nombre,hecho_en').eq('fecha', dia).order('hecho_en')); }
+  catch (e) { return pintar(cabecera('Limpieza', { volver: '#/inicio' }) + `<main class="cont">${vacio(traducirError(e))}</main>`, 'inicio'); }
   const M = {}; checks.forEach((c) => { M[c.tarea] = c; });
+  const esLimp = !C || dias.some((x) => x.fecha === dia) || checks.length > 0, futuro = dia > hoy;
+  const ed = puedeEditar('limpieza') && esLimp && !futuro, inf = I[dia];
   const abiertos = new Set();
   const cajon = (c, extra) => {
     const [k, nom, items] = c, n = items.filter((_, j) => M[limpClave(k, j)]).length, ok = n === items.length;
@@ -4763,48 +4790,46 @@ async function pantallaLimpieza(params) {
         return `<${ed ? 'button type="button"' : 'div'} class="lp-it ${h ? 'ok' : ''}" data-k="${limpClave(k, j)}"><span class="lp-box">${h ? ico('check', 18) : ''}</span><span class="lp-txt">${esc(txt)}${h ? `<small class="lp-quien">${esc(pila(h.hecho_nombre))} · ${horaDe(h.hecho_en)}</small>` : ''}</span></${ed ? 'button' : 'div'}>`; }).join('')}</div></details>`;
   };
   const cuerpo = () => {
-    const hechas = LIMPIEZA.reduce((s, [k, , it]) => s + it.filter((_, j) => M[limpClave(k, j)]).length, 0), pc = Math.round(hechas / LIMP_TOTAL * 100);
+    const { hechas } = cuentaLimpieza(M), pc = Math.round(hechas / LIMP_TOTAL * 100);
     return `<div class="tarjeta lp-res"><div class="lp-fila"><span class="num">${hechas}<small> de ${LIMP_TOTAL} hechas</small></span><b>${pc} %</b></div><div class="lp-barra ${hechas === LIMP_TOTAL ? 'ok' : ''}"><i style="width:${pc}%"></i></div></div>
       <div class="lp-sec">Tareas específicas</div>${LIMPIEZA.map((c) => cajon(c)).join('')}
       <div class="lp-sec">Detalles superlimpieza</div>${cajon(LIMPIEZA_SUPER, true)}`;
   };
-  const otroDia = dia !== hoy;
-  // Días de limpieza del mes (todos los viernes, salvo cambios). Sin la 038, la lista sale todos los días como antes.
-  let tarjetaDias = '', tocaHoy = true, proxima = null;
-  if (!otroDia && C) {
-    const { dias } = diasLimpieza(mesHoy, C), N = {};
-    delMes.forEach((c) => { if (!c.tarea.startsWith('super')) N[c.fecha] = (N[c.fecha] || 0) + 1; });
-    tocaHoy = dias.some((x) => x.fecha === hoy) || checks.length > 0;
-    const sig = mesDe(new Date(aFecha(mesHoy).getFullYear(), aFecha(mesHoy).getMonth() + 1, 1));
-    proxima = [...dias, ...diasLimpieza(sig, C).dias].find((x) => x.fecha > hoy) || null;
+  // Tarjeta con los días de limpieza del mes: cada día abre su lista
+  let tarjetaDias = '';
+  if (C) {
     const chip = (x) => { const n = N[x.fecha] || 0, fd = aFecha(x.fecha);
-      const [cls, txt] = x.fecha === hoy ? ['hoy', 'Hoy'] : n >= LIMP_TOTAL ? ['hecha', 'Hecha'] : n ? ['hecha', 'A medias'] : x.fecha < hoy ? ['nohecha', 'No se hizo'] : x.tipo === 'cambiado' ? ['mov', 'Cambiado'] : x.tipo === 'extra' ? ['mov', 'Extra'] : ['', '&nbsp;'];
-      return `<span class="dl-chip ${cls}"><small>${diaCorto(x.fecha)}</small><b>${fd.getDate()}</b><i>${txt}</i></span>`; };
-    tarjetaDias = `<a class="tarjeta dl-card" href="#/limpieza?t=dias"><span class="dl-cab"><b>Días de limpieza · ${aFecha(mesHoy).toLocaleDateString('es-ES', { month: 'long' })}</b><span class="dl-link">${puedeEditar('limpieza') ? 'Cambiar días' : 'Ver días'} ${ico('sig', 14)}</span></span>
-      <span class="dl-chips" style="grid-template-columns:repeat(${Math.min(Math.max(dias.length, 1), 5)},minmax(0,1fr))">${dias.map(chip).join('') || '<small>Este mes no hay días de limpieza.</small>'}</span></a>`;
+      const [cls, txt] = I[x.fecha] ? ['hecha', n >= LIMP_TOTAL ? 'Hecha' : 'Enviada'] : n >= LIMP_TOTAL ? ['hecha', 'Hecha'] : x.fecha === hoy ? ['hoy', 'Hoy'] : x.fecha < hoy ? ['nohecha', n ? 'A medias' : 'Sin terminar'] : x.tipo === 'cambiado' ? ['mov', 'Cambiado'] : x.tipo === 'extra' ? ['mov', 'Extra'] : ['', '&nbsp;'];
+      return `<a class="dl-chip ${cls} ${x.fecha === dia ? 'sel' : ''}" href="#/limpieza?dia=${x.fecha}"><small>${diaCorto(x.fecha)}</small><b>${fd.getDate()}</b><i>${txt}</i></a>`; };
+    tarjetaDias = `<div class="tarjeta dl-card"><span class="dl-cab"><b>Días de limpieza · ${aFecha(mesBase).toLocaleDateString('es-ES', { month: 'long' })}</b><a class="dl-link" href="#/limpieza?t=dias&mes=${mesBase.slice(0, 7)}">${puedeEditar('limpieza') ? 'Cambiar días' : 'Ver días'} ${ico('sig', 14)}</a></span>
+      <span class="dl-chips" style="grid-template-columns:repeat(${Math.min(Math.max(diasMes.length, 1), 5)},minmax(0,1fr))">${diasMes.map(chip).join('') || '<small>Este mes no hay días de limpieza.</small>'}</span></div>`;
   }
-  const noToca = !otroDia && !tocaHoy;
-  pintar(cabecera('Limpieza', { volver: otroDia ? '#/limpieza?t=hist&mes=' + dia.slice(0, 7) : '#/inicio', sub: capital(fechaLarga(dia)) + (otroDia ? ' · solo mirar' : '') }) + `<main class="cont">
-    ${otroDia ? '' : tabsLimpieza('lista', agot)}
+  const estado = inf ? `<small class="ok">Informe enviado por ${esc(pila(inf.terminado_nombre))} el ${aFecha(inf.terminado_en.slice(0, 10)).getDate()}/${aFecha(inf.terminado_en.slice(0, 10)).getMonth() + 1} a las ${horaDe(inf.terminado_en)}.</small>`
+    : !esLimp ? '<small>Este día no hay limpieza.</small>' : futuro ? '<small>Esta lista se podrá marcar ese día.</small>'
+    : dia === hoy ? '<small>Hoy toca limpieza.</small>' : '<small class="no">Se quedó sin terminar. Se puede marcar ahora.</small>';
+  pintar(cabecera('Limpieza', { volver: '#/inicio', sub: capital(fechaLarga(hoy)) }) + `<main class="cont">
+    ${tabsLimpieza('lista', agot)}
     ${tarjetaDias}
-    ${noToca ? `<div class="dl-aviso"><span class="ic">${ico('clases', 22)}</span><span><b>Hoy no toca limpieza</b><small>${proxima ? `La próxima es el ${diaLargo(proxima.fecha)}.` : 'No hay ninguna limpieza próxima.'}</small></span></div>
-      ${ed && proxima ? `<button class="btn sec ancho" id="dl-hoy">Hacer la limpieza hoy</button><p class="nota-lp">Si se adelanta, la del ${diaLargo(proxima.fecha)} pasa a hoy.</p>` : ''}` : ''}
-    <div id="lp-cuerpo" class="lp-cuerpo" ${noToca ? 'hidden' : ''}>${noToca ? '' : cuerpo()}</div>
-    ${otroDia ? '' : `<button class="btn sec ancho" data-ir="#/limpieza?t=hist">${ico('reloj')} Historial de días anteriores</button>`}
-    ${otroDia ? '' : '<p class="nota-lp">Cada día empieza una lista nueva.</p>'}
+    <div class="dl-tit">Lista del ${diaLargo(dia)}${estado}</div>
+    <div id="lp-cuerpo" class="lp-cuerpo">${esLimp ? cuerpo() : ''}</div>
+    ${ed ? `<button class="btn pri ancho" id="lp-terminar">${ico('check')} ${inf ? 'Volver a enviar el informe' : 'Terminar limpieza y enviar informe'}</button><p class="nota-lp">Les llega un aviso con el informe a Raúl y a Adela.</p>` : ''}
+    ${inf || checks.length ? `<button class="btn sec ancho" data-ir="#/limpieza?t=informe&dia=${dia}">${ico('doc')} Ver informe</button>` : ''}
+    <button class="btn sec ancho" data-ir="#/limpieza?t=hist">${ico('reloj')} Historial de días anteriores</button>
   </main>`, 'inicio');
   const caja = document.getElementById('lp-cuerpo');
   caja.addEventListener('toggle', (ev) => { const d = ev.target; if (d.dataset && d.dataset.c) { if (d.open) abiertos.add(d.dataset.c); else abiertos.delete(d.dataset.c); } }, true);
-  const bh = document.getElementById('dl-hoy');
-  if (bh) bh.onclick = async () => {
-    bh.disabled = true;
+  if (!ed) return;
+  const bt = document.getElementById('lp-terminar');
+  bt.onclick = async () => {
+    const r = cuentaLimpieza(M);
+    if (!confirm(`¿Terminar la limpieza del ${diaLargo(dia)}?\n\n${r.hechas} hechas · ${LIMP_TOTAL - r.hechas} sin hacer.\nA Raúl y a Adela les llegará el informe.`)) return;
+    bt.disabled = true;
     try {
-      if (proxima.c) await q(sb.from('limpieza_cambios').update({ nueva: hoy }).eq('id', proxima.c.id));
-      else await q(sb.from('limpieza_cambios').insert({ viernes: proxima.viernes, nueva: hoy }));
-      VISTAS.clear(); aviso('La limpieza se hace hoy'); router();
-    } catch (e) { aviso(traducirError(e), true); bh.disabled = false; }
+      const { data, error } = await sb.rpc('terminar_limpieza', { p_fecha: dia, p_hechas: r.hechas, p_total: LIMP_TOTAL, p_resumen: r.texto });
+      if (error) throw /terminar_limpieza|PGRST202|42883/.test(error.message + error.code) ? new Error('Falta pegar el paso 039 en Supabase para enviar el informe.') : error;
+      VISTAS.clear(); aviso(data ? 'Informe enviado' : 'Informe guardado'); const h = `#/limpieza?dia=${dia}`; if (location.hash === h) router(); else location.hash = h;
+    } catch (e) { aviso(e.message && /039/.test(e.message) ? e.message : traducirError(e), true); bt.disabled = false; }
   };
-  if (!ed || noToca) return;
   let ocupada = false;
   caja.addEventListener('click', async (ev) => {
     const b = ev.target.closest('.lp-it[data-k]'); if (!b || ocupada) return;
@@ -4816,6 +4841,47 @@ async function pantallaLimpieza(params) {
     } catch (e) { aviso(traducirError(e), true); }
     ocupada = false;
   });
+}
+
+// Informe de un día (se abre desde el aviso): tareas realizadas con su hora y no realizadas; se puede guardar en PDF
+async function pantallaLimpiezaInforme(params) {
+  const dia = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : hoyISO();
+  let checks, inf;
+  try {
+    [checks, inf] = await Promise.all([
+      q(sb.from('limpieza_checks').select('tarea,hecho_nombre,hecho_en').eq('fecha', dia).order('hecho_en')),
+      sb.from('limpieza_informes').select('*').eq('fecha', dia).maybeSingle().then(({ data }) => data || null)
+    ]);
+  } catch (e) { return pintar(cabecera('Informe de limpieza', { volver: '#/limpieza' }) + `<main class="cont">${vacio(traducirError(e))}</main>`, 'inicio'); }
+  const html = htmlInformeLimpieza(dia, checks, inf);
+  pintar(cabecera('Informe de limpieza', { volver: `#/limpieza?dia=${dia}`, sub: capital(diaLargo(dia)) }) + `<main class="cont">
+    <div class="tarjeta inf-hoja">${html}</div>
+    <button class="btn pri ancho" id="inf-pdf">${ico('bajar')} Descargar PDF</button>
+    <button class="btn sec ancho" data-ir="#/limpieza?dia=${dia}">Abrir la lista de ese día</button>
+  </main>`, 'inicio');
+  document.getElementById('inf-pdf').onclick = () => {
+    const div = document.createElement('div'); div.id = 'impresion'; div.className = 'inf-print'; div.innerHTML = html;
+    document.getElementById('impresion')?.remove(); document.body.appendChild(div);
+    const titulo = document.title; document.title = `Informe de limpieza ${dia}`;
+    const fin = () => { document.title = titulo; div.remove(); window.removeEventListener('afterprint', fin); };
+    window.addEventListener('afterprint', fin);
+    const img = div.querySelector('img'), ir = () => setTimeout(() => window.print(), 50);
+    img.complete ? ir() : (img.onload = img.onerror = ir);
+  };
+}
+function htmlInformeLimpieza(dia, checks, inf) {
+  const M = {}; checks.forEach((c) => { M[c.tarea] = c; });
+  const { hechas } = cuentaLimpieza(M), quien = inf ? pila(inf.terminado_nombre) : [...new Set(checks.map((c) => pila(c.hecho_nombre)))].join(', ');
+  const franja = checks.length ? ` · ${horaDe(checks[0].hecho_en)} a ${horaDe(checks[checks.length - 1].hecho_en)}` : '';
+  const anio = aFecha(dia).getFullYear();
+  const bloque = (ok) => LIMPIEZA.map(([k, nom, it]) => { const l = it.map((txt, j) => [txt, M[limpClave(k, j)]]).filter((x) => !!x[1] === ok);
+    return l.length ? `<div class="inf-ap">${nom}</div>` + l.map(([txt, h]) => `<div class="inf-t ${ok ? 'ok' : 'no'}"><i>${ok ? '✓' : ''}</i><span>${esc(txt)}</span>${h ? `<small>${horaDe(h.hecho_en)}</small>` : ''}</div>`).join('') : ''; }).join('');
+  const sup = LIMPIEZA_SUPER[2].filter((_, j) => M[limpClave('super', j)]);
+  return `<div class="inf-top"><img src="icons/logo.png" alt=""><div><small>Academia Blackstars</small><h2>Informe de limpieza</h2><div class="inf-f">${capital(diaLargo(dia))} de ${anio}${quien ? ' · realizada por ' + esc(quien) : ''}${franja}</div></div></div>
+    <div class="inf-res"><div><b class="v">${hechas}</b><span>Realizadas</span></div><div><b class="r">${LIMP_TOTAL - hechas}</b><span>No realizadas</span></div><div><b class="m">${Math.round(hechas / LIMP_TOTAL * 100)} %</b><span>Completado</span></div></div>
+    ${hechas ? `<h3 class="inf-h ok">✓ Tareas realizadas</h3>${bloque(true)}` : ''}
+    ${hechas < LIMP_TOTAL ? `<h3 class="inf-h no">Tareas no realizadas · pendientes para la próxima</h3>${bloque(false)}` : ''}
+    <div class="inf-pie">Superlimpieza (extra): ${sup.length} de ${LIMPIEZA_SUPER[2].length}${sup.length ? ' · ' + sup.map(esc).join(' · ') : ''}${inf ? ` · Terminada el ${new Date(inf.terminado_en).toLocaleDateString('es-ES')} a las ${horaDe(inf.terminado_en)}` : ' · Todavía no se ha pulsado Terminar'}</div>`;
 }
 
 async function pantallaLimpiezaHistorial(params) {
