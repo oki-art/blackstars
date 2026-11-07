@@ -4737,6 +4737,8 @@ function cuentaLimpieza(M) {
   const faltan = LIMPIEZA.map(([k, nom, it]) => [nom, it.filter((_, j) => !M[limpClave(k, j)]).length]).filter((x) => x[1]);
   return { hechas, faltan, texto: `${hechas} de ${LIMP_TOTAL} hechas` + (faltan.length ? ' · Faltan: ' + faltan.map((x) => `${x[0]} (${x[1]})`).join(', ') : ' · Todo hecho') };
 }
+// El informe solo lo ven la administración y quien ve Limpieza sin marcarla (Adela); quien limpia (María) no sabe que existe
+const veInformeLimp = () => S.admin || (puedeVer('limpieza') && !puedeEditar('limpieza'));
 const primeroMes = (iso, n = 0) => { const d = aFecha(iso.slice(0, 8) + '01'); d.setMonth(d.getMonth() + n); return isoDe(d); };
 
 async function pantallaLimpieza(params) {
@@ -4746,7 +4748,7 @@ async function pantallaLimpieza(params) {
   if (t === 'hist') return pantallaLimpiezaHistorial(params);
   if (t === 'dias') return pantallaLimpiezaDias(params);
   if (t === 'cambiar') return pantallaLimpiezaCambiar(params);
-  if (t === 'informe') return pantallaLimpiezaInforme(params);
+  if (t === 'informe') return veInformeLimp() ? pantallaLimpiezaInforme(params) : sinPermiso();
   const hoy = hoyISO(), pedido = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : null;
   const mesBase = primeroMes(pedido || hoy), antMes = primeroMes(mesBase, -1), sigMes = primeroMes(mesBase, 1), finRango = primeroMes(mesBase, 2);
   let agot, C, enRango, INF;
@@ -4799,12 +4801,12 @@ async function pantallaLimpieza(params) {
   let tarjetaDias = '';
   if (C) {
     const chip = (x) => { const n = N[x.fecha] || 0, fd = aFecha(x.fecha);
-      const [cls, txt] = I[x.fecha] ? ['hecha', n >= LIMP_TOTAL ? 'Hecha' : 'Enviada'] : n >= LIMP_TOTAL ? ['hecha', 'Hecha'] : x.fecha === hoy ? ['hoy', 'Hoy'] : x.fecha < hoy ? ['nohecha', n ? 'A medias' : 'Sin terminar'] : x.tipo === 'cambiado' ? ['mov', 'Cambiado'] : x.tipo === 'extra' ? ['mov', 'Extra'] : ['', '&nbsp;'];
+      const [cls, txt] = I[x.fecha] ? ['hecha', n >= LIMP_TOTAL ? 'Hecha' : 'Terminada'] : n >= LIMP_TOTAL ? ['hecha', 'Hecha'] : x.fecha === hoy ? ['hoy', 'Hoy'] : x.fecha < hoy ? ['nohecha', n ? 'A medias' : 'Sin terminar'] : x.tipo === 'cambiado' ? ['mov', 'Cambiado'] : x.tipo === 'extra' ? ['mov', 'Extra'] : ['', '&nbsp;'];
       return `<a class="dl-chip ${cls} ${x.fecha === dia ? 'sel' : ''}" href="#/limpieza?dia=${x.fecha}"><small>${diaCorto(x.fecha)}</small><b>${fd.getDate()}</b><i>${txt}</i></a>`; };
     tarjetaDias = `<div class="tarjeta dl-card"><span class="dl-cab"><b>Días de limpieza · ${aFecha(mesBase).toLocaleDateString('es-ES', { month: 'long' })}</b><a class="dl-link" href="#/limpieza?t=dias&mes=${mesBase.slice(0, 7)}">${puedeEditar('limpieza') ? 'Cambiar días' : 'Ver días'} ${ico('sig', 14)}</a></span>
       <span class="dl-chips" style="grid-template-columns:repeat(${Math.min(Math.max(diasMes.length, 1), 5)},minmax(0,1fr))">${diasMes.map(chip).join('') || '<small>Este mes no hay días de limpieza.</small>'}</span></div>`;
   }
-  const estado = inf ? `<small class="ok">Informe enviado por ${esc(pila(inf.terminado_nombre))} el ${aFecha(inf.terminado_en.slice(0, 10)).getDate()}/${aFecha(inf.terminado_en.slice(0, 10)).getMonth() + 1} a las ${horaDe(inf.terminado_en)}.</small>`
+  const estado = inf ? `<small class="ok">Terminada por ${esc(pila(inf.terminado_nombre))} el ${aFecha(inf.terminado_en.slice(0, 10)).getDate()}/${aFecha(inf.terminado_en.slice(0, 10)).getMonth() + 1} a las ${horaDe(inf.terminado_en)}.</small>`
     : !esLimp ? '<small>Este día no hay limpieza.</small>' : futuro ? '<small>Esta lista se podrá marcar ese día.</small>'
     : dia === hoy ? '<small>Hoy toca limpieza.</small>' : '<small class="no">Se quedó sin terminar. Se puede marcar ahora.</small>';
   pintar(cabecera('Limpieza', { volver: '#/inicio', sub: capital(fechaLarga(hoy)) }) + `<main class="cont">
@@ -4812,22 +4814,22 @@ async function pantallaLimpieza(params) {
     ${tarjetaDias}
     <div class="dl-tit">Lista del ${diaLargo(dia)}${estado}</div>
     <div id="lp-cuerpo" class="lp-cuerpo">${esLimp ? cuerpo() : ''}</div>
-    ${ed ? `<button class="btn pri ancho" id="lp-terminar">${ico('check')} ${inf ? 'Volver a enviar el informe' : 'Terminar limpieza y enviar informe'}</button><p class="nota-lp">Les llega un aviso con el informe a Raúl y a Adela.</p>` : ''}
-    ${inf || checks.length ? `<button class="btn sec ancho" data-ir="#/limpieza?t=informe&dia=${dia}">${ico('doc')} Ver informe</button>` : ''}
+    ${ed && !inf ? `<button class="btn pri ancho" id="lp-terminar">${ico('check')} Terminar limpieza</button>` : ''}
+    ${veInformeLimp() && (inf || checks.length) ? `<button class="btn sec ancho" data-ir="#/limpieza?t=informe&dia=${dia}">${ico('doc')} Ver informe</button>` : ''}
     <button class="btn sec ancho" data-ir="#/limpieza?t=hist">${ico('reloj')} Historial de días anteriores</button>
   </main>`, 'inicio');
   const caja = document.getElementById('lp-cuerpo');
   caja.addEventListener('toggle', (ev) => { const d = ev.target; if (d.dataset && d.dataset.c) { if (d.open) abiertos.add(d.dataset.c); else abiertos.delete(d.dataset.c); } }, true);
   if (!ed) return;
   const bt = document.getElementById('lp-terminar');
-  bt.onclick = async () => {
+  if (bt) bt.onclick = async () => {
     const r = cuentaLimpieza(M);
-    if (!confirm(`¿Terminar la limpieza del ${diaLargo(dia)}?\n\n${r.hechas} hechas · ${LIMP_TOTAL - r.hechas} sin hacer.\nA Raúl y a Adela les llegará el informe.`)) return;
+    if (!confirm(`¿Terminar la limpieza del ${diaLargo(dia)}?\n\n${r.hechas} hechas · ${LIMP_TOTAL - r.hechas} sin hacer.`)) return;
     bt.disabled = true;
     try {
       const { data, error } = await sb.rpc('terminar_limpieza', { p_fecha: dia, p_hechas: r.hechas, p_total: LIMP_TOTAL, p_resumen: r.texto });
-      if (error) throw /terminar_limpieza|PGRST202|42883/.test(error.message + error.code) ? new Error('Falta pegar el paso 039 en Supabase para enviar el informe.') : error;
-      VISTAS.clear(); aviso(data ? 'Informe enviado' : 'Informe guardado'); const h = `#/limpieza?dia=${dia}`; if (location.hash === h) router(); else location.hash = h;
+      if (error) throw /terminar_limpieza|PGRST202|42883/.test(error.message + error.code) ? new Error('Falta un paso en Supabase (039). Avisa a la administración.') : error;
+      VISTAS.clear(); aviso('Limpieza terminada'); const h = `#/limpieza?dia=${dia}`; if (location.hash === h) router(); else location.hash = h;
     } catch (e) { aviso(e.message && /039/.test(e.message) ? e.message : traducirError(e), true); bt.disabled = false; }
   };
   let ocupada = false;
