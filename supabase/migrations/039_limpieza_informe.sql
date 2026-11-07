@@ -1,5 +1,6 @@
 -- 039 · Informe de limpieza: cuando María pulsa "Terminar limpieza", se guarda el informe del día
--- y les llega un aviso (campana y notificación del móvil) a la administración y a quien vea Limpieza (Adela).
+-- y les llega un aviso (campana y notificación del móvil) a la administración y a quien vea Limpieza sin marcarla (Adela).
+-- Quien marca la limpieza (María) no recibe el aviso ni ve el informe.
 -- Solo se añade una tabla y una función. Además deshace el cambio de prueba del 7-nov (viernes 13 → sábado 7).
 
 create table if not exists public.limpieza_informes (
@@ -33,7 +34,7 @@ begin
   select p.id, 'aviso', left(v_titulo, 200), left(coalesce(p_resumen, ''), 4000), '#/limpieza?t=informe&dia=' || p_fecha, auth.uid()
   from public.perfiles p
   where p.activo and p.id <> auth.uid() and p.borrado_en is null
-    and (p.rol = 'admin' or exists (select 1 from public.permisos pe where pe.perfil_id = p.id and pe.modulo = 'limpieza' and pe.puede_ver));
+    and (p.rol = 'admin' or exists (select 1 from public.permisos pe where pe.perfil_id = p.id and pe.modulo = 'limpieza' and pe.puede_ver and not pe.puede_escribir));
   get diagnostics v_n = row_count;
   return v_n;
 end $$;
