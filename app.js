@@ -49,7 +49,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)'], ['limpieza_informe', 'Limpieza: recibir el informe']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -594,14 +594,14 @@ async function salirVerComo() {
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
 // Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable, o recepción con la caja abierta) o Equipo
 const papel = (per) => esProfesora(per) ? 'Profesora'
-  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
+  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
   : per.caja && per.caja.puede_escribir ? 'Gestión' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
   caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
   // Documentos, Pilates, Contabilidad y Limpieza no van en ninguna plantilla: solo los da la administración a mano
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza'].includes(m)).map(([m]) => [m, 2])) }
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe'].includes(m)).map(([m]) => [m, 2])) }
 };
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
@@ -4737,18 +4737,18 @@ function cuentaLimpieza(M) {
   const faltan = LIMPIEZA.map(([k, nom, it]) => [nom, it.filter((_, j) => !M[limpClave(k, j)]).length]).filter((x) => x[1]);
   return { hechas, faltan, texto: `${hechas} de ${LIMP_TOTAL} hechas` + (faltan.length ? ' · Faltan: ' + faltan.map((x) => `${x[0]} (${x[1]})`).join(', ') : ' · Todo hecho') };
 }
-// El informe solo lo ven la administración y quien ve Limpieza sin marcarla (Adela); quien limpia (María) no sabe que existe
-const veInformeLimp = () => S.admin || (puedeVer('limpieza') && !puedeEditar('limpieza'));
+// El informe solo lo ven la administración y quien tenga el permiso "Limpieza: recibir el informe" (Adela); quien limpia (María) no sabe que existe
+const veInformeLimp = () => S.admin || puedeVer('limpieza_informe');
 const primeroMes = (iso, n = 0) => { const d = aFecha(iso.slice(0, 8) + '01'); d.setMonth(d.getMonth() + n); return isoDe(d); };
 
 async function pantallaLimpieza(params) {
-  if (!puedeVer('limpieza')) return sinPermiso();
   const t = params.get('t') || 'lista';
+  if (t === 'informe') return veInformeLimp() ? pantallaLimpiezaInforme(params) : sinPermiso();
+  if (!puedeVer('limpieza')) return sinPermiso();
   if (t === 'inv') return pantallaLimpiezaInventario();
   if (t === 'hist') return pantallaLimpiezaHistorial(params);
   if (t === 'dias') return pantallaLimpiezaDias(params);
   if (t === 'cambiar') return pantallaLimpiezaCambiar(params);
-  if (t === 'informe') return veInformeLimp() ? pantallaLimpiezaInforme(params) : sinPermiso();
   const hoy = hoyISO(), pedido = /^\d{4}-\d{2}-\d{2}$/.test(params.get('dia') || '') ? params.get('dia') : null;
   const mesBase = primeroMes(pedido || hoy), antMes = primeroMes(mesBase, -1), sigMes = primeroMes(mesBase, 1), finRango = primeroMes(mesBase, 2);
   let agot, C, enRango, INF;
