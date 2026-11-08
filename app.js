@@ -8,7 +8,7 @@ let VER_COMO = null;
 try { VER_COMO = JSON.parse(localStorage.getItem('bs-ver-como') || 'null'); } catch (e) { /* sin almacenamiento */ }
 const guardarVerComo = (vc) => { VER_COMO = vc; try { if (vc) localStorage.setItem('bs-ver-como', JSON.stringify(vc)); else localStorage.removeItem('bs-ver-como'); } catch (e) { /* sin almacenamiento */ } };
 // Lo único que se deja pasar mientras tanto, además de leer: la sesión, abrir documentos y consultas que no cambian nada
-const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates|objetivo_codigo)/;
+const VER_COMO_PASA = /\/auth\/v1\/(token|verify|logout\?scope=local)|\/storage\/v1\/object\/sign\/|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|escuela_registro_publico|mi_profesora|nombres_evento|es_caja_pilates|objetivo_codigo)/;
 
 // Medidor de velocidad: se apunta cuánto tarda cada consulta a Supabase (Más › Velocidad, solo admin)
 const TIEMPOS = [], PANTALLAS = [];   // consultas sueltas y pantallas completas (desde el toque hasta que se ve)
@@ -17,7 +17,7 @@ const medirFetch = async (url, opts) => {
   if (VER_COMO && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !VER_COMO_PASA.test(String(url)))
     return new Response(JSON.stringify({ message: `Estás viendo la app como ${VER_COMO.nombre}: solo para mirar, no se puede cambiar nada.` }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   // Si se cambia algo (guardar, cobrar, borrar), las vistas guardadas ya no valen
-  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|mi_profesora|nombres_evento|es_caja_pilates|objetivo_codigo)/.test(String(url))) VISTAS.clear();
+  if (opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method) && !/\/auth\/v1\/token|rpc\/(destinatarias|equipo_sin_ficha|formulario_publico|escuela_registro_publico|mi_profesora|nombres_evento|es_caja_pilates|objetivo_codigo)/.test(String(url))) VISTAS.clear();
   // Ninguna consulta se queda esperando sin fin: a los 20 s se corta y sale "La conexión va muy lenta" (las subidas de archivos, no)
   const subida = /\/storage\/v1\/object\/(?!sign\/)/.test(String(url)) && opts && opts.method && !/^(GET|HEAD)$/i.test(opts.method);
   const corte = subida ? null : new AbortController(), reloj = corte && setTimeout(() => corte.abort(), 20000);
@@ -4002,6 +4002,18 @@ function mensajeBienvenida(c, nombre, quedan) {
     + `⏳ Solo para las *${c.plazas} primeras inscripciones*${quedan < c.plazas ? `… ¡y ya ${quedan === 1 ? 'queda *1*' : `quedan *${quedan}*`}!` : '.'}\n\n`
     + `No lo dejes para mañana: la mejor versión de ti empieza bailando 💜\n¡Nos vemos en la pista!`;
 }
+// Mensaje aprobado por Raúl (2026-11-08) para las que se apuntan desde el enlace de Instagram (migración 040)
+function mensajeInformacion(c, nombre, quedan) {
+  const pila = String(nombre || '').trim().split(/\s+/)[0];
+  const yo = S.perfil ? String(S.perfil.nombre || '').trim().split(/\s+/)[0] : '';
+  return `¡Hola${pila ? ' ' + pila : ''}! ${yo ? `Soy ${yo}, de` : 'Somos'} la Academia Blackstars ⭐\n\n`
+    + `Gracias por apuntarte a *${c.clase || 'nuestra clase'}${c.profesora ? ' con ' + c.profesora : ''}* 💃\n\n`
+    + `Estamos formando un *grupo nuevo* y las plazas son pocas. Es una clase divertida donde aprendes a bailar ritmos latinos y disfrutas de un ambiente distinguido y entretenido mientras haces deporte.\n\n`
+    + (quedan > 0 ? `🎁 Las primeras inscripciones que se formalicen tendrán *${eur(c.euros)} de descuento en su primera cuota* con el código *${c.codigo}*.\n\n` : '')
+    + `Si tienes cualquier duda, escríbeme por aquí y te cuento.\n\n`
+    + `✨ _Tu cuerpo ya sabe bailar. Solo falta que lo dejes salir._ ✨\n¡Nos vemos en la pista! 💜`;
+}
+const enlaceEscuela = (c) => location.origin + location.pathname + '?r=' + encodeURIComponent(c.enlace);
 function bloqueCodigoEscuela(e, cod, ed) {
   if (!cod) return '';
   const { c, ints } = cod, id = e.id;
@@ -4010,6 +4022,10 @@ function bloqueCodigoEscuela(e, cod, ed) {
   const plazas = Array.from({ length: c.plazas }, (_, n) => `<i class="${n < usadas ? 'usada' : ''}">${n < usadas ? '✓' : n + 1}</i>`).join('');
   const der = (i) => {
     if (i.inscrita_en) return `<span class="chip ok">Inscrita · −${eur(c.euros)}</span>`;
+    if (i.origen === 'instagram') {
+      const t = telWa(i.telefono), btn = t && c.activo && ed ? `<button class="obj-wa-btn" data-wa-int="${i.id}" data-wa-txt="Enviada" data-wa="https://wa.me/${t}?text=${encodeURIComponent(mensajeInformacion(c, i.nombre, quedan))}" aria-label="Enviar la información por WhatsApp a ${esc(i.nombre)}">${ico('wa', 18)} ${i.invitada_en ? 'Reenviar' : 'Enviar info'}</button>` : '';
+      return `<span class="obj-der">${i.invitada_en ? '<span class="chip mor">Enviada</span>' : '<span class="chip gris">Pendiente</span>'}${btn}</span>`;
+    }
     const t = telWa(i.telefono), btn = t && quedan > 0 && c.activo && ed ? `<button class="obj-wa-btn" data-wa-int="${i.id}" data-wa="https://wa.me/${t}?text=${encodeURIComponent(mensajeBienvenida(c, i.nombre, quedan))}" aria-label="Invitar por WhatsApp a ${esc(i.nombre)}">${ico('wa', 18)} Invitar</button>` : '';
     return `<span class="obj-der">${i.invitada_en ? '<span class="chip mor">Invitada</span>' : '<span class="chip gris">Pendiente</span>'}${btn}</span>`;
   };
@@ -4021,18 +4037,23 @@ function bloqueCodigoEscuela(e, cod, ed) {
       <div class="plazas" aria-hidden="true">${plazas}</div>
       <div class="plazas-txt">${quedan ? `Quedan ${quedan} de ${c.plazas} plazas con descuento` : `¡Agotado! Las ${c.plazas} plazas con descuento ya están cogidas`}</div>
       ${ed ? `<a class="btn sec" href="#/escuela/${id}/codigo">${ico('lapiz', 18)} Cambiar código</a>` : ''}</div>
+    ${c.enlace && ed ? `<div class="seccion">Enlace para Instagram</div><div class="tarjeta ig-enlace"><b>${ico('form', 18)} Enlace para la historia de Instagram</b>
+      <p>Ponlo con la pegatina «Enlace». Quien lo toque deja su nombre y su teléfono, ve la información y aparece aquí abajo con la etiqueta Instagram.</p>
+      <div class="ig-url">${esc(enlaceEscuela(c))}</div>
+      <div class="ig-bot"><button class="btn pri" type="button" data-copiar="${esc(enlaceEscuela(c))}">${ico('copiar', 18)} Copiar enlace</button><a class="btn sec" href="${esc(enlaceEscuela(c))}" target="_blank" rel="noopener">Ver la página</a></div></div>` : ''}
     <div class="seccion">Interesadas (${ints.length})</div>
-    <div class="lista">${ints.map((i) => fila({ href: ed ? `#/escuela/${id}/interesada/${i.id}` : `#/escuela/${id}`, tit: i.nombre, det: esc([i.telefono, i.nota].filter(Boolean).join(' · ')), der: der(i) })).join('') || vacio('Aún no hay interesadas.')}</div>
+    <div class="lista">${ints.map((i) => fila({ href: ed ? `#/escuela/${id}/interesada/${i.id}` : `#/escuela/${id}`, tit: i.nombre, det: (i.origen === 'instagram' ? '<span class="chip ig">Instagram</span> ' : '') + esc([i.telefono, i.nota].filter(Boolean).join(' · ')), der: der(i) })).join('') || vacio('Aún no hay interesadas.')}</div>
     ${ed ? `<a class="btn sec" href="#/escuela/${id}/interesada/nueva">${ico('mas')} Añadir interesada</a>
-      <div class="ayuda" style="font-size:13px;color:var(--texto2)">Al tocar «Invitar» se abre WhatsApp con el mensaje ya escrito. Cuando se apunte, entra en su nombre y márcala como inscrita: se gasta una plaza.</div>` : ''}`;
+      <div class="ayuda" style="font-size:13px;color:var(--texto2)">Al tocar «Invitar» o «Enviar info» se abre WhatsApp con el mensaje ya escrito. Cuando se apunte, entra en su nombre y márcala como inscrita: se gasta una plaza.</div>` : ''}`;
 }
 function activarCodigoEscuela() {
   $app.querySelectorAll('[data-wa-int]').forEach((b) => b.onclick = (ev) => {
     ev.preventDefault(); ev.stopPropagation();
     window.open(b.dataset.wa, '_blank', 'noopener');
     sb.from('escuela_interesadas').update({ invitada_en: new Date().toISOString() }).eq('id', b.dataset.waInt).is('invitada_en', null).then(() => {});
-    const chip = b.parentNode.querySelector('.chip.gris'); if (chip) { chip.className = 'chip mor'; chip.textContent = 'Invitada'; }
+    const chip = b.parentNode.querySelector('.chip.gris'); if (chip) { chip.className = 'chip mor'; chip.textContent = b.dataset.waTxt || 'Invitada'; }
   });
+  $app.querySelectorAll('.ig-enlace [data-copiar]').forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copiar); aviso('Enlace copiado: pégalo en la pegatina de Instagram'); } catch (er) { prompt('Copia el enlace:', b.dataset.copiar); } });
 }
 async function formCodigoEscuela(id) {
   if (!puedeEditar('escuelas_amigas')) return sinPermiso();
@@ -4232,6 +4253,44 @@ async function formularioPublico(slug) {
     const { error: er } = await sb.rpc('enviar_respuesta', { p_slug: slug, p_datos: datos, p_acepta: form.acepta.checked });
     if (er) { aviso(traducirError(er), true); btn.disabled = false; btn.textContent = 'Enviar'; return; }
     $app.innerHTML = marco(`<div class="tarjeta" style="text-align:center;padding:30px 20px"><div style="font-size:40px">⭐</div><h2 style="margin-top:8px">¡Gracias!</h2><p style="color:var(--texto2)">Hemos recibido tus datos. La academia se pondrá en contacto contigo.</p></div>`);
+  };
+}
+
+/* Enlace de la historia de Instagram (sin cuenta): index.html?r=ritmo-latino  (migración 040)
+   La chica deja nombre y teléfono, acepta la privacidad y ve la información. Le llega un aviso a quien ve Escuelas amigas. */
+async function registroEscuela(enlace) {
+  $app.innerHTML = '<div class="cargando">Cargando…</div>';
+  const { data, error } = await sb.rpc('escuela_registro_publico', { p_enlace: enlace });
+  const c = data && data[0];
+  const marco = (cuerpo) => `<main class="cont ig-pag"><img class="ig-logo" src="icons/logo.png" alt="Academia Blackstars">${cuerpo}</main>`;
+  if (error || !c) { $app.innerHTML = marco(`<h1>Academia Blackstars</h1>${vacio('Este enlace ya no está disponible.')}`); return; }
+  const clase = esc(c.clase || 'Nueva clase');
+  $app.innerHTML = marco(`<h1>${clase}</h1>${c.profesora ? `<div class="ig-sub">con ${esc(c.profesora)}</div>` : ''}
+    <p class="ig-intro">Déjanos tu nombre y tu teléfono y te pasamos toda la información 💜</p>
+    <form class="form tarjeta" id="frm" novalidate>
+      ${campoHtml({ k: 'nombre', label: 'Nombre', req: true })}
+      ${campoHtml({ k: 'telefono', label: 'Teléfono (WhatsApp)', tipo: 'tel', req: true })}
+      <label class="check"><input type="checkbox" name="acepta" required><span>Acepto que la Academia Blackstars guarde mi nombre y mi teléfono para enviarme por WhatsApp información de esta clase. <a href="#" id="verPriv">Aviso de privacidad</a></span></label>
+      <div class="ig-priv" id="priv" hidden>Responsable: Academia Blackstars. Finalidad: enviarte información de esta clase por WhatsApp. Tus datos no se ceden a nadie y solo los ve el equipo de la academia. Puedes pedir que los borremos en cualquier momento escribiéndonos por WhatsApp.</div>
+      <button class="btn pri ancho">Quiero la información</button></form>`);
+  const form = document.getElementById('frm');
+  document.getElementById('verPriv').onclick = (ev) => { ev.preventDefault(); document.getElementById('priv').hidden = false; };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const nombre = form.nombre.value.trim(), tel = form.telefono.value.trim();
+    if (nombre.length < 2) { aviso('Escribe tu nombre', true); form.nombre.focus(); return; }
+    if (tel.replace(/\D/g, '').length < 9) { aviso('Revisa el teléfono', true); form.telefono.focus(); return; }
+    if (!form.acepta.checked) { aviso('Marca la casilla de privacidad para continuar', true); return; }
+    const btn = form.querySelector('button'); btn.disabled = true; btn.textContent = 'Enviando…';
+    const { error: er } = await sb.rpc('escuela_apuntarse', { p_enlace: enlace, p_nombre: nombre, p_telefono: tel, p_acepta: true });
+    if (er) { aviso(traducirError(er), true); btn.disabled = false; btn.textContent = 'Quiero la información'; return; }
+    const pila = esc(nombre.split(/\s+/)[0]);
+    $app.innerHTML = marco(`<div class="ig-ok">✓</div><h1>¡Listo, ${pila}! Ya estás apuntada 💃</h1>
+      <div class="tarjeta ig-info">
+        <p>Estamos formando un <b>grupo nuevo de ${clase}${c.profesora ? ` con ${esc(c.profesora)}` : ''}</b> y hay pocas plazas.</p>
+        ${c.quedan > 0 ? `<p>🎁 Las primeras inscripciones que se formalicen tendrán <b>${eur(c.euros)} de descuento en su primera cuota</b> con el código <b>${esc(c.codigo)}</b>.</p>` : ''}
+      </div>
+      <div class="tarjeta ig-wa">📲 <b>En breve recibirás toda la información por WhatsApp.</b></div>`);
   };
 }
 
@@ -5053,6 +5112,7 @@ async function pantallaLista(params) {
 async function router() {
   const qs = new URLSearchParams(location.search);
   if (qs.get('f')) return formularioPublico(qs.get('f'));
+  if (qs.get('r')) return registroEscuela(qs.get('r'));
   S.rutaActual = location.hash;
   if (!S.usuario) return pantallaLogin();
   // Si la administración cambia los permisos, se notan al moverse por la app (sin cerrar sesión)
