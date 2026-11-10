@@ -999,3 +999,31 @@ a.dl-chip{color:inherit}
 .ig-info{margin-top:16px;line-height:1.5}.ig-info p+p{margin-top:10px}
 .ig-wa{background:#E9F8EF;border-color:#BFE8CF;text-align:center;line-height:1.45}
 #verPriv{color:var(--morado3);text-decoration:underline}
+/* Limpieza · lista diaria (lunes a jueves) */
+.lp-tabs.tres{grid-template-columns:repeat(3,1fr)}
+.dh{display:flex;flex-direction:column;gap:12px}
+.dh-cab{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.dh-cab b{font-family:'Sora',sans-serif;font-size:17px}.dh-cab small{color:var(--morado3);font-weight:700;font-size:13px}
+.dh-no{color:var(--texto2);font-size:13.5px}
+.dh-bts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dh-b{min-height:92px;border-radius:18px;border:2px dashed #CFC6EA;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-weight:700;font-size:15px;color:var(--texto);font-family:inherit;padding:8px;cursor:pointer;text-align:center}
+.dh-b .c{width:34px;height:34px;border-radius:10px;border:2px solid #CFC6EA;display:grid;place-items:center}
+.dh-b.ok{background:#EEF9F2;border:2px solid #1FA855;color:#17803F}.dh-b.ok .c{background:#1FA855;border-color:#1FA855;color:#fff}
+.dh-b small{font-size:12px;font-weight:600;color:#17803F}
+.dm-res .num{font-family:'Sora',sans-serif;font-size:26px;font-weight:700;color:var(--morado3)}.dm-res .num small{font-size:14px;color:var(--texto2);font-weight:500}
+.tabla-dia{background:#fff;border:1px solid var(--borde);border-radius:18px;box-shadow:var(--sombra);overflow:hidden}
+.tabla-dia .tf{display:grid;grid-template-columns:1fr 84px 84px;align-items:center;min-height:52px;border-bottom:1px solid var(--borde);padding:0 10px 0 14px}
+.tabla-dia .tf:last-child{border-bottom:0}
+.tabla-dia .tf.cab{min-height:40px;background:#F6F4FA;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--texto2)}
+.tabla-dia .tf.cab span{text-align:center}.tabla-dia .tf.cab span:first-child{text-align:left}
+.tabla-dia .d b{font-family:'Sora',sans-serif;font-size:15px}.tabla-dia .d small{color:var(--morado3);font-weight:700;font-size:12px;margin-left:6px}
+.tabla-dia .tf.hoy{background:#F4F0FE}
+.tabla-dia .tf.sem{display:block;min-height:0;padding:7px 14px;background:#FBFAFD;font-size:11px;font-weight:800;color:#B07A3C;letter-spacing:.1em;text-transform:uppercase}
+.ck{justify-self:center;width:40px;height:40px;border-radius:10px;border:2px solid #CFC6EA;background:#fff;display:grid;place-items:center;padding:0;font:inherit;color:inherit}
+button.ck{cursor:pointer}
+.ck.ok{background:#1FA855;border-color:#1FA855;color:#fff}
+.ck.no{border-color:#F3C9CD;background:#FFF5F5;color:var(--gasto);font-weight:800}
+.ck.fut{border-style:dashed;opacity:.5}
+.ley{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--texto2);justify-content:center}
+.ley i{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:4px}
+.ley i.v{background:#1FA855}.ley i.r{background:#FFF5F5;border:1.5px solid #F3C9CD}.ley i.p{border:1.5px dashed #CFC6EA}
