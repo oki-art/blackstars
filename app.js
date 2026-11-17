@@ -2870,6 +2870,16 @@ function etiquetasDe(temas) {
   return [...vistas.values()];
 }
 let AGENDA_ABIERTO = null;
+// Puntos a tratar: [{ t: texto, ok: hecho }]
+const puntosDe = (t) => Array.isArray(t && t.puntos) ? t.puntos.filter((x) => x && x.t) : [];
+const cuentaPuntos = (l) => `${l.filter((x) => x.ok).length} de ${l.length}`;
+const CHK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
+// Lista de puntos con casillas. borrar = muestra la × de cada punto (en Editar)
+function puntosHtml(l, { ed, borrar = false } = {}) {
+  return l.map((x, i) => `<div class="punto${x.ok ? ' ok' : ''}">${ed ? `<button type="button" class="cb" data-punto="${i}" aria-pressed="${!!x.ok}" aria-label="${x.ok ? 'Marcar como pendiente' : 'Marcar como hablado'}">${x.ok ? CHK : ''}</button>` : `<span class="cb">${x.ok ? CHK : ''}</span>`}<span class="pt-t">${esc(x.t)}</span>${borrar ? `<button type="button" class="pt-x" data-quitar="${i}" aria-label="Quitar este punto">${ico('papelera', 16)}</button>` : ''}</div>`).join('')
+    + (ed ? `<div class="pt-nuevo"><input maxlength="300" placeholder="Añadir otro punto…" data-pt-nuevo aria-label="Añadir otro punto"><button type="button" data-pt-anadir aria-label="Añadir punto">${ico('mas', 20)}</button></div>` : '');
+}
+const cabPuntos = (l) => l.length ? `<div class="pt-cab"><span>Puntos a tratar</span><span>${l.filter((x) => x.ok).length} de ${l.length} hechos</span></div><div class="pt-barra"><i style="width:${Math.round(100 * l.filter((x) => x.ok).length / l.length)}%"></i></div>` : '<div class="pt-cab"><span>Puntos a tratar</span><span></span></div>';
 async function pantallaAgenda(params) {
   if (!puedeVer('agenda')) return sinPermiso();
   const ed = puedeEditar('agenda'), hechos = params.get('t') === 'hechos', filtro = params.get('e') || '';
@@ -2879,15 +2889,16 @@ async function pantallaAgenda(params) {
   const lista = conFiltro(hechos ? hech : pend);
   const usadas = etiquetasDe(todos).filter((e) => todos.some((t) => (t.etiquetas || []).some((x) => x.toLowerCase() === e.toLowerCase())));
   const url = (o) => { const u = new URLSearchParams(); const t = 'hechos' in o ? o.hechos : hechos, e = 'e' in o ? o.e : filtro; if (t) u.set('t', 'hechos'); if (e) u.set('e', e); const s = u.toString(); return '#/agenda' + (s ? '?' + s : ''); };
-  const chipsTema = (t) => `<span class="tema-chips"><span class="chip ag-${t.tipo}">${esc((TIPOS_AGENDA.find((x) => x[0] === t.tipo) || TIPOS_AGENDA[3])[1])}</span>${t.fecha && !t.hecho ? `<span class="chip ag-fecha">${t.fecha < hoyISO() ? 'Vencido · ' : ''}${fechaAgenda(t.fecha)}</span>` : ''}${(t.etiquetas || []).map((e) => etiquetaHtml(e)).join('')}</span>`;
+  const chipsTema = (t) => `<span class="tema-chips"><span class="chip ag-${t.tipo}">${esc((TIPOS_AGENDA.find((x) => x[0] === t.tipo) || TIPOS_AGENDA[3])[1])}</span>${t.fecha && !t.hecho ? `<span class="chip ag-fecha">${t.fecha < hoyISO() ? 'Vencido · ' : ''}${fechaAgenda(t.fecha)}</span>` : ''}${(t.etiquetas || []).map((e) => etiquetaHtml(e)).join('')}${puntosDe(t).length ? `<span class="chip ag-pts" data-pts-chip>${cuentaPuntos(puntosDe(t))}</span>` : ''}</span>`;
   const quien = (t) => [t.creado_nombre ? `Apuntado por ${esc(t.creado_nombre.split(' ')[0])}` : 'Apuntado', fechaAgenda(t.creado_en.slice(0, 10))].join(' · ');
   const filaPend = (t, i) => `<div class="tema${i === 0 && !filtro ? ' primero' : ''}${AGENDA_ABIERTO === t.id ? ' abierto' : ''}" data-id="${t.id}">
     <div class="tema-cab"><button class="tema-toque" data-abrir="${t.id}" aria-expanded="${AGENDA_ABIERTO === t.id}"><span class="num">${i + 1}</span><span class="txt"><b>${esc(t.titulo)}</b>${chipsTema(t)}</span></button>
       ${ed ? `<span class="fl"><button data-sube="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Subir">${ico('arriba', 20)}</button><button data-baja="${i}" ${i === lista.length - 1 ? 'disabled' : ''} aria-label="Bajar">${ico('abajo', 20)}</button></span>` : ''}</div>
-    <div class="tema-cuerpo">${t.descripcion ? `<p class="desc">${conFormato(t.descripcion)}</p>` : '<p class="desc vacia">Sin descripción.</p>'}<div class="meta">${quien(t)}</div>
+    <div class="tema-cuerpo">${t.descripcion ? `<p class="desc">${conFormato(t.descripcion)}</p>` : puntosDe(t).length ? '' : '<p class="desc vacia">Sin descripción.</p>'}
+      ${puntosDe(t).length || ed ? `<div class="puntos" data-puntos="${t.id}">${cabPuntos(puntosDe(t))}<div class="pt-lista">${puntosHtml(puntosDe(t), { ed })}</div></div>` : ''}<div class="meta">${quien(t)}</div>
       ${ed ? `<div class="acc"><a class="btn sec" href="#/agenda/${t.id}">${ico('lapiz', 18)} Editar</a><button class="btn verde" data-hecho="${t.id}">${ico('check', 18)} Hecho</button></div>` : ''}</div></div>`;
   const filaHecho = (t) => `<div class="tema hecho"><div class="tema-cab"><span class="tema-toque"><span class="num">${ico('check', 16)}</span><span class="txt"><b>${esc(t.titulo)}</b>${chipsTema(t)}</span></span></div>
-    ${t.descripcion ? `<p class="desc">${conFormato(t.descripcion)}</p>` : ''}<div class="meta">Hecho${t.hecho_nombre ? ` por ${esc(t.hecho_nombre.split(' ')[0])}` : ''}${t.hecho_en ? ` · ${fechaAgenda(t.hecho_en.slice(0, 10))}` : ''}</div>
+    ${t.descripcion ? `<p class="desc">${conFormato(t.descripcion)}</p>` : ''}${puntosDe(t).length ? `<div class="puntos"><div class="pt-lista">${puntosHtml(puntosDe(t), { ed: false })}</div></div>` : ''}<div class="meta">Hecho${t.hecho_nombre ? ` por ${esc(t.hecho_nombre.split(' ')[0])}` : ''}${t.hecho_en ? ` · ${fechaAgenda(t.hecho_en.slice(0, 10))}` : ''}</div>
     ${ed ? `<div class="acc"><button class="btn sec" data-volver-pend="${t.id}">Volver a pendientes</button><a class="btn sec" href="#/agenda/${t.id}">${ico('lapiz', 18)} Editar</a></div>` : ''}</div>`;
   pintar(cabecera('Agenda', { volver: '#/inicio', sub: 'Temas importantes' }) + `<main class="cont">
     <div class="pestanas-ag"><a class="${hechos ? '' : 'on'}" href="${url({ hechos: false })}">Pendientes <small>${pend.length}</small></a><a class="${hechos ? 'on' : ''}" href="${url({ hechos: true })}">Hechos <small>${hech.length}</small></a></div>
@@ -2917,6 +2928,40 @@ async function pantallaAgenda(params) {
     try { await q(sb.from('agenda_temas').update({ hecho }).eq('id', id)); AGENDA_ABIERTO = null; aviso(msg); router(); } catch (e) { aviso(traducirError(e), true); ev.currentTarget.disabled = false; }
   };
   $app.querySelectorAll('[data-hecho]').forEach((b) => b.onclick = marcar(b.dataset.hecho, true, 'Hecho. Lo tienes en la pestaña Hechos'));
+  // Puntos a tratar: se marcan y se añaden ahí mismo (sin recargar, para no perder el sitio)
+  $app.querySelectorAll('[data-puntos]').forEach((caja) => {
+    const tema = todos.find((x) => x.id === caja.dataset.puntos); if (!tema) return;
+    const card = caja.closest('.tema');
+    const pintarPts = () => {
+      const l = puntosDe(tema);
+      caja.innerHTML = `${cabPuntos(l)}<div class="pt-lista">${puntosHtml(l, { ed })}</div>`;
+      let chip = card.querySelector('[data-pts-chip]');
+      if (l.length && !chip) { card.querySelector('.tema-chips').insertAdjacentHTML('beforeend', '<span class="chip ag-pts" data-pts-chip></span>'); chip = card.querySelector('[data-pts-chip]'); }
+      if (chip) { if (l.length) chip.textContent = cuentaPuntos(l); else chip.remove(); }
+      atar();
+    };
+    const guardar = async (nuevos, antes) => {
+      tema.puntos = nuevos; pintarPts();
+      try { await q(sb.from('agenda_temas').update({ puntos: nuevos }).eq('id', tema.id)); }
+      catch (e) { tema.puntos = antes; pintarPts(); aviso(traducirError(e), true); }
+    };
+    const atar = () => {
+      caja.querySelectorAll('[data-punto]').forEach((b) => b.onclick = () => {
+        const antes = puntosDe(tema), i = +b.dataset.punto;
+        guardar(antes.map((x, j) => j === i ? { ...x, ok: !x.ok } : x), antes);
+      });
+      const inp = caja.querySelector('[data-pt-nuevo]'), mas = caja.querySelector('[data-pt-anadir]');
+      if (!inp) return;
+      const anadir = () => {
+        const txt = inp.value.trim(); if (!txt) { inp.focus(); return; }
+        const antes = puntosDe(tema);
+        guardar([...antes, { t: txt.slice(0, 300), ok: false }], antes).then(() => { const n = caja.querySelector('[data-pt-nuevo]'); if (n) n.focus(); });
+      };
+      mas.onclick = anadir;
+      inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); anadir(); } };
+    };
+    atar();
+  });
   $app.querySelectorAll('[data-volver-pend]').forEach((b) => b.onclick = marcar(b.dataset.volverPend, false, 'Vuelve a estar pendiente'));
 }
 async function formTemaAgenda(id) {
@@ -2926,21 +2971,25 @@ async function formTemaAgenda(id) {
     intentar(() => q(sb.from('agenda_temas').select('etiquetas')))
   ]);
   const v = t || { titulo: '', tipo: 'otro', etiquetas: [], descripcion: '', fecha: null };
-  let marcadas = [...(v.etiquetas || [])], todas = etiquetasDe([...(todos || []), { etiquetas: marcadas }]), tipo = v.tipo;
+  let marcadas = [...(v.etiquetas || [])], todas = etiquetasDe([...(todos || []), { etiquetas: marcadas }]), tipo = v.tipo, puntos = puntosDe(v).map((x) => ({ ...x }));
   const volver = '#/agenda';
   pintar(cabecera(id ? 'Editar tema' : 'Nuevo tema', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="campo"><label for="ag_tit">Título</label><input id="ag_tit" maxlength="200" required value="${esc(v.titulo)}" placeholder="Ej.: Solucionar conflicto profesora de Pilates"></div>
-    <div class="campo"><label>Tipo</label><div class="tipos-ag" id="ag_tipos">${TIPOS_AGENDA.map(([k, n]) => `<button type="button" data-tipo="${k}" class="${k === tipo ? 'on' : ''}" aria-pressed="${k === tipo}">${n}</button>`).join('')}</div></div>
-    <div class="campo"><label>Etiquetas</label><div class="etqs-ag" id="ag_etqs"></div>
+    <div class="desp" id="dsp_tipo"><button type="button" class="d-cab" aria-expanded="false"><span class="lab">Tipo</span><span class="val" id="ag_tipo_val"></span>${ico('abajo', 20)}</button>
+      <div class="d-cuerpo" hidden><div class="tipos-pq">${TIPOS_AGENDA.map(([k, n]) => `<button type="button" data-tipo="${k}" class="tipo-pq ${k === tipo ? 'on' : ''}" aria-pressed="${k === tipo}">${n}</button>`).join('')}</div></div></div>
+    <div class="desp" id="dsp_etq"><button type="button" class="d-cab" aria-expanded="false"><span class="lab">Etiquetas</span><span class="val" id="ag_etq_val"></span>${ico('abajo', 20)}</button>
+      <div class="d-cuerpo" hidden><div class="etqs-ag" id="ag_etqs"></div>
       <div class="etq-nueva" id="ag_nueva" hidden><input id="ag_nueva_txt" maxlength="40" placeholder="Nombre de la etiqueta"><button type="button" class="btn sec" id="ag_nueva_ok">Añadir</button></div>
-      <span class="ayuda">Marca las que quieras. Con "Nueva etiqueta" creas otra y ya queda para la próxima vez.</span></div>
+      <span class="ayuda">Marca las que quieras. Con "Nueva etiqueta" creas otra y ya queda para la próxima vez.</span></div></div>
     <div class="campo"><label for="ag_desc">Descripción</label><textarea id="ag_desc" maxlength="4000" placeholder="Qué hay que hacer, con quién, detalles…">${esc(v.descripcion || '')}</textarea></div>
+    <div class="campo"><label>Puntos a tratar</label><div class="puntos form" id="ag_puntos"></div><span class="ayuda">Toca la casilla cuando ya lo hayáis hablado: se pone gris y tachado.</span></div>
     <div class="campo"><label for="ag_fecha">Para cuándo (si corre prisa)</label><input id="ag_fecha" type="date" value="${esc(v.fecha || '')}"><span class="ayuda">Opcional. Se ve en la lista junto al tipo.</span></div>
     <button class="btn pri ancho" type="submit">Guardar</button>
     ${id ? `<button class="btn peligro ancho" type="button" id="ag_borrar">${ico('papelera', 18)} Borrar este tema</button>` : '<span class="ayuda" style="text-align:center">Los temas nuevos entran al final. Luego lo subes con las flechas.</span>'}
   </form></main>`, false);
   const caja = document.getElementById('ag_etqs');
   const pintarEtqs = () => {
+    document.getElementById('ag_etq_val').innerHTML = marcadas.length ? marcadas.map((e) => etiquetaHtml(e, 'on')).join('') : '<span class="d-nada">Ninguna</span>';
     caja.innerHTML = todas.map((e) => { const on = marcadas.some((m) => m.toLowerCase() === e.toLowerCase()); return `<button type="button" class="etq ${on ? 'on' : ''}" data-etq="${esc(e)}" aria-pressed="${on}">${ico('etiqueta', 12)}${esc(e)}</button>`; }).join('')
       + `<button type="button" class="etq nueva" id="ag_mas">${ico('mas', 12)}Nueva etiqueta</button>`;
     caja.querySelectorAll('[data-etq]').forEach((b) => b.onclick = () => {
@@ -2961,18 +3010,40 @@ async function formTemaAgenda(id) {
   };
   document.getElementById('ag_nueva_ok').onclick = anadir;
   document.getElementById('ag_nueva_txt').onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); anadir(); } };
+  const valTipo = () => { document.getElementById('ag_tipo_val').innerHTML = `<span class="tipo-pq on">${esc((TIPOS_AGENDA.find((x) => x[0] === tipo) || TIPOS_AGENDA[3])[1])}</span>`; };
+  valTipo();
   document.querySelectorAll('[data-tipo]').forEach((b) => b.onclick = () => {
-    tipo = b.dataset.tipo;
+    tipo = b.dataset.tipo; valTipo();
     document.querySelectorAll('[data-tipo]').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); });
   });
+  // Desplegables (Tipo y Etiquetas): se abren y cierran al tocar la fila
+  document.querySelectorAll('.desp .d-cab').forEach((c) => c.onclick = () => {
+    const cuerpo = c.nextElementSibling, abrir = cuerpo.hidden;
+    cuerpo.hidden = !abrir; c.setAttribute('aria-expanded', String(abrir)); c.parentElement.classList.toggle('abierto', abrir);
+  });
+  // Puntos a tratar en el formulario (se guardan con "Guardar")
+  const cajaPts = document.getElementById('ag_puntos');
+  const pintarPts = () => {
+    cajaPts.innerHTML = puntosHtml(puntos, { ed: true, borrar: true });
+    cajaPts.querySelectorAll('[data-punto]').forEach((b) => b.onclick = () => { const i = +b.dataset.punto; puntos[i].ok = !puntos[i].ok; pintarPts(); });
+    cajaPts.querySelectorAll('[data-quitar]').forEach((b) => b.onclick = () => { puntos.splice(+b.dataset.quitar, 1); pintarPts(); });
+    const inp = cajaPts.querySelector('[data-pt-nuevo]');
+    const anadir = () => { const txt = inp.value.trim(); if (!txt) { inp.focus(); return; } puntos.push({ t: txt.slice(0, 300), ok: false }); pintarPts(); cajaPts.querySelector('[data-pt-nuevo]').focus(); };
+    cajaPts.querySelector('[data-pt-anadir]').onclick = anadir;
+    inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); anadir(); } };
+  };
+  pintarPts();
   const form = document.getElementById('frm');
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Guardando…';
-    const datos = { titulo: form.ag_tit.value.trim(), tipo, etiquetas: marcadas, descripcion: form.ag_desc.value.trim() || null, fecha: form.ag_fecha.value || null };
+    const pendiente = cajaPts.querySelector('[data-pt-nuevo]').value.trim();
+    if (pendiente) puntos.push({ t: pendiente.slice(0, 300), ok: false });
+    const datos = { titulo: form.ag_tit.value.trim(), tipo, etiquetas: marcadas, descripcion: form.ag_desc.value.trim() || null, fecha: form.ag_fecha.value || null, puntos };
     try {
-      if (id) await q(sb.from('agenda_temas').update(datos).eq('id', id));
-      else await q(sb.from('agenda_temas').insert(datos));
+      const enviar = (d) => id ? q(sb.from('agenda_temas').update(d).eq('id', id)) : q(sb.from('agenda_temas').insert(d));
+      // Sin la 043 todavía no existe la columna de puntos: se guarda lo demás
+      try { await enviar(datos); } catch (e) { if (!/puntos/.test(e.message || '')) throw e; const { puntos: _, ...resto } = datos; await enviar(resto); if (puntos.length) aviso('Guardado, pero los puntos a tratar necesitan el SQL 043', true); }
       aviso('Guardado'); location.hash = volver;
     } catch (e) { aviso(traducirError(e), true); btn.disabled = false; btn.textContent = 'Guardar'; }
   };

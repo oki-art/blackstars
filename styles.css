@@ -1092,3 +1092,38 @@ span.tema-toque{cursor:default}
 .chip.ag-otro{background:rgba(107,104,129,0.12);color:var(--texto2)}
 .chip.ag-fecha{background:#FBECEF;color:#A3324F}
 .filtro-ag .etq.on{box-shadow:none}
+/* Agenda · puntos a tratar y desplegables */
+.puntos{margin:12px 0 0 40px;display:flex;flex-direction:column;gap:6px}
+.puntos.form{margin:0}
+.pt-lista{display:flex;flex-direction:column;gap:6px}
+.pt-cab{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--texto2)}
+.pt-cab span:last-child{letter-spacing:0;text-transform:none;color:var(--morado3)}
+.pt-barra{height:5px;border-radius:9px;background:rgba(118,80,224,0.12);overflow:hidden}
+.pt-barra i{display:block;height:100%;background:linear-gradient(90deg,var(--morado),var(--morado2));border-radius:9px;transition:width .25s}
+.punto{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 6px 4px 4px;border-radius:12px;background:#F8F6FB;border:1px solid var(--borde)}
+.punto .cb{width:40px;height:40px;flex:none;display:grid;place-items:center;border:0;background:none;padding:0;color:#fff;cursor:pointer;position:relative}
+.punto .cb::before{content:'';position:absolute;inset:8px;border-radius:8px;border:1.8px solid rgba(118,80,224,0.45);background:#fff}
+.punto .cb svg{position:relative}
+.punto.ok .cb::before{background:var(--ingreso);border-color:var(--ingreso)}
+.punto .pt-t{flex:1;min-width:0;text-align:left;overflow-wrap:anywhere;font-size:14px;line-height:1.3}
+.punto.ok{background:#F3F2F6}
+.punto.ok .pt-t{color:#A19DB3;text-decoration:line-through}
+.punto .pt-x{width:40px;height:40px;flex:none;border:0;background:none;color:var(--texto2);display:grid;place-items:center;cursor:pointer;border-radius:10px}
+.pt-nuevo{display:flex;gap:8px}
+.pt-nuevo input{flex:1;min-width:0;min-height:44px;border-radius:12px;border:1px dashed rgba(118,80,224,0.4);padding:0 12px;font:inherit;font-size:14px;background:#fff;color:var(--texto)}
+.pt-nuevo button{width:44px;height:44px;flex:none;border-radius:12px;border:0;background:var(--morado);color:#fff;display:grid;place-items:center;cursor:pointer}
+.chip.ag-pts{background:rgba(31,138,92,0.10);color:var(--ingreso)}
+.desp{border:1px solid rgba(70,55,140,0.18);border-radius:14px;background:#fff;overflow:hidden}
+.desp .d-cab{width:100%;display:flex;align-items:center;gap:10px;min-height:52px;padding:6px 14px;background:none;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.desp .d-cab .lab{font-size:14px;font-weight:600;color:var(--texto)}
+.desp .d-cab .val{flex:1;min-width:0;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.desp .d-cab>svg{color:var(--texto2);flex:none;transition:transform .2s}
+.desp.abierto .d-cab>svg{transform:rotate(180deg)}
+.desp .d-cuerpo{border-top:1px solid var(--borde);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.desp .d-nada{font-size:13px;color:var(--texto2)}
+.desp .etqs-ag{gap:6px}
+.desp .etqs-ag .etq{min-height:32px;font-size:12px;padding:0 10px}
+.desp .ayuda{font-size:12px;color:var(--texto2)}
+.tipos-pq{display:flex;flex-wrap:wrap;gap:6px}
+.tipo-pq{display:inline-flex;align-items:center;min-height:34px;padding:0 12px;border-radius:999px;border:1.5px solid rgba(70,55,140,0.18);font:inherit;font-size:13px;font-weight:600;background:#fff;color:var(--texto);cursor:pointer}
+.tipo-pq.on{border-color:var(--morado);background:#EDE7FB;color:var(--morado2)}
