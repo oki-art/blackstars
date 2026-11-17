@@ -483,7 +483,8 @@ async function pantallaInicio(vista = null) {
   // Pasar lista: la profesora marca quién vino a cada clase
   const tarjetaLista = profesora && ver('clases') ? `<${vista ? 'span' : 'a href="#/lista"'} class="mini-lista"><span class="ico-caja">${ico('check', 22)}</span><span class="ml-t"><b>Pasar lista</b><span>Marca quién vino a cada clase</span></span>${ico('sig', 18)}</${vista ? 'span' : 'a'}>` : '';
   // Bajas o sustitución de profesoras: atajo al formulario "Falta o cambio" (Horas del mes), solo administración y quien tenga Contabilidad (Adela); María no
-  const tarjetaFaltas = !vista && puedeEditar('caja') && (S.admin || puedeVer('contabilidad')) ? `<a class="mini-lista mini-faltas" href="#/caja/cambio?desde=inicio"><span class="ico-caja">${ico('profe', 22)}</span><span class="ml-t"><b>Bajas o sustitución de profesoras</b><span>Quién falta y quién la cubre</span></span>${ico('sig', 18)}</a>` : '';
+  const tarjetaFaltas = !vista && puedeEditar('caja') && (S.admin || puedeVer('contabilidad')) ? `<div class="mini-lista mini-faltas"><div class="mf-cab"><span class="ico-caja">${ico('profe', 22)}</span><span class="ml-t"><b>Bajas o sustitución de profesoras</b><span>Quién falta, quién la cubre y sus horas</span></span></div>
+    <div class="mf-bot"><a href="#/caja/cambio?desde=inicio">${ico('mas', 16)} Apuntar falta o cambio</a><a href="#/horas?desde=inicio">${ico('reloj', 16)} Horas de las profesoras</a></div></div>` : '';
   const soloPil = !vista && !puedeVer('caja') && veCajaPilates();
   const tarjetaCaja = (vista ? ver('caja') : veAlgunaCaja()) ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>${soloPil ? 'Caja de Pilates' : 'Caja'}</b><span>${soloPil ? 'Cobros y gastos' : 'Ingresos y gastos'}</span></a>` : '';
   const accesos = (profesora ? [
@@ -1797,7 +1798,7 @@ function horasPorClase(r) {
 }
 async function pantallaHoras(params) {
   if (!puedeVer('caja')) return sinPermiso();
-  const hoy = hoyISO(), mes = params.get('mes') || hoy.slice(0, 7);
+  const hoy = hoyISO(), mes = params.get('mes') || hoy.slice(0, 7), desde = params.get('desde') === 'inicio' ? '&desde=inicio' : '';
   const d = await datosHoras(mes), r = calcularHoras(mes, d), ed = puedeEditar('caja');
   const [y, m] = mes.split('-').map(Number);
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`, next = m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`;
@@ -1807,12 +1808,15 @@ async function pantallaHoras(params) {
       .concat(x.extra.map((e) => `<div class="mov"><span class="txt"><span class="tit">Cubrió${e.por ? ' a ' + esc(e.por.split(' ')[0]) : ''} · ${esc(e.c.nombre)}</span><span class="det">${diaC(e.f)}</span></span><b class="in">+${horasTxt(e.min)}</b></div>`))
       .concat(x.faltas.map((e) => `<div class="mov"><span class="txt"><span class="tit">${e.cubre ? 'Faltó · la cubrió ' + esc(e.cubre.split(' ')[0]) : 'Clase anulada'} · ${esc(e.c.nombre)}</span><span class="det">${diaC(e.f)}${e.cb.nota ? ' · ' + esc(e.cb.nota) : ''}</span></span><b class="out">−${horasTxt(e.min)}</b></div>`));
     const det = [`${x.n} clase${x.n === 1 ? '' : 's'}`, x.extra.length ? `cubrió ${x.extra.length}` : '', x.faltas.length ? `faltó ${x.faltas.length}` : ''].filter(Boolean).join(' · ');
-    return `<details class="caja-clase ${x.k === 'sin' ? 'otros' : ''}"><summary class="cc-cab"><span><h3>${esc(x.nombre)}</h3><small>${det}</small></span><span class="cc-tot"><b style="color:var(--morado3)">${horasTxt(x.min)}</b></span><span class="cc-flecha">${ico('sig', 18)}</span></summary>
+    // Por defecto (las de sus clases), restadas (faltó), sumadas (cubrió a otra) y final
+    const menos = x.faltas.reduce((t, e) => t + e.min, 0), mas = x.extra.reduce((t, e) => t + e.min, 0);
+    const desglose = x.k === 'sin' ? '' : `<span class="hd-grid"><span><small>Por defecto</small><b>${horasTxt(x.min - mas + menos)}</b></span><span><small>Restadas</small><b class="${menos ? 'out' : 'cero'}">${menos ? '−' + horasTxt(menos) : '0 h'}</b></span><span><small>Sumadas</small><b class="${mas ? 'in' : 'cero'}">${mas ? '+' + horasTxt(mas) : '0 h'}</b></span><span class="hd-fin"><small>Final</small><b>${horasTxt(x.min)}</b></span></span>`;
+    return `<details class="caja-clase horas-persona ${x.k === 'sin' ? 'otros' : ''}"><summary class="cc-cab"><span><h3>${esc(x.nombre)}</h3><small>${det}</small></span><span class="cc-tot"><b style="color:var(--morado3)">${horasTxt(x.min)}</b></span><span class="cc-flecha">${ico('sig', 18)}</span>${desglose}</summary>
       <div class="cc-movs">${filas.join('')}</div></details>`;
   };
   const cambiosTxt = d.cambios.length + d.festivos.length;
-  pintar(cabecera('Horas del mes', { volver: '#/clases', sub: 'Horas de las profesoras' }) + `<main class="cont">
-    <div class="mes"><button data-ir="#/horas?mes=${prev}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/horas?mes=${next}" aria-label="Mes siguiente">${ico('sig')}</button></div>
+  pintar(cabecera('Horas del mes', { volver: desde ? '#/inicio' : '#/clases', sub: 'Horas de las profesoras' }) + `<main class="cont">
+    <div class="mes"><button data-ir="#/horas?mes=${prev}${desde}" aria-label="Mes anterior">${ico('volver')}</button><h2>${nombreMes(mes + '-01')}</h2><button data-ir="#/horas?mes=${next}${desde}" aria-label="Mes siguiente">${ico('sig')}</button></div>
     <div class="tarjeta horas-total"><div class="ht-sup">Horas del mes · ${r.semanas} semanas</div><div class="ht-num">${horasTxt(r.total)}</div>
       <div class="ht-det">${r.lista.filter((x) => x.k !== 'sin').length} persona${r.lista.filter((x) => x.k !== 'sin').length === 1 ? '' : 's'}${cambiosTxt ? ` · ${d.cambios.length} cambio${d.cambios.length === 1 ? '' : 's'} · ${d.festivos.length} día${d.festivos.length === 1 ? '' : 's'} sin clase` : ''}</div></div>
     <div class="lista">${r.lista.map(tarjeta).join('') || vacio('No hay clases con horario este mes.')}</div>
