@@ -49,7 +49,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)'], ['limpieza_informe', 'Limpieza: recibir el informe']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)'], ['limpieza_informe', 'Limpieza: recibir el informe'], ['agenda', 'Agenda (temas importantes)']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -86,6 +86,8 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
   const p = {
+    agenda: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
+    etiqueta: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
     arriba: '<path d="M6 15l6-6 6 6"/>', abajo: '<path d="M6 9l6 6 6-6"/>',
     doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
     subir: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
@@ -435,6 +437,7 @@ async function pantallaInicio(vista = null) {
     const hechos = retos.flatMap((r) => r.logros_cumplidos || []);
     return { yo, mes, retos, hechos };
   })().catch(() => null) : null;
+  const pAgenda = !vista && !profesora && ver('agenda') ? intentar(async () => { const { count } = await sb.from('agenda_temas').select('id', { count: 'exact', head: true }).eq('hecho', false); return count || 0; }) : null;
   const pDocs = vista ? null : intentar(async () => { const { count } = await sb.from('documentos').select('id', { count: 'exact', head: true }).eq('para_perfil', S.usuario.id).eq('estado', 'pendiente'); return count || 0; });
   const clases = ver('clases') ? await intentar(() => q(consulta)) : [];
   // Orden: empezando por la próxima clase de la semana (o la que está en curso).
@@ -495,6 +498,7 @@ async function pantallaInicio(vista = null) {
     ['eventos', '#/eventos', 'evento', 'Mis eventos', 'Próximos', false],
     ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false]
   ] : [
+    ['agenda', '#/agenda', 'agenda', 'Agenda', 'Temas importantes', false],
     ['alumnas', '#/alumna/nueva', 'insc', 'Nueva alumna', 'Dar de alta', true],
     ['inscripciones', '#/inscripciones', 'clases', 'Inscripciones', 'Altas y bajas en clases', false],
     ['caja', `#/caja/nuevo?fecha=${hoy}`, 'euro', 'Movimiento', 'Ingreso o gasto', true],
@@ -508,13 +512,14 @@ async function pantallaInicio(vista = null) {
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false],
     ['limpieza', '#/limpieza', 'limpia', 'Limpieza', 'Viernes, diario e inventario', false]
   ]).filter((x) => x[0] === '*' || (x[5] ? editar(x[0]) : ver(x[0])));
+  const nAgenda = pAgenda ? +(await pAgenda) || 0 : 0;
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
     ${barraLogros}
     ${tarjetaLista}
     ${tarjetaFaltas}
     <div class="minis">${tarjetaCaja}${tarjetaEstrellas}${tarjetaDocs}</div>
-    ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
+    ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso${x[0] === 'agenda' ? ' acc-agenda' : ''}" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span>${x[0] === 'agenda' && nAgenda ? `<span class="nv-n">${nAgenda}</span>` : ''}</a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
   </main>` + (vista ? navegacion('inicio', ver) : ''), vista ? false : 'inicio');
   const car = document.getElementById('carrusel'), puntos = document.getElementById('puntos');
@@ -598,14 +603,14 @@ async function salirVerComo() {
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
 // Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable, o recepción con la caja abierta) o Equipo
 const papel = (per) => esProfesora(per) ? 'Profesora'
-  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
+  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe', 'agenda'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
   : per.caja && per.caja.puede_escribir ? 'Gestión' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
   caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
   // Documentos, Pilates, Contabilidad y Limpieza no van en ninguna plantilla: solo los da la administración a mano
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe'].includes(m)).map(([m]) => [m, 2])) }
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe', 'agenda'].includes(m)).map(([m]) => [m, 2])) }
 };
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
@@ -695,7 +700,7 @@ async function formAcceso(params) {
 
 /* ---------- más ---------- */
 // Recepción y gestión tienen todo en los accesos del Inicio: en Más solo queda su ficha y la contraseña
-const EN_INICIO = ['*', 'limpieza', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
+const EN_INICIO = ['*', 'agenda', 'limpieza', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
 // Las profesoras tienen Documentos, Logros, Eventos e Incidencias en el Inicio; Inscripciones no lo ven
 const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones'];
 // La administración también: en Más solo su ficha, Ver como profesora, Equipo y permisos y la contraseña
@@ -2851,6 +2856,135 @@ const formNorma = (id) => pantallaForm({
   titulo: id ? 'Editar norma' : 'Nueva norma', tabla: 'normas', modulo: 'normas', id, volver: '#/normas',
   campos: [{ k: 'titulo', label: 'Título', req: true }, { k: 'contenido', label: 'Texto', tipo: 'textarea', req: true }, { k: 'activa', label: 'Norma en vigor', tipo: 'bool', def: true }]
 });
+
+/* ---------- agenda (temas importantes) ---------- */
+// Lista por prioridad (flechas), con tipo, etiquetas libres, descripción y fecha opcional. Lo resuelto pasa a "Hechos".
+const TIPOS_AGENDA = [['sustitucion', 'Sustitución de profesora'], ['horario', 'Cambio de horario o turnos'], ['conflicto', 'Conflicto'], ['otro', 'Otro']];
+const ETIQUETAS_BASE = ['Pilates', 'Local', 'Nuevas clases', 'Nuevas profesoras'];
+const etiquetaHtml = (t, cls = '') => `<span class="etq ${cls}">${ico('etiqueta', 12)}${esc(t)}</span>`;
+const fechaAgenda = (iso) => aFecha(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+// Todas las etiquetas: las de siempre y las que se han ido creando (sin repetir, sin mirar mayúsculas)
+function etiquetasDe(temas) {
+  const vistas = new Map();
+  [...ETIQUETAS_BASE, ...temas.flatMap((t) => t.etiquetas || [])].forEach((e) => { const k = e.trim().toLowerCase(); if (k && !vistas.has(k)) vistas.set(k, e.trim()); });
+  return [...vistas.values()];
+}
+let AGENDA_ABIERTO = null;
+async function pantallaAgenda(params) {
+  if (!puedeVer('agenda')) return sinPermiso();
+  const ed = puedeEditar('agenda'), hechos = params.get('t') === 'hechos', filtro = params.get('e') || '';
+  const todos = await q(sb.from('agenda_temas').select('*').order('orden').order('creado_en'));
+  const pend = todos.filter((t) => !t.hecho), hech = todos.filter((t) => t.hecho).sort((a, b) => String(b.hecho_en).localeCompare(String(a.hecho_en)));
+  const conFiltro = (l) => filtro ? l.filter((t) => (t.etiquetas || []).some((e) => e.toLowerCase() === filtro.toLowerCase())) : l;
+  const lista = conFiltro(hechos ? hech : pend);
+  const usadas = etiquetasDe(todos).filter((e) => todos.some((t) => (t.etiquetas || []).some((x) => x.toLowerCase() === e.toLowerCase())));
+  const url = (o) => { const u = new URLSearchParams(); const t = 'hechos' in o ? o.hechos : hechos, e = 'e' in o ? o.e : filtro; if (t) u.set('t', 'hechos'); if (e) u.set('e', e); const s = u.toString(); return '#/agenda' + (s ? '?' + s : ''); };
+  const chipsTema = (t) => `<span class="tema-chips"><span class="chip ag-${t.tipo}">${esc((TIPOS_AGENDA.find((x) => x[0] === t.tipo) || TIPOS_AGENDA[3])[1])}</span>${t.fecha && !t.hecho ? `<span class="chip ag-fecha">${t.fecha < hoyISO() ? 'Vencido · ' : ''}${fechaAgenda(t.fecha)}</span>` : ''}${(t.etiquetas || []).map((e) => etiquetaHtml(e)).join('')}</span>`;
+  const quien = (t) => [t.creado_nombre ? `Apuntado por ${esc(t.creado_nombre.split(' ')[0])}` : 'Apuntado', fechaAgenda(t.creado_en.slice(0, 10))].join(' · ');
+  const filaPend = (t, i) => `<div class="tema${i === 0 && !filtro ? ' primero' : ''}${AGENDA_ABIERTO === t.id ? ' abierto' : ''}" data-id="${t.id}">
+    <div class="tema-cab"><button class="tema-toque" data-abrir="${t.id}" aria-expanded="${AGENDA_ABIERTO === t.id}"><span class="num">${i + 1}</span><span class="txt"><b>${esc(t.titulo)}</b>${chipsTema(t)}</span></button>
+      ${ed ? `<span class="fl"><button data-sube="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Subir">${ico('arriba', 20)}</button><button data-baja="${i}" ${i === lista.length - 1 ? 'disabled' : ''} aria-label="Bajar">${ico('abajo', 20)}</button></span>` : ''}</div>
+    <div class="tema-cuerpo">${t.descripcion ? `<p class="desc">${conFormato(t.descripcion)}</p>` : '<p class="desc vacia">Sin descripción.</p>'}<div class="meta">${quien(t)}</div>
+      ${ed ? `<div class="acc"><a class="btn sec" href="#/agenda/${t.id}">${ico('lapiz', 18)} Editar</a><button class="btn verde" data-hecho="${t.id}">${ico('check', 18)} Hecho</button></div>` : ''}</div></div>`;
+  const filaHecho = (t) => `<div class="tema hecho"><div class="tema-cab"><span class="tema-toque"><span class="num">${ico('check', 16)}</span><span class="txt"><b>${esc(t.titulo)}</b>${chipsTema(t)}</span></span></div>
+    ${t.descripcion ? `<p class="desc">${conFormato(t.descripcion)}</p>` : ''}<div class="meta">Hecho${t.hecho_nombre ? ` por ${esc(t.hecho_nombre.split(' ')[0])}` : ''}${t.hecho_en ? ` · ${fechaAgenda(t.hecho_en.slice(0, 10))}` : ''}</div>
+    ${ed ? `<div class="acc"><button class="btn sec" data-volver-pend="${t.id}">Volver a pendientes</button><a class="btn sec" href="#/agenda/${t.id}">${ico('lapiz', 18)} Editar</a></div>` : ''}</div>`;
+  pintar(cabecera('Agenda', { volver: '#/inicio', sub: 'Temas importantes' }) + `<main class="cont">
+    <div class="pestanas-ag"><a class="${hechos ? '' : 'on'}" href="${url({ hechos: false })}">Pendientes <small>${pend.length}</small></a><a class="${hechos ? 'on' : ''}" href="${url({ hechos: true })}">Hechos <small>${hech.length}</small></a></div>
+    ${usadas.length ? `<div class="filtro-ag">${[['', 'Todas'], ...usadas.map((e) => [e, e])].map(([v, n]) => `<a href="${url({ e: v })}">${etiquetaHtml(n, v.toLowerCase() === filtro.toLowerCase() ? 'on' : '')}</a>`).join('')}</div>` : ''}
+    ${!hechos && lista.length ? `<p class="ayuda-ag">Toca un tema para verlo.${ed ? ' Las flechas lo suben o bajan.' : ''}</p>` : ''}
+    <div class="lista">${lista.map((t, i) => hechos ? filaHecho(t) : filaPend(t, i)).join('') || vacio(hechos ? 'Aún no hay temas hechos.' : filtro ? `No hay temas pendientes con la etiqueta «${esc(filtro)}».` : `No hay temas pendientes.${ed ? ' Pulsa + para apuntar el primero.' : ''}`)}</div>
+  </main>`, 'inicio', ed ? '#/agenda/nuevo' : null);
+  $app.querySelectorAll('[data-abrir]').forEach((b) => b.onclick = () => {
+    const card = b.closest('.tema'), abrir = !card.classList.contains('abierto');
+    $app.querySelectorAll('.tema.abierto').forEach((c) => { c.classList.remove('abierto'); c.querySelector('[data-abrir]').setAttribute('aria-expanded', 'false'); });
+    card.classList.toggle('abierto', abrir); b.setAttribute('aria-expanded', String(abrir)); AGENDA_ABIERTO = abrir ? b.dataset.abrir : null;
+  });
+  const mover = async (i, j) => {
+    const a = lista[i], b = lista[j];
+    // Se intercambian sus puestos; si coinciden, se separan
+    const oa = a.orden, ob = b.orden === a.orden ? a.orden + (j > i ? 1 : -1) : b.orden;
+    try {
+      await q(sb.from('agenda_temas').update({ orden: ob }).eq('id', a.id));
+      await q(sb.from('agenda_temas').update({ orden: oa }).eq('id', b.id));
+      router();
+    } catch (e) { aviso(traducirError(e), true); router(); }
+  };
+  $app.querySelectorAll('[data-sube]').forEach((x) => x.onclick = () => { x.disabled = true; mover(+x.dataset.sube, +x.dataset.sube - 1); });
+  $app.querySelectorAll('[data-baja]').forEach((x) => x.onclick = () => { x.disabled = true; mover(+x.dataset.baja, +x.dataset.baja + 1); });
+  const marcar = (id, hecho, msg) => async (ev) => {
+    ev.currentTarget.disabled = true;
+    try { await q(sb.from('agenda_temas').update({ hecho }).eq('id', id)); AGENDA_ABIERTO = null; aviso(msg); router(); } catch (e) { aviso(traducirError(e), true); ev.currentTarget.disabled = false; }
+  };
+  $app.querySelectorAll('[data-hecho]').forEach((b) => b.onclick = marcar(b.dataset.hecho, true, 'Hecho. Lo tienes en la pestaña Hechos'));
+  $app.querySelectorAll('[data-volver-pend]').forEach((b) => b.onclick = marcar(b.dataset.volverPend, false, 'Vuelve a estar pendiente'));
+}
+async function formTemaAgenda(id) {
+  if (!puedeEditar('agenda')) return sinPermiso();
+  const [t, todos] = await Promise.all([
+    id ? q(sb.from('agenda_temas').select('*').eq('id', id).single()) : null,
+    intentar(() => q(sb.from('agenda_temas').select('etiquetas')))
+  ]);
+  const v = t || { titulo: '', tipo: 'otro', etiquetas: [], descripcion: '', fecha: null };
+  let marcadas = [...(v.etiquetas || [])], todas = etiquetasDe([...(todos || []), { etiquetas: marcadas }]), tipo = v.tipo;
+  const volver = '#/agenda';
+  pintar(cabecera(id ? 'Editar tema' : 'Nuevo tema', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="ag_tit">Título</label><input id="ag_tit" maxlength="200" required value="${esc(v.titulo)}" placeholder="Ej.: Solucionar conflicto profesora de Pilates"></div>
+    <div class="campo"><label>Tipo</label><div class="tipos-ag" id="ag_tipos">${TIPOS_AGENDA.map(([k, n]) => `<button type="button" data-tipo="${k}" class="${k === tipo ? 'on' : ''}" aria-pressed="${k === tipo}">${n}</button>`).join('')}</div></div>
+    <div class="campo"><label>Etiquetas</label><div class="etqs-ag" id="ag_etqs"></div>
+      <div class="etq-nueva" id="ag_nueva" hidden><input id="ag_nueva_txt" maxlength="40" placeholder="Nombre de la etiqueta"><button type="button" class="btn sec" id="ag_nueva_ok">Añadir</button></div>
+      <span class="ayuda">Marca las que quieras. Con "Nueva etiqueta" creas otra y ya queda para la próxima vez.</span></div>
+    <div class="campo"><label for="ag_desc">Descripción</label><textarea id="ag_desc" maxlength="4000" placeholder="Qué hay que hacer, con quién, detalles…">${esc(v.descripcion || '')}</textarea></div>
+    <div class="campo"><label for="ag_fecha">Para cuándo (si corre prisa)</label><input id="ag_fecha" type="date" value="${esc(v.fecha || '')}"><span class="ayuda">Opcional. Se ve en la lista junto al tipo.</span></div>
+    <button class="btn pri ancho" type="submit">Guardar</button>
+    ${id ? `<button class="btn peligro ancho" type="button" id="ag_borrar">${ico('papelera', 18)} Borrar este tema</button>` : '<span class="ayuda" style="text-align:center">Los temas nuevos entran al final. Luego lo subes con las flechas.</span>'}
+  </form></main>`, false);
+  const caja = document.getElementById('ag_etqs');
+  const pintarEtqs = () => {
+    caja.innerHTML = todas.map((e) => { const on = marcadas.some((m) => m.toLowerCase() === e.toLowerCase()); return `<button type="button" class="etq ${on ? 'on' : ''}" data-etq="${esc(e)}" aria-pressed="${on}">${ico('etiqueta', 12)}${esc(e)}</button>`; }).join('')
+      + `<button type="button" class="etq nueva" id="ag_mas">${ico('mas', 12)}Nueva etiqueta</button>`;
+    caja.querySelectorAll('[data-etq]').forEach((b) => b.onclick = () => {
+      const e = b.dataset.etq, k = e.toLowerCase();
+      marcadas = marcadas.some((m) => m.toLowerCase() === k) ? marcadas.filter((m) => m.toLowerCase() !== k) : [...marcadas, e];
+      pintarEtqs();
+    });
+    document.getElementById('ag_mas').onclick = () => { const n = document.getElementById('ag_nueva'); n.hidden = false; document.getElementById('ag_nueva_txt').focus(); };
+  };
+  pintarEtqs();
+  const anadir = () => {
+    const inp = document.getElementById('ag_nueva_txt'), e = inp.value.trim().replace(/\s+/g, ' ');
+    if (!e) { aviso('Escribe el nombre de la etiqueta', true); return; }
+    const ya = todas.find((x) => x.toLowerCase() === e.toLowerCase());
+    if (!ya) todas.push(e);
+    if (!marcadas.some((m) => m.toLowerCase() === e.toLowerCase())) marcadas.push(ya || e);
+    inp.value = ''; document.getElementById('ag_nueva').hidden = true; pintarEtqs();
+  };
+  document.getElementById('ag_nueva_ok').onclick = anadir;
+  document.getElementById('ag_nueva_txt').onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); anadir(); } };
+  document.querySelectorAll('[data-tipo]').forEach((b) => b.onclick = () => {
+    tipo = b.dataset.tipo;
+    document.querySelectorAll('[data-tipo]').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); });
+  });
+  const form = document.getElementById('frm');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Guardando…';
+    const datos = { titulo: form.ag_tit.value.trim(), tipo, etiquetas: marcadas, descripcion: form.ag_desc.value.trim() || null, fecha: form.ag_fecha.value || null };
+    try {
+      if (id) await q(sb.from('agenda_temas').update(datos).eq('id', id));
+      else await q(sb.from('agenda_temas').insert(datos));
+      aviso('Guardado'); location.hash = volver;
+    } catch (e) { aviso(traducirError(e), true); btn.disabled = false; btn.textContent = 'Guardar'; }
+  };
+  const borrar = document.getElementById('ag_borrar');
+  if (borrar) borrar.onclick = async () => {
+    // Primer toque avisa; el segundo borra (sin ventanas del navegador)
+    if (!borrar.dataset.seguro) { borrar.dataset.seguro = '1'; borrar.innerHTML = `${ico('papelera', 18)} Pulsa otra vez para borrarlo para siempre`; return; }
+    borrar.disabled = true;
+    try { await q(sb.from('agenda_temas').delete().eq('id', id)); AGENDA_ABIERTO = null; aviso('Borrado'); location.hash = volver; }
+    catch (e) { aviso(traducirError(e), true); borrar.disabled = false; }
+  };
+}
 
 /* ---------- profesoras ---------- */
 async function pantallaProfesoras() {
@@ -5334,6 +5468,7 @@ async function router() {
       case 'estrellas': return await pantallaEstrellas(params);
       case 'lista': return await pantallaLista(params);
       case 'limpieza': return await pantallaLimpieza(params);
+      case 'agenda': return p[1] ? await formTemaAgenda(p[1] === 'nuevo' ? null : p[1]) : await pantallaAgenda(params);
       case 'logros':
         if (p[1] === 'reto') return await formReto(params);
         if (p[1] === 'profesora') return await pantallaLogrosProfesora(p[2], params);
