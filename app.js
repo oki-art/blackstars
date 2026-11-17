@@ -482,6 +482,8 @@ async function pantallaInicio(vista = null) {
   const tarjetaEstrellas = profesora && ver('logros') && editar('logros') ? `<${vista ? 'span' : 'a href="#/estrellas"'} class="mini-estrellas"><span class="ico-caja">${ico('evento', 22)}</span><b>Estrellas</b><span>Puntuar alumnas</span></${vista ? 'span' : 'a'}>` : '';
   // Pasar lista: la profesora marca quién vino a cada clase
   const tarjetaLista = profesora && ver('clases') ? `<${vista ? 'span' : 'a href="#/lista"'} class="mini-lista"><span class="ico-caja">${ico('check', 22)}</span><span class="ml-t"><b>Pasar lista</b><span>Marca quién vino a cada clase</span></span>${ico('sig', 18)}</${vista ? 'span' : 'a'}>` : '';
+  // Bajas o sustitución de profesoras: atajo al formulario "Falta o cambio" (Horas del mes), solo administración y quien tenga Contabilidad (Adela); María no
+  const tarjetaFaltas = !vista && puedeEditar('caja') && (S.admin || puedeVer('contabilidad')) ? `<a class="mini-lista mini-faltas" href="#/caja/cambio?desde=inicio"><span class="ico-caja">${ico('profe', 22)}</span><span class="ml-t"><b>Bajas o sustitución de profesoras</b><span>Quién falta y quién la cubre</span></span>${ico('sig', 18)}</a>` : '';
   const soloPil = !vista && !puedeVer('caja') && veCajaPilates();
   const tarjetaCaja = (vista ? ver('caja') : veAlgunaCaja()) ? `<a class="mini-caja" href="#/caja"><span class="ico-caja">${ico('caja', 22)}</span><b>${soloPil ? 'Caja de Pilates' : 'Caja'}</b><span>${soloPil ? 'Cobros y gastos' : 'Ingresos y gastos'}</span></a>` : '';
   const accesos = (profesora ? [
@@ -509,6 +511,7 @@ async function pantallaInicio(vista = null) {
     ${bloqueClases}
     ${barraLogros}
     ${tarjetaLista}
+    ${tarjetaFaltas}
     <div class="minis">${tarjetaCaja}${tarjetaEstrellas}${tarjetaDocs}</div>
     ${accesos.length ? `<div class="seccion">Accesos rápidos</div><div class="accesos">${accesos.map((x) => `<a class="acceso" href="${x[1]}"><span class="ico">${ico(x[2])}</span><b>${x[3]}</b><span>${x[4]}</span></a>`).join('')}</div>` : ''}
     ${(vista ? !Object.values(vista.permisos).some((p) => p.puede_ver) : !S.admin && !Object.values(S.permisos).some((p) => p.puede_ver)) ? vacio('Aún no tienes ningún módulo asignado. La administración te dará acceso.') : ''}
@@ -2177,7 +2180,7 @@ async function formCobroAmiga(params) {
 }
 async function formCambio(params) {
   if (!puedeEditar('caja')) return sinPermiso();
-  const id = params.get('id'), mes = params.get('mes') || hoyISO().slice(0, 7), volver = `#/horas?mes=${mes}`;
+  const id = params.get('id'), mes = params.get('mes') || hoyISO().slice(0, 7), desdeInicio = params.get('desde') === 'inicio', volver = desdeInicio ? '#/inicio' : `#/horas?mes=${mes}`;
   const reg = id ? await q(sb.from('clases_cambios').select('*').eq('id', id).single()) : null;
   const d = await datosHoras((reg ? reg.fecha : mes + '-01').slice(0, 7));
   const fecha0 = reg ? reg.fecha : (mes === hoyISO().slice(0, 7) ? hoyISO() : mes + '-01');
@@ -2215,7 +2218,7 @@ async function formCambio(params) {
   };
   pintarClases(reg && reg.clase_id);
   pintarQuien(reg ? (reg.anulada ? 'nadie' : reg.cubre_profesora_id ? 'p:' + reg.cubre_profesora_id : 'e:' + reg.cubre_perfil_id) : null);
-  $f.onchange = () => { if ($f.value.slice(0, 7) !== d.dias[0].slice(0, 7)) { location.hash = `#/caja/cambio?mes=${$f.value.slice(0, 7)}`; return; } pintarClases(); pintarQuien(); };
+  $f.onchange = () => { if ($f.value.slice(0, 7) !== d.dias[0].slice(0, 7)) { location.hash = `#/caja/cambio?mes=${$f.value.slice(0, 7)}${desdeInicio ? '&desde=inicio' : ''}`; return; } pintarClases(); pintarQuien(); };
   $c.onchange = () => pintarQuien($q.value); $q.onchange = resumen;
   document.getElementById('guardar').onclick = async (ev) => {
     const c = d.clases.find((x) => x.id === $c.value); if (!c) return aviso('Elige una clase', true);

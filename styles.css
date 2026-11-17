@@ -662,6 +662,7 @@ body.navegando::before{content:'';position:fixed;top:0;left:0;right:0;height:3px
 .mini-lista .ml-t{flex:1;display:flex;flex-direction:column;gap:2px}
 .mini-lista b{font-family:'Sora',sans-serif;font-size:16px;color:var(--negro)}
 .mini-lista .ml-t span{font-size:13px;color:var(--texto2)}
+.mini-faltas{background:linear-gradient(135deg,#FFEDE3,#FADCCB);color:#B4532A;box-shadow:0 10px 22px rgba(209,96,47,0.14)}
 .ls-mes{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .ls-mes b{font-family:'Sora',sans-serif;font-size:16px}
 .ls-mes button{width:44px;height:44px;border-radius:50%;border:1px solid var(--borde);background:#fff;display:grid;place-items:center;cursor:pointer}
