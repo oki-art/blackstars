@@ -2,7 +2,8 @@
 -- Se cierra la lista (ya no se puede tocar y queda un código de la lista), se sortea el número de inicio
 -- y desde ahí se sigue en orden (al llegar al último se vuelve al 1). Las butacas se reparten seguidas en la app.
 -- Permisos nuevos: "sorteos" (ver y apuntar) y "sorteos_sortear" (cerrar la lista y sortear). La administración siempre.
--- Se dan: Adela los dos; María solo "sorteos" (apuntar). Solo añade tablas; no toca datos existentes.
+-- Se dan a Adela los dos. María no ve nada del sorteo hasta que Raúl se lo dé en Equipo y permisos.
+-- Solo añade tablas; no toca datos existentes. Se puede pegar más de una vez.
 
 create table if not exists public.sorteos (
   id            uuid primary key default gen_random_uuid(),
@@ -213,17 +214,15 @@ alter table public.permisos add constraint permisos_modulo_check check (modulo i
   'eventos','formularios','escuelas_amigas','logros','iniciativas','documentos','pilates','contabilidad','limpieza','limpieza_informe','agenda',
   'sorteos','sorteos_sortear'));
 
--- Adela: apuntar y sortear. María: solo apuntar.
+-- Adela: apuntar y sortear.
 insert into public.permisos (perfil_id, modulo, puede_ver, puede_escribir, solo_propias)
 select p.id, m.modulo, true, true, false
 from public.perfiles p join auth.users u on u.id = p.id
 cross join (values ('sorteos'), ('sorteos_sortear')) m(modulo)
 where lower(u.email) = 'adela.sof@gmail.com'
 on conflict (perfil_id, modulo) do update set puede_ver = true, puede_escribir = true, solo_propias = false;
-insert into public.permisos (perfil_id, modulo, puede_ver, puede_escribir, solo_propias)
-select p.id, 'sorteos', true, true, false
-from public.perfiles p join auth.users u on u.id = p.id
-where lower(u.email) = 'mariquillapgv@gmail.com'
-on conflict (perfil_id, modulo) do update set puede_ver = true, puede_escribir = true, solo_propias = false;
+-- María: de partida sin sorteo (si una versión anterior de este archivo se lo dio, se le quita). Raúl se lo da cuando quiera.
+delete from public.permisos p using auth.users u
+where u.id = p.perfil_id and lower(u.email) = 'mariquillapgv@gmail.com' and p.modulo in ('sorteos', 'sorteos_sortear');
 
 notify pgrst, 'reload schema';
