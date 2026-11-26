@@ -49,7 +49,7 @@ const MODULOS = [
   ['alumnas', 'Alumnas'], ['profesoras', 'Profesoras'], ['clases', 'Clases'],
   ['inscripciones', 'Inscripciones'], ['incidencias', 'Incidencias'], ['normas', 'Normas'],
   ['caja', 'Caja'], ['eventos', 'Eventos'], ['formularios', 'Formularios'],
-  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)'], ['limpieza_informe', 'Limpieza: recibir el informe'], ['agenda', 'Agenda (temas importantes)']
+  ['escuelas_amigas', 'Escuelas amigas'], ['logros', 'Logros'], ['iniciativas', 'Iniciativas'], ['documentos', 'Documentos'], ['pilates', 'Pilates (clase privada)'], ['contabilidad', 'Contabilidad (pagos al equipo)'], ['limpieza', 'Limpieza (lista e inventario)'], ['limpieza_informe', 'Limpieza: recibir el informe'], ['agenda', 'Agenda (temas importantes)'], ['sorteos', 'Sorteo de entradas: apuntar'], ['sorteos_sortear', 'Sorteo de entradas: cerrar y sortear']
 ];
 const DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_C = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -86,6 +86,7 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function ico(nombre, t = 20) {
   const p = {
+    ticket: '<path d="M3 8a2 2 0 0 0 0 4v0a2 2 0 0 0 0 4v2h18v-2a2 2 0 0 1 0-4 2 2 0 0 1 0-4V6H3z"/><path d="M14 6v2M14 11v2M14 16v2"/>',
     agenda: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
     etiqueta: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
     arriba: '<path d="M6 15l6-6 6 6"/>', abajo: '<path d="M6 9l6 6 6-6"/>',
@@ -499,6 +500,7 @@ async function pantallaInicio(vista = null) {
     ['normas', '#/normas', 'normas', 'Normas', 'Reglas de la escuela', false]
   ] : [
     ['agenda', '#/agenda', 'agenda', 'Agenda', 'Temas importantes', false],
+    ['sorteos', '#/sorteos', 'ticket', 'Sorteo de entradas', 'Orden y butacas', false],
     ['alumnas', '#/alumna/nueva', 'insc', 'Nueva alumna', 'Dar de alta', true],
     ['inscripciones', '#/inscripciones', 'clases', 'Inscripciones', 'Altas y bajas en clases', false],
     ['caja', `#/caja/nuevo?fecha=${hoy}`, 'euro', 'Movimiento', 'Ingreso o gasto', true],
@@ -603,14 +605,14 @@ async function salirVerComo() {
 // "Solo lo suyo" en Iniciativas no hace a nadie profesora: recepción propone ideas y ve las suyas
 // Papel que se enseña en la insignia: Profesora, Gestión (casi todo editable, o recepción con la caja abierta) o Equipo
 const papel = (per) => esProfesora(per) ? 'Profesora'
-  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe', 'agenda'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
+  : MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe', 'agenda', 'sorteos', 'sorteos_sortear'].includes(m)).every(([m]) => per[m] && per[m].puede_escribir) ? 'Gestión'
   : per.caja && per.caja.puede_escribir ? 'Gestión' : 'Equipo';
 const esProfesora = (permisos) => Object.entries(permisos).some(([m, p]) => p && p.solo_propias && m !== 'iniciativas');
 const PLANTILLAS = {
   profesora: { nombre: 'Profesora', solo: true, mods: PERMISOS_PROFE },
   caja: { nombre: 'Caja y recepción', solo: false, soloEn: ['iniciativas'], mods: { caja: 2, alumnas: 2, inscripciones: 2, clases: 1, formularios: 1, normas: 1, eventos: 1, iniciativas: 2 } },
   // Documentos, Pilates, Contabilidad y Limpieza no van en ninguna plantilla: solo los da la administración a mano
-  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe', 'agenda'].includes(m)).map(([m]) => [m, 2])) }
+  gestion: { nombre: 'Gestión', solo: false, mods: Object.fromEntries(MODULOS.filter(([m]) => !['documentos', 'pilates', 'contabilidad', 'limpieza', 'limpieza_informe', 'agenda', 'sorteos', 'sorteos_sortear'].includes(m)).map(([m]) => [m, 2])) }
 };
 const filasPlantilla = (t, perfil_id) => Object.entries(t.mods).map(([m, n]) => ({ ...(perfil_id ? { perfil_id } : {}), modulo: m, puede_ver: true, puede_escribir: n > 1, solo_propias: t.solo || (t.soloEn || []).includes(m) }));
 function resumenPersona(p, filas) {
@@ -700,7 +702,7 @@ async function formAcceso(params) {
 
 /* ---------- más ---------- */
 // Recepción y gestión tienen todo en los accesos del Inicio: en Más solo queda su ficha y la contraseña
-const EN_INICIO = ['*', 'agenda', 'limpieza', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
+const EN_INICIO = ['*', 'agenda', 'sorteos', 'limpieza', 'logros', 'eventos', 'profesoras', 'incidencias', 'inscripciones', 'formularios', 'escuelas_amigas'];
 // Las profesoras tienen Documentos, Logros, Eventos e Incidencias en el Inicio; Inscripciones no lo ven
 const EN_INICIO_PROFE = ['*', 'logros', 'eventos', 'incidencias', 'inscripciones'];
 // La administración también: en Más solo su ficha, Ver como profesora, Equipo y permisos y la contraseña
@@ -3054,6 +3056,247 @@ async function formTemaAgenda(id) {
     borrar.disabled = true;
     try { await q(sb.from('agenda_temas').delete().eq('id', id)); AGENDA_ABIERTO = null; aviso('Borrado'); location.hash = volver; }
     catch (e) { aviso(traducirError(e), true); borrar.disabled = false; }
+  };
+}
+
+/* ---------- sorteo de entradas ---------- */
+// Cada alumna se apunta con sus entradas y recibe un número (1, 2, 3…). Se cierra la lista (queda un código),
+// se sortea el número de inicio en el servidor y desde ahí se sigue en orden (tras el último, el 1).
+// Las butacas se reparten seguidas (1, 2, 3…) y en el plano van en S desde la fila pegada al escenario.
+const puedeSortear = () => S.admin || puedeEditar('sorteos_sortear');
+const veSorteos = () => puedeVer('sorteos') || puedeSortear();
+const apuntaSorteo = () => puedeEditar('sorteos') || puedeSortear();
+const fechaHoraSeg = (ts) => ts ? new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+const fechaHoraCorta = (ts) => ts ? new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+const rangoBut = (d, h) => d === h ? `${d}` : `${d}–${h}`;
+// Orden de compra y butacas. Lo que ya no cabe pasa a lista de espera (en el mismo orden).
+function repartoSorteo(s, parts) {
+  const n = parts.length, porNum = new Map(parts.map((p) => [p.numero, p]));
+  const turnos = []; let libre = 1;
+  if (!s.numero_inicio || !n) return { turnos, sobran: Math.max(0, s.butacas - 0), enEspera: 0 };
+  for (let k = 0; k < n; k++) {
+    const num = ((s.numero_inicio - 1 + k) % n) + 1, p = porNum.get(num);
+    if (!p) continue;
+    const caben = Math.max(0, Math.min(p.entradas, s.butacas - libre + 1));
+    turnos.push({ k: k + 1, p, desde: caben ? libre : null, hasta: caben ? libre + caben - 1 : null, caben, espera: p.entradas - caben });
+    libre += caben;
+  }
+  return { turnos, sobran: s.butacas - libre + 1, enEspera: turnos.reduce((t, x) => t + x.espera, 0) };
+}
+// Butaca → columna en el plano (filas en S: la 1 de izquierda a derecha, la 2 de derecha a izquierda…)
+const posButaca = (b, f) => { const r = Math.floor((b - 1) / f), i = (b - 1) % f; return { r, c: r % 2 === 0 ? i : f - 1 - i }; };
+const TONOS_SORTEO = [['#E4DAFB', '#4A2FA8'], ['#D6E8FB', '#1F5590'], ['#D5F1E6', '#17664A'], ['#FBDDE9', '#9A2456'], ['#E0E3FA', '#363F9A'], ['#D8F0F3', '#16606B']];
+function planoSorteo(s, rep, { imprimir = false } = {}) {
+  const f = s.por_fila, filas = Math.ceil(s.butacas / f), dueno = new Map();
+  rep.turnos.forEach((t) => { for (let b = t.desde; t.caben && b <= t.hasta; b++) dueno.set(b, t); });
+  const celdas = Array.from({ length: filas }, () => Array(f).fill(null));
+  for (let b = 1; b <= s.butacas; b++) { const { r, c } = posButaca(b, f); celdas[r][c] = b; }
+  return `<div class="${imprimir ? 'im-plano' : 'so-plano'}" style="--cols:${f}"><div class="so-esc">ESCENARIO</div>${celdas.map((fila, r) => `<div class="so-fila"><span class="so-fl">${r + 1}</span>${fila.map((b) => {
+    if (b == null) return '<span class="so-but hueco"></span>';
+    const t = dueno.get(b);
+    if (!t) return `<span class="so-but libre"><small>${b}</small></span>`;
+    const [fo, tx] = TONOS_SORTEO[(t.k - 1) % TONOS_SORTEO.length];
+    return `<${imprimir ? 'span' : 'button type="button"'} class="so-but" data-num="${t.p.numero}" style="background:${fo};color:${tx}"><small>${b}</small>${t.p.numero}</${imprimir ? 'span' : 'button'}>`;
+  }).join('')}<span class="so-dir">${r % 2 === 0 ? '→' : '←'}</span></div>`).join('')}</div>`;
+}
+function textoSorteo(s, rep) {
+  return [`*Sorteo de entradas · ${s.titulo}*`, `Sorteo hecho el ${fechaHoraSeg(s.sorteado_en)} por ${s.sorteado_nombre || '—'}`,
+    `Número de inicio: *${s.numero_inicio}* (de ${s.alumnas_n})`, `Código de la lista: ${s.huella}`, '',
+    ...rep.turnos.map((t) => `${t.k}º · nº ${t.p.numero} ${t.p.nombre} (${t.p.entradas}): ${t.caben ? `butacas ${rangoBut(t.desde, t.hasta)}` : 'lista de espera'}${t.caben && t.espera ? ` · ${t.espera} en espera` : ''}`),
+    '', `Se empieza por el número sorteado y se sigue en orden; tras el último se vuelve al 1.`].join('\n');
+}
+function actaSorteo(s, parts, rep, ev) {
+  const div = document.createElement('div'); div.id = 'impresion';
+  div.innerHTML = `<header class="im-cab"><img src="icons/logo.png" alt=""><div class="im-t"><div class="im-k">Academia Blackstars</div><h1>Acta del sorteo de entradas</h1><div class="im-s">${esc(s.titulo)}${ev ? ' · ' + esc(ev.titulo) : ''}</div><div class="im-s">Sacada de la app el ${new Date().toLocaleString('es-ES')}</div></div></header>
+    <table class="im-datos"><tbody>
+      <tr><td>Lista cerrada</td><td>${fechaHoraSeg(s.cerrado_en)} · ${esc(s.cerrado_nombre || '—')}</td></tr>
+      <tr><td>Alumnas apuntadas</td><td>${s.alumnas_n} (números del 1 al ${s.alumnas_n})</td></tr>
+      <tr><td>Entradas pedidas</td><td>${s.entradas_n} · ${s.butacas} butacas</td></tr>
+      <tr><td>Código de la lista</td><td><b>${esc(s.huella)}</b></td></tr>
+      <tr><td>Sorteo</td><td>${fechaHoraSeg(s.sorteado_en)} · ${esc(s.sorteado_nombre || '—')}</td></tr>
+      <tr><td>Número de inicio</td><td><b class="im-ini">${s.numero_inicio}</b></td></tr></tbody></table>
+    <p class="im-regla"><b>Regla:</b> el número de inicio lo saca la base de datos al azar entre el 1 y el ${s.alumnas_n}, una sola vez. Se empieza por ese número y se sigue en orden; al llegar al último se vuelve al 1. Cada alumna recibe sus butacas seguidas. Si no caben todas, las que faltan quedan en lista de espera.</p>
+    <h2>Orden de compra y butacas</h2>
+    <table><thead><tr><th>Turno</th><th>Nº</th><th>Alumna</th><th class="r">Entradas</th><th class="r">Butacas</th></tr></thead><tbody>
+    ${rep.turnos.map((t) => `<tr><td>${t.k}º</td><td>${t.p.numero}</td><td>${esc(t.p.nombre)}</td><td class="r">${t.p.entradas}</td><td class="r">${t.caben ? rangoBut(t.desde, t.hasta) : '—'}${t.espera ? ` <small>(${t.espera} en espera)</small>` : ''}</td></tr>`).join('')}</tbody></table>
+    <h2 class="im-salto">Plano de butacas</h2>
+    <p class="im-regla">En cada butaca: el número grande es el de la alumna y el pequeño el de la butaca. Fila 1 pegada al escenario; se empieza a la izquierda mirando al escenario y se sigue en S.</p>
+    ${planoSorteo(s, rep, { imprimir: true })}
+    <h2>Lista cerrada (antes del sorteo)</h2>
+    <table><thead><tr><th>Nº</th><th>Alumna</th><th class="r">Entradas</th></tr></thead><tbody>${parts.map((p) => `<tr><td>${p.numero}</td><td>${esc(p.nombre)}</td><td class="r">${p.entradas}</td></tr>`).join('')}</tbody></table>
+    <footer>Código de la lista ${esc(s.huella)} · generado por la app Blackstars</footer>`;
+  document.getElementById('impresion')?.remove(); document.body.appendChild(div);
+  const titulo = document.title; document.title = `Acta sorteo - ${s.titulo}`;
+  const fin = () => { document.title = titulo; div.remove(); window.removeEventListener('afterprint', fin); };
+  window.addEventListener('afterprint', fin);
+  const img = div.querySelector('img'), ir = () => setTimeout(() => window.print(), 50);
+  img.complete ? ir() : (img.onload = img.onerror = ir);
+}
+const ESTADO_SORTEO = { abierto: ['mor', 'Lista abierta'], cerrado: ['gris', 'Lista cerrada'], sorteado: ['ok', 'Sorteado'] };
+async function pantallaSorteos() {
+  if (!veSorteos()) return sinPermiso();
+  const l = await q(sb.from('sorteos').select('id,titulo,estado,butacas,numero_inicio,sorteado_en,creado_en,eventos(titulo),sorteo_participantes(entradas)').order('creado_en', { ascending: false }));
+  pintar(cabecera('Sorteo de entradas', { volver: '#/inicio', sub: 'Orden de compra y butacas' }) + `<main class="cont">
+    <div class="lista">${l.map((s) => { const ped = (s.sorteo_participantes || []).reduce((t, p) => t + p.entradas, 0), [c, n] = ESTADO_SORTEO[s.estado];
+      return fila({ href: `#/sorteo/${s.id}`, tit: s.titulo, det: `${(s.sorteo_participantes || []).length} apuntadas · ${ped} de ${s.butacas} entradas${s.eventos ? ' · ' + esc(s.eventos.titulo) : ''}`, iconoHtml: `<span class="ini">${ico('ticket')}</span>`, der: `<span class="chip ${c}">${n}</span>` }); }).join('')
+      || vacio(`Aún no hay ningún sorteo.${apuntaSorteo() ? ' Pulsa + para crear el primero (por ejemplo, «Gala de Navidad»).' : ''}`)}</div>
+  </main>`, 'inicio', apuntaSorteo() ? '#/sorteos/nuevo' : null);
+}
+async function formSorteo(id) {
+  if (!apuntaSorteo()) return sinPermiso();
+  const [s, evs] = await Promise.all([
+    id ? q(sb.from('sorteos').select('*').eq('id', id).single()) : null,
+    puedeVer('eventos') ? intentar(() => q(sb.from('eventos').select('id,titulo,fecha').order('fecha', { ascending: false }).limit(40))) : []
+  ]);
+  const v = s || { titulo: '', evento_id: null, butacas: 140, por_fila: 10, estado: 'abierto' }, bloq = v.estado !== 'abierto';
+  const volver = id ? `#/sorteo/${id}` : '#/sorteos';
+  pintar(cabecera(id ? 'Editar sorteo' : 'Nuevo sorteo', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    <div class="campo"><label for="so_tit">Nombre</label><input id="so_tit" maxlength="200" required value="${esc(v.titulo)}" placeholder="Ej.: Gala de Navidad"></div>
+    ${evs.length ? `<div class="campo"><label for="so_ev">Evento (opcional)</label><select id="so_ev"><option value="">—</option>${evs.map((e) => `<option value="${e.id}" ${e.id === v.evento_id ? 'selected' : ''}>${esc(e.titulo)}${e.fecha ? ' · ' + fechaCorta(e.fecha) : ''}</option>`).join('')}</select></div>` : ''}
+    <div class="campo"><label for="so_but">Butacas</label><input id="so_but" type="number" inputmode="numeric" min="1" max="2000" required value="${v.butacas}" ${bloq ? 'disabled' : ''}></div>
+    <div class="campo"><label for="so_fila">Butacas por fila</label><input id="so_fila" type="number" inputmode="numeric" min="1" max="60" required value="${v.por_fila}" ${bloq ? 'disabled' : ''}><span class="ayuda">${bloq ? 'La lista ya está cerrada: las butacas no se pueden cambiar.' : 'Para dibujar el plano. 140 butacas en filas de 10 = 14 filas.'}</span></div>
+    <button class="btn pri ancho" type="submit">Guardar</button>
+    ${id && S.admin ? `<button class="btn peligro ancho" type="button" id="so_borrar">${ico('papelera', 18)} Borrar este sorteo</button>` : ''}
+  </form></main>`, false);
+  const form = document.getElementById('frm');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    const d = { titulo: form.so_tit.value.trim(), evento_id: form.so_ev ? form.so_ev.value || null : v.evento_id };
+    if (!bloq) { d.butacas = +form.so_but.value; d.por_fila = +form.so_fila.value; }
+    try {
+      if (id) { await q(sb.from('sorteos').update(d).eq('id', id)); aviso('Guardado'); location.hash = volver; }
+      else { const n = await q(sb.from('sorteos').insert(d).select('id').single()); aviso('Creado. Ahora apunta a las alumnas'); location.hash = `#/sorteo/${n.id}`; }
+    } catch (er) { aviso(traducirError(er), true); btn.disabled = false; }
+  };
+  const borrar = document.getElementById('so_borrar');
+  if (borrar) borrar.onclick = async () => {
+    if (!borrar.dataset.seguro) { borrar.dataset.seguro = '1'; borrar.innerHTML = `${ico('papelera', 18)} Pulsa otra vez: se borra con su lista${v.estado === 'sorteado' ? ' y su resultado' : ''}`; return; }
+    borrar.disabled = true;
+    try { await q(sb.from('sorteos').delete().eq('id', id)); aviso('Borrado'); location.hash = '#/sorteos'; }
+    catch (er) { aviso(traducirError(er), true); borrar.disabled = false; }
+  };
+}
+let SORTEO_SEL = null;
+async function pantallaSorteo(id, params) {
+  if (!veSorteos()) return sinPermiso();
+  const [s, parts] = await Promise.all([
+    q(sb.from('sorteos').select('*,eventos(id,titulo,fecha)').eq('id', id).single()),
+    q(sb.from('sorteo_participantes').select('*').eq('sorteo_id', id).order('numero'))
+  ]);
+  const ab = s.estado === 'abierto', sorteado = s.estado === 'sorteado', ed = ab && apuntaSorteo();
+  const vista = sorteado ? (params.get('v') || 'orden') : 'lista';
+  const ped = parts.reduce((t, p) => t + p.entradas, 0), rep = repartoSorteo(s, parts);
+  const url = (v) => `#/sorteo/${id}?v=${v}`;
+  const stats = `<div class="so-stats"><div><b>${s.butacas}</b><span>Butacas</span></div><div><b>${ped}</b><span>Pedidas</span></div><div><b>${parts.length}</b><span>Apuntadas</span></div></div>
+    <div class="tarjeta so-ocup"><div><span>Butacas pedidas</span><span class="${ped > s.butacas ? 'so-pasa' : ''}">${ped} de ${s.butacas} · ${ped > s.butacas ? `${ped - s.butacas} irán a lista de espera` : `quedan ${s.butacas - ped}`}</span></div><div class="so-barra"><i style="width:${Math.min(100, ped / s.butacas * 100)}%"></i></div></div>`;
+  const cierre = s.estado !== 'abierto' ? `<div class="tarjeta so-cierre"><span class="so-candado">${ico('candado', 20)}</span><div><b>Lista cerrada</b><span class="so-ayuda">Ya no se puede añadir, quitar ni cambiar entradas.</span>
+    <dl><dt>Cerrada</dt><dd>${fechaHoraSeg(s.cerrado_en)}</dd><dt>Por</dt><dd>${esc(s.cerrado_nombre || '—')}</dd><dt>Alumnas</dt><dd>${s.alumnas_n} (nº 1 al ${s.alumnas_n})</dd><dt>Código de la lista</dt><dd class="so-cod">${esc(s.huella || '')}</dd></dl></div></div>` : '';
+  const primero = sorteado && rep.turnos[0];
+  const bola = sorteado ? `<div class="tarjeta so-res"><span class="so-k">Número de inicio</span><div class="so-bola">${s.numero_inicio}</div><b>Empieza ${esc(primero ? primero.p.nombre : '')}</b>
+    <span class="chip ok">${ico('check', 14)} Sorteo hecho · ${fechaHoraSeg(s.sorteado_en)}</span><span class="so-ayuda">Sorteado por ${esc(s.sorteado_nombre || '—')}, al azar entre el 1 y el ${s.alumnas_n}. Queda guardado y no se puede repetir.</span>
+    <div class="so-dos"><button class="btn pri" id="so_pdf">${ico('doc', 18)} Acta PDF</button><button class="btn sec" id="so_wa">${ico('copiar', 18)} Copiar para WhatsApp</button></div></div>` : '';
+  const acciones = ab ? (puedeSortear() ? (parts.length ? `<button class="btn ancho so-cerrar" id="so_cerrar">${ico('candado', 18)} Cerrar lista para sortear</button><span class="so-ayuda c">Al cerrar, nadie podrá tocar la lista. Antes de sortear se puede volver a abrir.</span>` : '') : `<span class="so-ayuda c">Cuando estén todas, Raúl o Adela cierran la lista y hacen el sorteo.</span>`)
+    : s.estado === 'cerrado' ? (puedeSortear() ? `<button class="btn pri ancho so-sortear" id="so_sortear">🎲 Sortear</button><span class="so-ayuda c">Sale un número al azar entre el 1 y el ${s.alumnas_n}. Solo se puede hacer una vez.</span><button class="btn sec ancho" id="so_abrir">Volver a abrir la lista</button>` : `<span class="so-ayuda c">La lista está cerrada. Falta que Raúl o Adela hagan el sorteo.</span>`) : '';
+  const filaLista = (p) => `<div class="so-row"><span class="so-num">${p.numero}</span><span class="so-who"><b>${esc(p.nombre)}</b>${p.clase ? `<span>${esc(p.clase)}</span>` : ''}</span>
+    ${ed ? `<span class="so-qty"><button type="button" data-menos="${p.id}" aria-label="Una entrada menos" ${p.entradas <= 1 ? 'disabled' : ''}>−</button><b>${p.entradas}</b><button type="button" data-mas="${p.id}" aria-label="Una entrada más">+</button></span><a class="so-ed" href="#/sorteo/${id}/apuntar?p=${p.id}" aria-label="Editar">${ico('lapiz', 18)}</a>` : `<span class="so-ent"><b>${p.entradas}</b> entr.</span>`}</div>`;
+  const filaTurno = (t, i) => `${i > 0 && t.p.numero === 1 ? '<div class="so-vuelta">vuelve al nº 1</div>' : ''}<div class="so-row${i === 0 ? ' prim' : ''}"><span class="so-t">${t.k}º</span><span class="so-num">${t.p.numero}</span><span class="so-who"><b>${esc(t.p.nombre)}</b><span>${t.p.entradas} entrada${t.p.entradas === 1 ? '' : 's'}${t.espera ? ` · <em>${t.espera} en espera</em>` : ''}</span></span>
+    <span class="so-seats">${t.caben ? `<b>${rangoBut(t.desde, t.hasta)}</b><span>butaca${t.caben === 1 ? '' : 's'}</span>` : '<em>Lista de espera</em>'}</span></div>`;
+  const cuerpo = vista === 'plano' ? `<div class="tarjeta">${planoSorteo(s, rep)}<p class="so-ayuda c">Fila 1 pegada al escenario. Se empieza a la izquierda (mirando al escenario) y se sigue en S.</p></div>
+      <div class="tarjeta so-sel" id="so_sel"><span class="so-ayuda">Toca una butaca para ver de quién es. El número grande es el de la alumna; el pequeño, el de la butaca.</span></div>`
+    : vista === 'orden' ? `<div class="tarjeta">${rep.turnos.map(filaTurno).join('')}</div>${rep.enEspera ? `<p class="so-ayuda c">${rep.enEspera} entrada${rep.enEspera === 1 ? '' : 's'} en lista de espera (no caben en las ${s.butacas} butacas).</p>` : ''}`
+    : `${ed ? `<a class="btn sec ancho" href="#/sorteo/${id}/apuntar">${ico('mas', 18)} Apuntar alumna</a>` : ''}
+      <div class="tarjeta">${parts.map(filaLista).join('') || vacio('Aún no hay nadie apuntado.')}</div>
+      ${ab ? '<p class="so-ayuda c">Cada alumna recibe su número al apuntarse (1, 2, 3…). Si se quita a alguien, las de detrás corren un puesto.</p>' : ''}`;
+  pintar(cabecera('Sorteo de entradas', { volver: '#/sorteos', sub: esc(s.titulo) + (s.eventos ? ' · ' + esc(s.eventos.titulo) : '') }) + `<main class="cont">
+    ${stats}${cierre}${bola}${acciones}
+    ${sorteado ? `<div class="pestanas-ag so-tabs"><a class="${vista === 'orden' ? 'on' : ''}" href="${url('orden')}">Orden</a><a class="${vista === 'plano' ? 'on' : ''}" href="${url('plano')}">Plano</a><a class="${vista === 'lista' ? 'on' : ''}" href="${url('lista')}">Lista</a></div>` : ''}
+    ${cuerpo}
+    ${apuntaSorteo() ? `<a class="btn sec ancho" href="#/sorteos/${id}">${ico('lapiz', 18)} Nombre, evento y butacas</a>` : ''}
+  </main>`, 'inicio');
+  const $ = (x) => document.getElementById(x);
+  const rpc = (fn, msg) => async (e) => {
+    const b = e.currentTarget;
+    if (!b.dataset.seguro && fn !== 'reabrir_lista_sorteo') { b.dataset.seguro = '1'; b.dataset.txt = b.innerHTML; b.innerHTML = fn === 'hacer_sorteo' ? '🎲 Pulsa otra vez para sortear' : `${ico('candado', 18)} Pulsa otra vez para cerrarla`; return; }
+    b.disabled = true;
+    try { await q(sb.rpc(fn, { p_id: id })); aviso(msg); router(); } catch (er) { aviso(traducirError(er), true); b.disabled = false; if (b.dataset.txt) { b.innerHTML = b.dataset.txt; delete b.dataset.seguro; } }
+  };
+  if ($('so_cerrar')) $('so_cerrar').onclick = rpc('cerrar_lista_sorteo', 'Lista cerrada');
+  if ($('so_sortear')) $('so_sortear').onclick = rpc('hacer_sorteo', 'Sorteo hecho');
+  if ($('so_abrir')) $('so_abrir').onclick = rpc('reabrir_lista_sorteo', 'Lista abierta otra vez');
+  if ($('so_pdf')) $('so_pdf').onclick = () => actaSorteo(s, parts, rep, s.eventos);
+  if ($('so_wa')) $('so_wa').onclick = async () => { const t = textoSorteo(s, rep); try { await navigator.clipboard.writeText(t); aviso('Copiado: pégalo en WhatsApp'); } catch (er) { prompt('Copia el resultado:', t); } };
+  const cambiar = (pid, d) => async (e) => {
+    const p = parts.find((x) => x.id === pid); e.currentTarget.disabled = true;
+    try { await q(sb.from('sorteo_participantes').update({ entradas: Math.max(1, p.entradas + d) }).eq('id', pid)); router(); } catch (er) { aviso(traducirError(er), true); router(); }
+  };
+  $app.querySelectorAll('[data-menos]').forEach((b) => b.onclick = cambiar(b.dataset.menos, -1));
+  $app.querySelectorAll('[data-mas]').forEach((b) => b.onclick = cambiar(b.dataset.mas, 1));
+  const plano = $app.querySelector('.so-plano');
+  if (plano) {
+    const elegir = (num) => {
+      SORTEO_SEL = num;
+      plano.querySelectorAll('.so-but[data-num]').forEach((x) => { const m = num != null && +x.dataset.num === num; x.classList.toggle('on', m); x.classList.toggle('dim', num != null && !m); });
+      const t = rep.turnos.find((x) => x.p.numero === num);
+      if (!t) { $('so_sel').innerHTML = '<span class="so-ayuda">Toca una butaca para ver de quién es. El número grande es el de la alumna; el pequeño, el de la butaca.</span>'; return; }
+      const filas = [...new Set(Array.from({ length: t.caben }, (_, j) => posButaca(t.desde + j, s.por_fila).r + 1))].join(' y ');
+      $('so_sel').innerHTML = `<span class="so-num">${t.p.numero}</span><span class="so-who"><b>${esc(t.p.nombre)}</b><span>${t.p.entradas} entradas · butacas ${rangoBut(t.desde, t.hasta)} · fila ${filas}${t.espera ? ` · ${t.espera} en espera` : ''}</span></span>`;
+    };
+    plano.onclick = (e) => { const b = e.target.closest('.so-but[data-num]'); if (b) elegir(+b.dataset.num === SORTEO_SEL ? null : +b.dataset.num); };
+    if (SORTEO_SEL != null && rep.turnos.some((x) => x.p.numero === SORTEO_SEL)) elegir(SORTEO_SEL); else SORTEO_SEL = null;
+  }
+}
+async function formApuntarSorteo(id, params) {
+  if (!apuntaSorteo()) return sinPermiso();
+  const pid = params.get('p');
+  const [s, p, alumnas, clases, ins] = await Promise.all([
+    q(sb.from('sorteos').select('id,titulo,estado').eq('id', id).single()),
+    pid ? q(sb.from('sorteo_participantes').select('*').eq('id', pid).single()) : null,
+    puedeVer('alumnas') ? intentar(opcionesAlumnas) : [],
+    puedeVer('clases') ? intentar(() => q(sb.from('clases').select('id,nombre').eq('activa', true).is('escuela_amiga_id', null).order('nombre'))) : [],
+    puedeVer('inscripciones') ? intentar(() => q(sb.from('inscripciones').select('clase_id,alumna_id').is('fecha_baja', null))) : []
+  ]);
+  const volver = `#/sorteo/${id}`;
+  if (s.estado !== 'abierto') { aviso('La lista ya está cerrada', true); location.hash = volver; return; }
+  let cant = p ? p.entradas : 1;
+  const conAlumna = !!(p && p.alumna_id && alumnas.some(([v]) => v === p.alumna_id));
+  pintar(cabecera(p ? `Nº ${p.numero}` : 'Apuntar alumna', { volver, sub: esc(s.titulo) }) + `<main class="cont"><form class="form tarjeta" id="frm">
+    ${clases.length ? `<div class="campo"><label for="f_clase">Clase (para buscar más rápido)</label><select id="f_clase"><option value="">Todas las clases</option>${clases.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select></div>` : ''}
+    ${alumnas.length ? `<div class="campo"><label for="f_alumna">Alumna</label><select id="f_alumna"></select></div>` : ''}
+    <div class="campo"><label for="f_nombre">${alumnas.length ? 'O si no está en la lista, nombre' : 'Nombre'}</label><input id="f_nombre" maxlength="200" value="${p && !conAlumna ? esc(p.nombre) : ''}" placeholder="Nombre y apellidos"></div>
+    <div class="campo"><label>Entradas</label><div class="contador-ud"><button type="button" id="menos" aria-label="Una menos">−</button><b id="cant">${cant}</b><button type="button" id="mas" aria-label="Una más">+</button></div></div>
+    <button class="btn pri ancho" type="submit">${p ? 'Guardar' : 'Apuntar'}</button>
+    ${p ? `<button class="btn peligro ancho" type="button" id="quitar">${ico('papelera', 18)} Quitar de la lista</button>` : '<span class="ayuda" style="text-align:center">Recibe el siguiente número libre.</span>'}
+  </form></main>`, false);
+  const $ = (x) => document.getElementById(x);
+  const clasesDe = (aid) => { const ids = new Set(ins.filter((i) => i.alumna_id === aid).map((i) => i.clase_id)); return clases.filter((c) => ids.has(c.id)).map((c) => c.nombre).join(', '); };
+  const pintarAlumnas = () => {
+    if (!$('f_alumna')) return;
+    const c = $('f_clase') ? $('f_clase').value : '', dentro = new Set(ins.filter((i) => i.clase_id === c).map((i) => i.alumna_id));
+    $('f_alumna').innerHTML = '<option value="">—</option>' + alumnas.filter(([v]) => !c || dentro.has(v)).map(([v, t]) => `<option value="${v}" ${conAlumna && v === p.alumna_id ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  };
+  if ($('f_clase')) $('f_clase').onchange = pintarAlumnas;
+  pintarAlumnas();
+  $('menos').onclick = () => { if (cant > 1) cant--; $('cant').textContent = cant; };
+  $('mas').onclick = () => { if (cant < 50) cant++; $('cant').textContent = cant; };
+  $('frm').onsubmit = async (e) => {
+    e.preventDefault();
+    const aid = $('f_alumna') ? $('f_alumna').value || null : null, libre = $('f_nombre').value.trim();
+    if (!aid && !libre) { aviso('Elige la alumna o escribe un nombre', true); return; }
+    const nombre = aid ? alumnas.find(([v]) => v === aid)[1] : libre;
+    const d = { alumna_id: aid, nombre, clase: aid ? clasesDe(aid) || null : null, entradas: cant };
+    const btn = $('frm').querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      if (p) { await q(sb.from('sorteo_participantes').update(d).eq('id', p.id)); aviso('Guardado'); }
+      else { const n = await q(sb.from('sorteo_participantes').insert({ ...d, sorteo_id: id, numero: 0 }).select('numero').single()); aviso(`Apuntada con el número ${n.numero}`); }
+      location.hash = volver;
+    } catch (er) { aviso(traducirError(er), true); btn.disabled = false; }
+  };
+  if ($('quitar')) $('quitar').onclick = async (e) => {
+    const b = e.currentTarget;
+    if (!b.dataset.seguro) { b.dataset.seguro = '1'; b.innerHTML = `${ico('papelera', 18)} Pulsa otra vez: las de detrás corren un puesto`; return; }
+    b.disabled = true;
+    try { await q(sb.from('sorteo_participantes').delete().eq('id', p.id)); aviso('Quitada de la lista'); location.hash = volver; } catch (er) { aviso(traducirError(er), true); b.disabled = false; }
   };
 }
 
@@ -5539,6 +5782,8 @@ async function router() {
       case 'estrellas': return await pantallaEstrellas(params);
       case 'lista': return await pantallaLista(params);
       case 'limpieza': return await pantallaLimpieza(params);
+      case 'sorteos': return p[1] ? await formSorteo(p[1] === 'nuevo' ? null : p[1]) : await pantallaSorteos();
+      case 'sorteo': return p[2] === 'apuntar' ? await formApuntarSorteo(p[1], params) : await pantallaSorteo(p[1], params);
       case 'agenda': return p[1] ? await formTemaAgenda(p[1] === 'nuevo' ? null : p[1]) : await pantallaAgenda(params);
       case 'logros':
         if (p[1] === 'reto') return await formReto(params);
