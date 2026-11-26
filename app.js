@@ -513,7 +513,7 @@ async function pantallaInicio(vista = null) {
     ['formularios', '#/formularios', 'form', 'Formularios', 'Enlaces por WhatsApp', false],
     ['escuelas_amigas', '#/escuelas', 'escuela', 'Escuela amiga', 'Clases y cuota', false],
     ['limpieza', '#/limpieza', 'limpia', 'Limpieza', 'Viernes, diario e inventario', false]
-  ]).filter((x) => x[0] === '*' || (x[5] ? editar(x[0]) : ver(x[0])));
+  ]).filter((x) => x[0] === '*' || (x[0] === 'sorteos' ? ver('sorteos') || ver('sorteos_sortear') : x[5] ? editar(x[0]) : ver(x[0])));
   const nAgenda = pAgenda ? +(await pAgenda) || 0 : 0;
   pintar((vista ? `<div class="banda-vista">${ico('ojo', 18)}<span>Vista de <b>${esc(vista.profesora.nombre)}</b>${vista.recomendada ? ' · permisos recomendados' : ''}</span><button data-ir="${vista.salir || '#/vista'}">Salir</button></div>` : '') + cabecera('Inicio', { sub: capital(fechaLarga(hoy)), insignia: vista ? (profesora ? 'Profesora' : vista.profesora.nombre.split(' ')[0]) : null }) + `<main class="cont">
     ${bloqueClases}
@@ -5818,7 +5818,12 @@ document.addEventListener('click', (ev) => {
   if (v) { ev.preventDefault(); atras(v.dataset.volver); }
 });
 // Al volver a la app (otra pestaña, móvil desbloqueado) se recargan los permisos por si han cambiado; la pantalla no se toca para no perder lo que se esté escribiendo
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.usuario && Date.now() - (S.cargadoEn || 0) > 120000) cargarSesion().catch(console.error); });
+// Al volver a la app se comprueban los permisos; si han cambiado (p. ej. la administración ha dado uno nuevo), se vuelve a pintar
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !S.usuario || Date.now() - (S.cargadoEn || 0) <= 120000) return;
+  const antes = JSON.stringify([S.perfil, S.permisos]);
+  cargarSesion().then(() => { if (S.usuario && JSON.stringify([S.perfil, S.permisos]) !== antes && !$app.querySelector('form')) router(); }).catch(console.error);
+});
 // Si una pantalla tarda, una barrita arriba avisa de que el toque ha llegado
 /* ---------- atrás en escalera ----------
    Se apunta el camino de pantallas igual que el historial del móvil, para que atrás (la flecha de la app o la del móvil)
