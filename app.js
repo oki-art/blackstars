@@ -3148,11 +3148,13 @@ async function formSorteo(id) {
     id ? q(sb.from('sorteos').select('*').eq('id', id).single()) : null,
     puedeVer('eventos') ? intentar(() => q(sb.from('eventos').select('id,titulo,fecha').order('fecha', { ascending: false }).limit(40))) : []
   ]);
-  const v = s || { titulo: '', evento_id: null, butacas: 140, por_fila: 10, estado: 'abierto' }, bloq = v.estado !== 'abierto';
+  const v = s || { titulo: '', evento_id: null, butacas: 140, por_fila: 10, estado: 'abierto', precio_entrada: 8 }, bloq = v.estado !== 'abierto';
+  const conPrecio = !s || 'precio_entrada' in s;   // sin la 045 aún no hay precio
   const volver = id ? `#/sorteo/${id}` : '#/sorteos';
   pintar(cabecera(id ? 'Editar sorteo' : 'Nuevo sorteo', { volver }) + `<main class="cont"><form class="form tarjeta" id="frm">
     <div class="campo"><label for="so_tit">Nombre</label><input id="so_tit" maxlength="200" required value="${esc(v.titulo)}" placeholder="Ej.: Gala de Navidad"></div>
-    ${evs.length ? `<div class="campo"><label for="so_ev">Evento (opcional)</label><select id="so_ev"><option value="">—</option>${evs.map((e) => `<option value="${e.id}" ${e.id === v.evento_id ? 'selected' : ''}>${esc(e.titulo)}${e.fecha ? ' · ' + fechaCorta(e.fecha) : ''}</option>`).join('')}</select></div>` : ''}
+    ${evs.length ? `<div class="campo"><label for="so_ev">Evento</label><select id="so_ev"><option value="">—</option>${evs.map((e) => `<option value="${e.id}" ${e.id === v.evento_id ? 'selected' : ''}>${esc(e.titulo)}${e.fecha ? ' · ' + fechaCorta(e.fecha) : ''}</option>`).join('')}</select></div>` : ''}
+    ${conPrecio ? `<div class="campo"><label for="so_precio">Precio de cada entrada (€)</label><input id="so_precio" type="number" inputmode="decimal" min="0" step="0.5" value="${v.precio_entrada ?? ''}" placeholder="8" ${bloq ? 'disabled' : ''}><span class="ayuda">Con evento y precio, cada alumna apuntada sale sola en Caja como venta de entradas pendiente de pago. Déjalo vacío si no se cobra.</span></div>` : ''}
     <div class="campo"><label for="so_but">Butacas</label><input id="so_but" type="number" inputmode="numeric" min="1" max="2000" required value="${v.butacas}" ${bloq ? 'disabled' : ''}></div>
     <div class="campo"><label for="so_fila">Butacas por fila</label><input id="so_fila" type="number" inputmode="numeric" min="1" max="60" required value="${v.por_fila}" ${bloq ? 'disabled' : ''}><span class="ayuda">${bloq ? 'La lista ya está cerrada: las butacas no se pueden cambiar.' : 'Para dibujar el plano. 140 butacas en filas de 10 = 14 filas.'}</span></div>
     <button class="btn pri ancho" type="submit">Guardar</button>
@@ -3164,6 +3166,10 @@ async function formSorteo(id) {
     const btn = form.querySelector('[type=submit]'); btn.disabled = true;
     const d = { titulo: form.so_tit.value.trim(), evento_id: form.so_ev ? form.so_ev.value || null : v.evento_id };
     if (!bloq) { d.butacas = +form.so_but.value; d.por_fila = +form.so_fila.value; }
+    if (!bloq && form.so_precio) {
+      d.precio_entrada = form.so_precio.value === '' ? null : +form.so_precio.value;
+      if (d.precio_entrada != null && !d.evento_id) { aviso('Elige el evento para que las entradas salgan en Caja', true); btn.disabled = false; return; }
+    }
     try {
       if (id) { await q(sb.from('sorteos').update(d).eq('id', id)); aviso('Guardado'); location.hash = volver; }
       else { const n = await q(sb.from('sorteos').insert(d).select('id').single()); aviso('Creado. Ahora apunta a las alumnas'); location.hash = `#/sorteo/${n.id}`; }
@@ -3184,22 +3190,45 @@ async function pantallaSorteo(id, params) {
     q(sb.from('sorteos').select('*,eventos(id,titulo,fecha)').eq('id', id).single()),
     q(sb.from('sorteo_participantes').select('*').eq('sorteo_id', id).order('numero'))
   ]);
+  // Cobros (045): la venta de entradas de cada una en el evento
+  const cobra = s.precio_entrada != null && !!s.evento_id;
+  const idsRes = parts.map((p) => p.reserva_id).filter(Boolean);
+  const res = cobra && idsRes.length ? await intentar(() => q(sb.from('evento_reservas').select('id,estado,metodo,importe,pagado_en').in('id', idsRes))) : [];
+  const resDe = (p) => res.find((r) => r.id === p.reserva_id) || null;
+  const pagada = (p) => { const r = resDe(p); return !!(r && r.estado === 'pagada'); };
+  const sinPagar = cobra ? parts.filter((p) => !pagada(p)) : [];
+  const puedeCobrar = puedeEditar('caja');
   const ab = s.estado === 'abierto', sorteado = s.estado === 'sorteado', ed = ab && apuntaSorteo();
   const vista = sorteado ? (params.get('v') || 'orden') : 'lista';
   const ped = parts.reduce((t, p) => t + p.entradas, 0), rep = repartoSorteo(s, parts);
   const url = (v) => `#/sorteo/${id}?v=${v}`;
   const stats = `<div class="so-stats"><div><b>${s.butacas}</b><span>Butacas</span></div><div><b>${ped}</b><span>Pedidas</span></div><div><b>${parts.length}</b><span>Apuntadas</span></div></div>
-    <div class="tarjeta so-ocup"><div><span>Butacas pedidas</span><span class="${ped > s.butacas ? 'so-pasa' : ''}">${ped} de ${s.butacas} · ${ped > s.butacas ? `${ped - s.butacas} irán a lista de espera` : `quedan ${s.butacas - ped}`}</span></div><div class="so-barra"><i style="width:${Math.min(100, ped / s.butacas * 100)}%"></i></div></div>`;
+    <div class="tarjeta so-ocup"><div><span>Butacas pedidas</span><span class="${ped > s.butacas ? 'so-pasa' : ''}">${ped} de ${s.butacas} · ${ped > s.butacas ? `${ped - s.butacas} irán a lista de espera` : `quedan ${s.butacas - ped}`}</span></div><div class="so-barra"><i style="width:${Math.min(100, ped / s.butacas * 100)}%"></i></div></div>`
+    + (cobra ? (() => {
+      const eCob = parts.filter(pagada).reduce((t, p) => t + p.entradas, 0), eFal = ped - eCob;
+      const cob = parts.filter(pagada).reduce((t, p) => t + +(resDe(p).importe || 0), 0), fal = sinPagar.reduce((t, p) => t + p.entradas * s.precio_entrada, 0);
+      return `<div class="so-dinero"><div class="in"><b>${eur(cob)}</b><span>Cobrado · ${eCob} entr.</span></div><div class="pe"><b>${eur(fal)}</b><span>Falta · ${eFal} entr.</span></div></div>
+      <div class="tarjeta so-ocup"><div><span>Pagadas</span><span>${parts.length - sinPagar.length} de ${parts.length} alumnas · ${eur(s.precio_entrada)} la entrada</span></div><div class="so-barra pag"><i style="width:${parts.length ? (parts.length - sinPagar.length) / parts.length * 100 : 0}%"></i></div></div>`;
+    })() : '');
   const cierre = s.estado !== 'abierto' ? `<div class="tarjeta so-cierre"><span class="so-candado">${ico('candado', 20)}</span><div><b>Lista cerrada</b><span class="so-ayuda">Ya no se puede añadir, quitar ni cambiar entradas.</span>
     <dl><dt>Cerrada</dt><dd>${fechaHoraSeg(s.cerrado_en)}</dd><dt>Por</dt><dd>${esc(s.cerrado_nombre || '—')}</dd><dt>Alumnas</dt><dd>${s.alumnas_n} (nº 1 al ${s.alumnas_n})</dd><dt>Código de la lista</dt><dd class="so-cod">${esc(s.huella || '')}</dd></dl></div></div>` : '';
   const primero = sorteado && rep.turnos[0];
   const bola = sorteado ? `<div class="tarjeta so-res"><span class="so-k">Número de inicio</span><div class="so-bola">${s.numero_inicio}</div><b>Empieza ${esc(primero ? primero.p.nombre : '')}</b>
     <span class="chip ok">${ico('check', 14)} Sorteo hecho · ${fechaHoraSeg(s.sorteado_en)}</span><span class="so-ayuda">Sorteado por ${esc(s.sorteado_nombre || '—')}, al azar entre el 1 y el ${s.alumnas_n}. Queda guardado y no se puede repetir.</span>
     <div class="so-dos"><button class="btn pri" id="so_pdf">${ico('doc', 18)} Acta PDF</button><button class="btn sec" id="so_wa">${ico('copiar', 18)} Copiar para WhatsApp</button></div></div>` : '';
-  const acciones = ab ? (puedeSortear() ? (parts.length ? `<button class="btn ancho so-cerrar" id="so_cerrar">${ico('candado', 18)} Cerrar lista para sortear</button><span class="so-ayuda c">Al cerrar, nadie podrá tocar la lista. Antes de sortear se puede volver a abrir.</span>` : '') : `<span class="so-ayuda c">Cuando estén todas, Raúl o Adela cierran la lista y hacen el sorteo.</span>`)
+  const btnCobrar = (p) => puedeCobrar && resDe(p) ? `<button type="button" class="so-cobrar" data-cobrar="${p.id}">Cobrar</button>` : '';
+  const bloqueoPago = ab && cobra && sinPagar.length && !s.cerrar_sin_pagar;
+  const avisoPagos = ab && cobra && sinPagar.length ? (s.cerrar_sin_pagar
+    ? `<div class="tarjeta so-autoriz"><b>${ico('check', 16)} Autorizado cerrar sin estar todas pagadas</b><span class="so-ayuda">Lo autorizó ${esc(s.autorizado_nombre || 'la administración')} · ${fechaHoraSeg(s.autorizado_en)}. Faltan ${sinPagar.length} por pagar.</span>${S.admin ? '<button class="btn sec ancho" id="so_desautorizar">Quitar la autorización</button>' : ''}</div>`
+    : `<div class="so-aviso"><h3>Faltan ${sinPagar.length} ${sinPagar.length === 1 ? 'alumna' : 'alumnas'} por pagar</h3><span class="so-ayuda">Para cerrar la lista y sortear, todas tienen que estar pagadas. Cóbralas o quítalas de la lista.</span>
+      ${sinPagar.map((p) => `<div class="so-row"><span class="so-num">${p.numero}</span><span class="so-who"><b>${esc(p.nombre)}</b><span>${p.entradas} × ${eur(s.precio_entrada)} = ${eur(p.entradas * s.precio_entrada)}</span></span>${btnCobrar(p)}</div><div class="so-metodos" id="m-${p.id}" hidden></div>`).join('')}
+      ${S.admin ? '<button class="btn sec ancho" id="so_autorizar">Autorizar cerrar aunque falten</button>' : ''}</div>`) : '';
+  const acciones = ab ? (puedeSortear() ? (parts.length ? bloqueoPago ? `<button class="btn ancho so-cerrar" disabled>${ico('candado', 18)} Cerrar lista para sortear</button><span class="so-ayuda c">El botón se activa cuando están todas pagadas${S.admin ? ' o si lo autorizas' : ''}.</span>` : `<button class="btn ancho so-cerrar" id="so_cerrar">${ico('candado', 18)} Cerrar lista para sortear</button><span class="so-ayuda c">Al cerrar, nadie podrá tocar la lista. Antes de sortear se puede volver a abrir.</span>` : '') : `<span class="so-ayuda c">Cuando estén todas, Raúl o Adela cierran la lista y hacen el sorteo.</span>`)
     : s.estado === 'cerrado' ? (puedeSortear() ? `<button class="btn pri ancho so-sortear" id="so_sortear">🎲 Sortear</button><span class="so-ayuda c">Sale un número al azar entre el 1 y el ${s.alumnas_n}. Solo se puede hacer una vez.</span><button class="btn sec ancho" id="so_abrir">Volver a abrir la lista</button>` : `<span class="so-ayuda c">La lista está cerrada. Falta que Raúl o Adela hagan el sorteo.</span>`) : '';
-  const filaLista = (p) => `<div class="so-row"><span class="so-num">${p.numero}</span><span class="so-who"><b>${esc(p.nombre)}</b>${p.clase ? `<span>${esc(p.clase)}</span>` : ''}</span>
-    ${ed ? `<span class="so-qty"><button type="button" data-menos="${p.id}" aria-label="Una entrada menos" ${p.entradas <= 1 ? 'disabled' : ''}>−</button><b>${p.entradas}</b><button type="button" data-mas="${p.id}" aria-label="Una entrada más">+</button></span><a class="so-ed" href="#/sorteo/${id}/apuntar?p=${p.id}" aria-label="Editar">${ico('lapiz', 18)}</a>` : `<span class="so-ent"><b>${p.entradas}</b> entr.</span>`}</div>`;
+  const estadoPago = (p) => { if (!cobra) return ''; const r = resDe(p); return r && r.estado === 'pagada' ? `<span class="chip ok">${ico('check', 12)} Pagado${r.metodo ? ' · ' + esc((METODOS.find((m) => m[0] === r.metodo) || [0, r.metodo])[1]) : ''}</span>` : `<span class="chip gris">Pendiente · ${eur(p.entradas * s.precio_entrada)}</span>`; };
+  const filaLista = (p) => { const pag = cobra && pagada(p);
+    return `<div class="so-row${cobra ? ' con-pago' : ''}"><span class="so-num">${p.numero}</span><span class="so-who"><b>${esc(p.nombre)}</b>${p.clase ? `<span>${esc(p.clase)}</span>` : ''}${cobra ? `<span class="so-pago">${estadoPago(p)}${!pag ? btnCobrar(p) : ''}</span>` : ''}</span>
+    ${ed && !pag ? `<span class="so-qty"><button type="button" data-menos="${p.id}" aria-label="Una entrada menos" ${p.entradas <= 1 ? 'disabled' : ''}>−</button><b>${p.entradas}</b><button type="button" data-mas="${p.id}" aria-label="Una entrada más">+</button></span><a class="so-ed" href="#/sorteo/${id}/apuntar?p=${p.id}" aria-label="Editar">${ico('lapiz', 18)}</a>` : `<span class="so-ent"><b>${p.entradas}</b> entr.</span>`}</div>${cobra && !pag ? `<div class="so-metodos" id="m-${p.id}" hidden></div>` : ''}`; };
   const filaTurno = (t, i) => `${i > 0 && t.p.numero === 1 ? '<div class="so-vuelta">vuelve al nº 1</div>' : ''}<div class="so-row${i === 0 ? ' prim' : ''}"><span class="so-t">${t.k}º</span><span class="so-num">${t.p.numero}</span><span class="so-who"><b>${esc(t.p.nombre)}</b><span>${t.p.entradas} entrada${t.p.entradas === 1 ? '' : 's'}${t.espera ? ` · <em>${t.espera} en espera</em>` : ''}</span></span>
     <span class="so-seats">${t.caben ? `<b>${rangoBut(t.desde, t.hasta)}</b><span>butaca${t.caben === 1 ? '' : 's'}</span>` : '<em>Lista de espera</em>'}</span></div>`;
   const cuerpo = vista === 'plano' ? `<div class="tarjeta">${planoSorteo(s, rep)}<p class="so-ayuda c">Fila 1 pegada al escenario. Se empieza a la izquierda (mirando al escenario) y se sigue en S.</p></div>
@@ -3207,12 +3236,12 @@ async function pantallaSorteo(id, params) {
     : vista === 'orden' ? `<div class="tarjeta">${rep.turnos.map(filaTurno).join('')}</div>${rep.enEspera ? `<p class="so-ayuda c">${rep.enEspera} entrada${rep.enEspera === 1 ? '' : 's'} en lista de espera (no caben en las ${s.butacas} butacas).</p>` : ''}`
     : `${ed ? `<a class="btn sec ancho" href="#/sorteo/${id}/apuntar">${ico('mas', 18)} Apuntar alumna</a>` : ''}
       <div class="tarjeta">${parts.map(filaLista).join('') || vacio('Aún no hay nadie apuntado.')}</div>
-      ${ab ? '<p class="so-ayuda c">Cada alumna recibe su número al apuntarse (1, 2, 3…). Si se quita a alguien, las de detrás corren un puesto.</p>' : ''}`;
-  pintar(cabecera('Sorteo de entradas', { volver: '#/sorteos', sub: esc(s.titulo) + (s.eventos ? ' · ' + esc(s.eventos.titulo) : '') }) + `<main class="cont">
-    ${stats}${cierre}${bola}${acciones}
+      ${ab ? `<p class="so-ayuda c">Cada alumna recibe su número al apuntarse (1, 2, 3…). Si se quita a alguien, las de detrás corren un puesto.${cobra ? ' Una vez pagada, sus entradas ya no se pueden cambiar (solo la administración puede deshacer el pago desde el evento).' : ''}</p>` : ''}`;
+  pintar(cabecera('Sorteo de entradas', { volver: '#/sorteos', sub: esc(s.titulo) + (s.eventos && s.eventos.titulo !== s.titulo ? ' · ' + esc(s.eventos.titulo) : '') }) + `<main class="cont">
+    ${stats}${cierre}${bola}${avisoPagos}${acciones}
     ${sorteado ? `<div class="pestanas-ag so-tabs"><a class="${vista === 'orden' ? 'on' : ''}" href="${url('orden')}">Orden</a><a class="${vista === 'plano' ? 'on' : ''}" href="${url('plano')}">Plano</a><a class="${vista === 'lista' ? 'on' : ''}" href="${url('lista')}">Lista</a></div>` : ''}
     ${cuerpo}
-    ${apuntaSorteo() ? `<a class="btn sec ancho" href="#/sorteos/${id}">${ico('lapiz', 18)} Nombre, evento y butacas</a>` : ''}
+    ${apuntaSorteo() ? `<a class="btn sec ancho" href="#/sorteos/${id}">${ico('lapiz', 18)} Nombre, evento, precio y butacas</a>` : ''}
   </main>`, 'inicio');
   const $ = (x) => document.getElementById(x);
   const rpc = (fn, msg) => async (e) => {
@@ -3225,6 +3254,28 @@ async function pantallaSorteo(id, params) {
   if ($('so_sortear')) $('so_sortear').onclick = rpc('hacer_sorteo', 'Sorteo hecho');
   if ($('so_abrir')) $('so_abrir').onclick = rpc('reabrir_lista_sorteo', 'Lista abierta otra vez');
   if ($('so_pdf')) $('so_pdf').onclick = () => actaSorteo(s, parts, rep, s.eventos);
+  // Cobrar: se abre la forma de pago debajo de la alumna; al elegirla, el cobro entra en Caja
+  $app.querySelectorAll('[data-cobrar]').forEach((b) => b.onclick = () => {
+    const p = parts.find((x) => x.id === b.dataset.cobrar), cajas = $app.querySelectorAll(`[id="m-${p.id}"]`);
+    const caja = [...cajas].find((c) => c.previousElementSibling && c.previousElementSibling.contains(b)) || cajas[0];
+    if (!caja.hidden) { caja.hidden = true; return; }
+    caja.innerHTML = `<span class="so-ayuda">${esc(p.nombre)} · ${p.entradas} × ${eur(s.precio_entrada)} = <b>${eur(p.entradas * s.precio_entrada)}</b>. ¿Cómo paga?</span><div class="so-met">${METODOS.map(([k, t]) => `<button type="button" data-met="${k}">${t}</button>`).join('')}</div>`;
+    caja.hidden = false;
+    caja.querySelectorAll('[data-met]').forEach((m) => m.onclick = async () => {
+      caja.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+      try { await q(sb.rpc('pagar_reserva', { p_id: p.reserva_id, p_metodo: m.dataset.met })); aviso(`Cobrado: ${eur(p.entradas * s.precio_entrada)} entra en Caja`); router(); }
+      catch (er) { aviso(traducirError(er), true); caja.querySelectorAll('button').forEach((x) => { x.disabled = false; }); }
+    });
+  });
+  const autorizar = (si) => async (e) => {
+    const b = e.currentTarget;
+    if (si && !b.dataset.seguro) { b.dataset.seguro = '1'; b.textContent = 'Pulsa otra vez: se podrá cerrar aunque falten'; return; }
+    b.disabled = true;
+    try { await q(sb.rpc('autorizar_cierre_sin_pagar', { p_id: id, p_si: si })); aviso(si ? 'Autorizado: ya se puede cerrar la lista' : 'Autorización quitada'); router(); }
+    catch (er) { aviso(traducirError(er), true); b.disabled = false; }
+  };
+  if ($('so_autorizar')) $('so_autorizar').onclick = autorizar(true);
+  if ($('so_desautorizar')) $('so_desautorizar').onclick = autorizar(false);
   if ($('so_wa')) $('so_wa').onclick = async () => { const t = textoSorteo(s, rep); try { await navigator.clipboard.writeText(t); aviso('Copiado: pégalo en WhatsApp'); } catch (er) { prompt('Copia el resultado:', t); } };
   const cambiar = (pid, d) => async (e) => {
     const p = parts.find((x) => x.id === pid); e.currentTarget.disabled = true;

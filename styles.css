@@ -1204,3 +1204,23 @@ span.tema-toque{cursor:default}
   .im-plano .so-but.libre small{color:#B9B4C8}
 }
 .pestanas-ag.so-tabs{grid-template-columns:repeat(3,1fr)}
+/* Sorteo: cobros de entradas (045) */
+.so-dinero{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.so-dinero div{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:10px 12px;box-shadow:var(--sombra)}
+.so-dinero b{display:block;font-family:'Sora',sans-serif;font-size:19px;font-variant-numeric:tabular-nums}
+.so-dinero span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--texto2)}
+.so-dinero .in b{color:var(--ingreso)} .so-dinero .pe b{color:var(--texto2)}
+.so-barra.pag{background:rgba(107,104,129,.14)} .so-barra.pag i{background:var(--ingreso)}
+.so-pago{display:flex!important;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px}
+.so-pago .chip{gap:4px}
+.so-cobrar{flex:none;border:0;border-radius:999px;background:linear-gradient(135deg,var(--morado),var(--morado2));color:#fff;font-weight:700;font-size:13px;min-height:32px;padding:0 14px;cursor:pointer}
+.so-metodos{display:flex;flex-direction:column;gap:8px;padding:0 0 12px}
+.so-met{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.so-met button{min-height:44px;border-radius:14px;border:1px solid rgba(118,80,224,.3);background:#fff;color:var(--morado3);font-weight:700;font-size:14px;cursor:pointer}
+.so-met button:disabled{opacity:.5}
+.so-aviso{border:1.5px solid rgba(209,47,59,.35);background:#fff;border-radius:var(--radio);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.so-aviso h3{font-size:15px;color:var(--gasto)}
+.so-aviso .so-row:first-of-type{border-top:0}
+.so-autoriz{display:flex;flex-direction:column;gap:6px}
+.so-autoriz b{display:flex;align-items:center;gap:6px;color:var(--ingreso);font-size:14px}
+.so-cerrar:disabled{background:#CFCBDA;cursor:default}
